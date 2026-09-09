@@ -26,6 +26,7 @@ import {
   courseGradeLabels,
   courseBoundarySeries,
   tierFromName,
+  resolveBoundaryDecision,
   seriesRecentlyAttempted
 } from "./gradeBoundaries.js";
 
@@ -454,17 +455,6 @@ export function initTrackerTool(deps, context = {}) {
       out.push(label);
     }
     return out;
-  }
-
-  // Threshold for an aim grade from THIS sitting's own per-year pack only
-  // (live table, or the snapshot the user stored). If the grade isn't in that
-  // year's table it renders a dash — we never substitute another year's number.
-  function aimMarkFor(gb, label) {
-    if (gb) {
-      const mark = markForGrade(gb, label);
-      if (mark != null) return mark;
-    }
-    return null;
   }
 
   function renderBoundaryChips() {
@@ -1256,15 +1246,11 @@ export function initTrackerTool(deps, context = {}) {
   }
 
   function renderMainRow(sitting, showSubject, noteOpen, cacheSrc) {
-    const storedBoundary = numberEq(sitting.gradeBoundary);
-    const gb = effectiveTable(sitting, cacheSrc);
-    // Whether this row's table is a live resolve of THIS sitting's year-pack
-    // (source of truth) or merely a stored snapshot — drives the honesty rule
-    // in boundaryBadges: dated sittings never fall back to another year.
+    const cache = cacheSrc || loadBoundaryCache();
+    const course = sitting.subject ? resolveCourse(cache, sitting.subject) : null;
     const yearNum = numberEq(sitting.year);
-    const gbLive = resolveBoundaryTable(sitting.subject, yearNum, sitting.series, cacheSrc);
-    const boundary = gb ? null : (storedBoundary === 0 ? null : storedBoundary);
-    const hasG = !!(gb && Array.isArray(gb.gradesInOrder) && gb.gradesInOrder.length && gb.grades && typeof gb.grades === "object");
+    const decision = resolveBoundaryDecision(cache, course, yearNum, sitting.series, sitting);
+    const gb = decision.hasTable ? decision.table : null;
 
     const avg = sittingAverage(sitting);
     const avgEl = avg !== null
@@ -1283,7 +1269,7 @@ export function initTrackerTool(deps, context = {}) {
     }
     cells.push(td(`<div class="sit-papers">${scoreSummary(sitting)}${subjectGradeChip(sitting, gb)}</div>`, "col-papers"));
     if (cols.boundary) {
-      cells.push(td(boundaryBadges(sitting.subject, gb, hasG, boundary, { live: !!gbLive, year: yearNum }), "col-boundary"));
+      cells.push(td(boundaryBadges(sitting.subject, decision), "col-boundary"));
     }
     if (cols.avg) {
       cells.push(td(avgEl, "col-avg"));
@@ -1328,48 +1314,29 @@ export function initTrackerTool(deps, context = {}) {
   // the tracker does NOT substitute another year's numbers. Only undated rows
   // (a sitting in progress, no exam year yet) may fall back to the subject's
   // best published table, since there is no official boundary to claim.
-  function boundaryBadges(subject, gb, hasG, boundary, info) {
+  function boundaryBadges(subject, decision) {
     const aim = aimFor(subject);
-    const dated = (info && info.year) != null;
-    const tip = (gb && Array.isArray(gb.gradesInOrder)) ? boundsTooltip(gb) : null;
-    if (aim.length && gb && Array.isArray(gb.gradesInOrder)) {
-      const items = aim.map((label) => {
-        const mark = aimMarkFor(gb, label);
-        return { label, mark };
-      });
-      if (items.length) {
-        return items.map((x) =>
-          `<span class="tracker-sitting-badge bnd" title="${escapeHtml(tip)}">${escapeHtml(x.label)} &ge; ${x.mark != null ? escapeHtml(String(x.mark)) : "&ndash;"}</span>`
-        ).join("");
-      }
-    }
     const topLabel = escapeHtml(highestGradeLabel(subject));
     const badge = (mark, t, cls) => {
       const title = t != null ? ` title="${escapeHtml(t)}"` : "";
       return `<span class="tracker-sitting-badge bnd${cls ? ` ${cls}` : ""}"${title}>${topLabel}${mark != null ? ` &ge; ${escapeHtml(String(mark))}` : ""}</span>`;
     };
-    if (hasG) {
-      const top = topGradeOf(gb);
-      if (top !== null) return badge(top, tip);
-      // fall through: table present but unusable, treat as unknown
+    if (decision.kind === "unknown") {
+      return `<span class="tracker-sitting-badge bnd bnd-unknown" title="${escapeHtml(decision.tip || "No boundary data")}">&ndash;</span>`;
     }
-    if (boundary !== null) {
-      return badge(boundary, tip || "Stored with this sitting.");
-    }
-    const unknown = (why) =>
-      `<span class="tracker-sitting-badge bnd bnd-unknown" title="${escapeHtml(why)}">&ndash;</span>`;
-    if (!dated) {
-      // No exam year yet — the latest published official table is the most
-      // sensible projection, and is labelled as such.
-      const fb = aimTable(subject);
-      if (fb && Array.isArray(fb.gradesInOrder) && fb.gradesInOrder.length) {
-        const top = topGradeOf(fb);
-        if (top !== null) return badge(top, boundsTooltip(fb));
+    if (aim.length && decision.hasTable) {
+      const items = aim.map((label) => ({ label, mark: findGradeMark(decision.table, label) }));
+      if (items.length) {
+        return items.map((x) =>
+          `<span class="tracker-sitting-badge bnd" title="${escapeHtml(decision.tip || "")}">${escapeHtml(x.label)} &ge; ${x.mark != null ? escapeHtml(String(x.mark)) : "&ndash;"}</span>`
+        ).join("");
       }
-      return unknown("No fetched boundary data for this subject yet.");
     }
-    const why = `No ${info.year} grade boundaries fetched for ${subject} yet. Rather than guess, the tracker shows no value here and will fetch the series when it becomes available.`;
-    return unknown(why);
+    if (decision.top != null) {
+      const cls = decision.kind === "projected" ? " bnd-proj" : "";
+      return badge(decision.top, decision.tip, cls);
+    }
+    return `<span class="tracker-sitting-badge bnd bnd-unknown" title="${escapeHtml(decision.tip || "No boundary data")}">&ndash;</span>`;
   }
 
   function td(html, cls) {
