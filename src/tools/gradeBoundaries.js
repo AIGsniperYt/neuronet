@@ -8,6 +8,7 @@
 
 import * as XLSX from "../vendor/xlsx/index.js";
 import { extractPdfLayoutLines, parsePdfBoundaries } from "./pdfBoundaries.js";
+import { buildExamIndex, openExamRepository, deriveBoundaryDecision } from "./examData/index.js";
 
 export const BOUNDARY_CACHE_KEY = "neuronet:gradeBoundaries";
 export const BOUNDARY_STATUS_KEY = "neuronet:boundaryStatus";
@@ -813,143 +814,18 @@ export function findGradeMark(table, label) {
   return null;
 }
 
-function topGradeOfTable(table) {
-  const normalized = normalizeBoundaryTable(table);
-  const top = normalized && Array.isArray(normalized.gradesInOrder) ? normalized.gradesInOrder[0] : null;
-  return top == null ? null : findGradeMark(normalized, top);
-}
-
-function boundsTooltipText(table) {
-  const normalized = normalizeBoundaryTable(table);
-  const lines = (normalized.gradesInOrder || []).filter((g) => Number.isFinite(normalized.grades[g])).map((g) => `${g}: ${normalized.grades[g]}`);
-  return `${normalized.seriesLabel || "Grade boundaries"}` + (lines.length ? " · " + lines.join(", ") : "");
-}
-
-function trackerSeriesLabel(seriesWord) {
-  const s = String(seriesWord || "").trim();
-  if (!s) return null;
-  const m = trackerSeriesToMonth(s);
-  const match = s.match(/(\d{4})/);
-  const year = match ? Number(match[1]) : null;
-  if (m && year) return `${monthWord(m)} ${year}`;
-  return s;
-}
-
-function monthWord(abbr) {
-  const months = { JAN: "January", FEB: "February", MAR: "March", APR: "April", MAY: "May", JUN: "June", JUL: "July", AUG: "August", SEP: "September", OCT: "October", NOV: "November", DEC: "December" };
-  return months[abbr] || abbr;
-}
 
 // THE single derived decision for the tracker boundary column and the subject
-// grade chip. A sitting never owns an official boundary; the repository decides
-// what is truthful here and renderers consume the envelope below verbatim. This
-// is the zero-fabrication contract — no other code path may decide a boundary
-// value for display.
-//
-//   kind:
-//     "official"  – live cached official table for the exact year (and series)
-//     "projected" – undated (no exam year) sitting; newest published official
-//                   table shown as an explicit projection
-//     "manual"    – stored legacy value that cannot prove its provenance
-//                   (full snapshot table, or a single saved top mark)
-//     "unknown"   – nothing truthful available; the UI must render a dash
-//
-// Envelope fields: { kind, reason, table|null, top|null, year|null,
-//   seriesLabel, sourceLabel, tip, hasTable }
+// grade chip. A sitting never owns an official boundary; the canonical exam-data
+// repository decides what is truthful here and renderers consume the envelope
+// verbatim. This is the zero-fabrication contract — no other code path may
+// decide a boundary value for display. The envelope is produced by
+// examData/repository.js over the canonical index built from the legacy cache
+// (see docs/EXAMDATA.md phase A/B); this export is the compatibility wrapper.
 export function resolveBoundaryDecision(cache, course, year, seriesWord, sitting = {}) {
-  const yearNum = numberEq(year);
-  const sourceLabel = (hit) => {
-    const board = boardIdToName(hit.boardId);
-    const qual = qualIdToName(hit.qualId);
-    const series = hit.series && hit.series.label;
-    return [board, qual, series].filter(Boolean).join(" · ") || "Official";
-  };
-
-  if (/^(mock|specimen)$/i.test(String(seriesWord || "").trim())) {
-    return {
-      kind: "unknown",
-      reason: "mock-specimen",
-      table: null,
-      top: null,
-      year: yearNum,
-      seriesLabel: "Mock/specimen",
-      sourceLabel: null,
-      tip: "Mock and specimen papers carry no official grade boundaries.",
-      hasTable: false
-    };
-  }
-
-  const live = findGradeTable(cache, course, year, seriesWord);
-  if (live) {
-    const subject = live.subject || {};
-    const table = normalizeBoundaryTable({
-      grades: subject.grades || {},
-      gradesInOrder: Array.isArray(subject.gradesInOrder) ? subject.gradesInOrder : [],
-      maxMark: subject.maxMark || null,
-      papers: Array.isArray(subject.papers) && subject.papers.length ? subject.papers : [],
-      board: live.boardId,
-      qual: live.qualId,
-      seriesLabel: live.series ? live.series.label : null,
-      seriesKey: live.series ? `${live.series.month}-${live.series.year}` : null,
-      fresh: live.fresh
-    });
-    const baseTip = boundsTooltipText(table);
-    return {
-      kind: yearNum != null ? "official" : "projected",
-      reason: yearNum != null ? "exact-year-official" : "newest-published",
-      table,
-      top: topGradeOfTable(table),
-      year: yearNum != null ? yearNum : (live.series && Number(live.series.year)) || null,
-      seriesLabel: live.series ? live.series.label : null,
-      sourceLabel: sourceLabel(live),
-      tip: yearNum != null ? baseTip : "Projected (newest published) · " + baseTip,
-      hasTable: true
-    };
-  }
-
-  const snapshot = normalizeBoundaryTable(sitting.gradeBoundaries);
-  if (snapshot && Array.isArray(snapshot.gradesInOrder) && snapshot.gradesInOrder.length) {
-    return {
-      kind: "manual",
-      reason: "stored-snapshot",
-      table: snapshot,
-      top: topGradeOfTable(snapshot),
-      year: yearNum,
-      seriesLabel: snapshot.seriesLabel || null,
-      sourceLabel: "Stored with this sitting",
-      tip: "Stored with this sitting (manual) · " + boundsTooltipText(snapshot),
-      hasTable: true
-    };
-  }
-
-  const storedTop = numberEq(sitting.gradeBoundary);
-  if (storedTop !== null) {
-    return {
-      kind: "manual",
-      reason: "stored-top",
-      table: null,
-      top: storedTop,
-      year: yearNum,
-      seriesLabel: trackerSeriesLabel(seriesWord),
-      sourceLabel: "Stored with this sitting",
-      tip: `Stored value ${storedTop} — no full table on record.`,
-      hasTable: false
-    };
-  }
-
-  return {
-    kind: "unknown",
-    reason: yearNum != null ? "series-not-fetched" : "no-data",
-    table: null,
-    top: null,
-    year: yearNum,
-    seriesLabel: trackerSeriesLabel(seriesWord),
-    sourceLabel: null,
-    tip: yearNum != null
-      ? `No ${yearNum} grade boundaries fetched for this course yet. The tracker deliberately does not guess — the series will appear when it is fetched.`
-      : "No fetched boundary data for this course yet.",
-    hasTable: false
-  };
+  const index = buildExamIndex(cache || {});
+  const repo = openExamRepository(index);
+  return deriveBoundaryDecision(repo, course, year, seriesWord, sitting || {});
 }
 
 // Union of canonical grade labels for a course across EVERY cached series for
