@@ -8,7 +8,9 @@
 //
 //   node tests/e2e_tracker.mjs            # offline path (cached boundaries)
 //   LIVE=1 node tests/e2e_tracker.mjs     # + live refetch of Pearson Jun 2024
-//                                          #   original source → assert 197
+//                                          #   original source → assert the real
+//                                          #   parser reproduces the OFFICIAL
+//                                          #   full table (197/167/137/105/73/42/26)
 
 import puppeteer from "puppeteer-core";
 import { createServer } from "node:http";
@@ -53,16 +55,16 @@ const check = (name, cond, extra = "") => {
 const SUBJECT_TABLES = {
   2024: [{
     code: "1MA1", title: "Mathematics (Higher)", tier: "H", maxMark: 240,
-    grades: { 9: 197, 8: 186, 7: 169, 6: 150, 5: 131, 4: 113, 3: 100, 2: 87, 1: 75, U: 0 },
-    gradesInOrder: ["9", "8", "7", "6", "5", "4", "3", "2", "1", "U"],
+    grades: { 9: 197, 8: 167, 7: 137, 6: 105, 5: 73, 4: 42, 3: 26, U: 0 },
+    gradesInOrder: ["9", "8", "7", "6", "5", "4", "3", "U"],
     papers: [
       { label: "Paper 1", maxMark: 80 }, { label: "Paper 2", maxMark: 80 }, { label: "Paper 3", maxMark: 80 }
     ]
   }],
   2025: [{
     code: "1MA1", title: "Mathematics (Higher)", tier: "H", maxMark: 240,
-    grades: { 9: 217, 8: 205, 7: 188, 6: 169, 5: 149, 4: 130, 3: 109, 2: 92, 1: 76, U: 0 },
-    gradesInOrder: ["9", "8", "7", "6", "5", "4", "3", "2", "1", "U"],
+    grades: { 9: 217, 8: 186, 7: 156, 6: 121, 5: 87, 4: 53, 3: 36, U: 0 },
+    gradesInOrder: ["9", "8", "7", "6", "5", "4", "3", "U"],
     papers: [
       { label: "Paper 1", maxMark: 80 }, { label: "Paper 2", maxMark: 80 }, { label: "Paper 3", maxMark: 80 }
     ]
@@ -386,7 +388,8 @@ try {
   await page.evaluate(() => { localStorage.removeItem("e2e:netblock"); });
 
   // ---- optional LIVE network verification: refetch Pearson June 2024 from
-  // the official source and check the real parser yields 197 ----
+  // the official source and check the real parser reproduces the full official
+  // 1MA1 Higher table (not just the top mark).
   if (LIVE) {
     console.log("LIVE: refetching Pearson GCSE June 2024 from official source...");
     await page.evaluate(async () => {
@@ -410,18 +413,20 @@ try {
           const entry = Object.values(entries).find((e) => e.series && e.series.year === 2024 && String(e.series.month).toUpperCase() === "JUN");
           if (!entry || !entry.subjects || !entry.subjects.length) return { state: "waiting" };
           const h = entry.subjects.find((s) => (s.tier || "").toUpperCase() === "H" || /higher/i.test(s.title || ""));
-          return { state: "done", top9: h ? Number(h.grades["9"]) : null, error: window.__liveError || null };
+          return { state: "done", grades: h ? h.grades : null, error: window.__liveError || null };
         } catch (e) { return { state: "error", error: String(e) }; }
       });
       if (live.state === "done" || live.state === "error") break;
       await new Promise((r) => setTimeout(r, 1500));
     }
-    if (live && live.state === "done" && live.top9 === 197) {
-      check("LIVE Pearson Jun 2024 refetch → real parser yields 197", true);
-    } else {
-      check("LIVE Pearson Jun 2024 refetch → real parser yields 197", false,
-        "live=" + JSON.stringify(live) + " (external source; may be flaky)");
-    }
+    // Official Pearson June 2024 1MA1 Higher (verified from the published PDF):
+    // 9=197 8=167 7=137 6=105 5=73 4=42 3=26 (U=0). No grades 2/1 for Higher.
+    const OFFICIAL_2024_H = { 9: 197, 8: 167, 7: 137, 6: 105, 5: 73, 4: 42, 3: 26, U: 0 };
+    const parsed = live && live.state === "done" ? live.grades : null;
+    const ok = parsed != null && Object.keys(OFFICIAL_2024_H).every(
+      (g) => Number(parsed[String(g)]) === OFFICIAL_2024_H[g]);
+    check("LIVE Pearson Jun 2024 refetch → real parser reproduces official table",
+      ok, "live=" + JSON.stringify(live));
   }
 } finally {
   await browser.close();

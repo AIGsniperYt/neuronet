@@ -4,14 +4,14 @@ const MATHS = { board: "Pearson (Edexcel)", qual: "GCSE", title: "Mathematics (H
 
 const subject2024 = {
   code: "1MA1", title: "Mathematics (Higher)", tier: "H", maxMark: 240,
-  grades: { "9": 197, "8": 186, "7": 169, "6": 150, "5": 131, "4": 113, "3": 100, "2": 87, "1": 75, U: 0 },
-  gradesInOrder: ["9", "8", "7", "6", "5", "4", "3", "2", "1", "U"],
+  grades: { "9": 197, "8": 167, "7": 137, "6": 105, "5": 73, "4": 42, "3": 26, U: 0 },
+  gradesInOrder: ["9", "8", "7", "6", "5", "4", "3", "U"],
   papers: []
 };
 const subject2025 = {
   code: "1MA1", title: "Mathematics (Higher)", tier: "H", maxMark: 240,
-  grades: { "9": 217, "8": 205, "7": 188, "6": 169, "5": 149, "4": 130, "3": 115, "2": 97, "1": 76, U: 0 },
-  gradesInOrder: ["9", "8", "7", "6", "5", "4", "3", "2", "1", "U"],
+  grades: { "9": 217, "8": 186, "7": 156, "6": 121, "5": 87, "4": 53, "3": 36, U: 0 },
+  gradesInOrder: ["9", "8", "7", "6", "5", "4", "3", "U"],
   papers: []
 };
 

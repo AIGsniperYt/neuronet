@@ -37,10 +37,10 @@ const L = {
       fetchedAt: 1700000000000,
       subjects: [
         { code: "1MA1", title: "Mathematics", tier: "H", maxMark: 240,
-          grades: { 9: 197, 8: 186, 7: 169, 6: 150, 5: 131, 4: 113 }, gradesInOrder: ["9", "8", "7", "6", "5", "4"],
+          grades: { 9: 197, 8: 167, 7: 137, 6: 105, 5: 73, 4: 42, 3: 26, U: 0 }, gradesInOrder: ["9", "8", "7", "6", "5", "4", "3", "U"],
           papers: [{ label: "Paper 1", maxMark: 80 }, { label: "Paper 2", maxMark: 80 }, { label: "Paper 3", maxMark: 80 }] },
         { code: "1MA1", title: "Mathematics", tier: "F", maxMark: 240,
-          grades: { 5: 137, 4: 112, 3: 88, 2: 63, 1: 38 }, gradesInOrder: ["5", "4", "3", "2", "1"], papers: [] }
+          grades: { 5: 175, 4: 142, 3: 103, 2: 65, 1: 27, U: 0 }, gradesInOrder: ["5", "4", "3", "2", "1", "U"], papers: [] }
       ]
     },
     // lowercase month — legacy tools wrote mixed case
@@ -50,7 +50,7 @@ const L = {
       fetchedAt: 1710000000000,
       subjects: [
         { code: "1MA1", title: "Mathematics", tier: "H", maxMark: 240,
-          grades: { 9: 217, 8: 205, 7: 188, 6: 169, 5: 149, 4: 130 }, gradesInOrder: ["9", "8", "7", "6", "5", "4"], papers: [] }
+          grades: { 9: 217, 8: 186, 7: 156, 6: 121, 5: 87, 4: 53, 3: 36, U: 0 }, gradesInOrder: ["9", "8", "7", "6", "5", "4", "3", "U"], papers: [] }
       ]
     },
     // AQA: shared base code, tier in the code
@@ -120,9 +120,9 @@ const d2025 = deriveBoundaryDecision(repo, { board: "Pearson (Edexcel)", qual: "
 eq("repo decision 2025 → official 217", d2025.top, 217);
 const fund = deriveBoundaryDecision(repo, { board: "Pearson (Edexcel)", qual: "GCSE", code: "1MA1", tier: "F" }, 2024, "", {});
 eq("Foundation never offers 9", fund.hasTable && fund.table.grades["9"] == null, true);
-eq("Foundation offers its real top", fund.top, 137);
-eq("markForDecisionGrade missing label → null (no substitution)", markForDecisionGrade(d2024, "3"), null);
-eq("markForDecisionGrade present label → mark", markForDecisionGrade(d2024, "7"), 169);
+eq("Foundation offers its real top", fund.top, 175);
+eq("markForDecisionGrade missing label → null (no substitution)", markForDecisionGrade(d2024, "2"), null);
+eq("markForDecisionGrade present label → mark", markForDecisionGrade(d2024, "7"), 137);
 const undated = deriveBoundaryDecision(repo, { board: "Pearson (Edexcel)", qual: "GCSE", code: "1MA1", tier: "H" }, null, "", {});
 eq("undated repo decision → projected 217", undated.kind + "|" + undated.top, "projected|217");
 

@@ -6,23 +6,26 @@ import {
 
 // ---------------------------------------------------------------------------
 // ExamData conformance suite — derived-decision honesty contract.
-// Logic fixtures (marks that were not individually verified by the user are
-// marked synthetic; the two headline truth points 2024=197 / 2025=217 ARE the
-// user-verified Pearson 1MA1 Higher ground truth).
+// Grade fixtures: Pearson 1MA1 Higher June 2024 and June 2025 grades are the
+// OFFICIAL tables extracted from Pearson's own published PDFs
+// (grade-boundaries-june-2024-gcse.pdf, grade-boundaries-june-2025-gcse.pdf):
+//   2024: 9=197 8=167 7=137 6=105 5=73 4=42 3=26 U=0  (no grades 2/1)
+//   2025: 9=217 8=186 7=156 6=121 5=87 4=53 3=36 U=0  (no grades 2/1)
+// All other fixtures are synthetic logic fixtures.
 // ---------------------------------------------------------------------------
 
 const MATHS = { board: "Pearson (Edexcel)", qual: "GCSE", title: "Mathematics (Higher)", code: "1MA1", tier: "H" };
 
 const H_2024 = {
   code: "1MA1", title: "Mathematics (Higher)", tier: "H", maxMark: 240,
-  grades: { "9": 197, "8": 186, "7": 169, "6": 150, "5": 131, "4": 113 },
-  gradesInOrder: ["9", "8", "7", "6", "5", "4"],
+  grades: { "9": 197, "8": 167, "7": 137, "6": 105, "5": 73, "4": 42, "3": 26, U: 0 },
+  gradesInOrder: ["9", "8", "7", "6", "5", "4", "3", "U"],
   papers: [{ label: "Paper 1", maxMark: 80 }, { label: "Paper 2", maxMark: 80 }, { label: "Paper 3", maxMark: 80 }]
 };
 const H_2025 = {
   code: "1MA1", title: "Mathematics (Higher)", tier: "H", maxMark: 240,
-  grades: { "9": 217, "8": 205, "7": 188, "6": 169, "5": 149, "4": 130 },
-  gradesInOrder: ["9", "8", "7", "6", "5", "4"],
+  grades: { "9": 217, "8": 186, "7": 156, "6": 121, "5": 87, "4": 53, "3": 36, U: 0 },
+  gradesInOrder: ["9", "8", "7", "6", "5", "4", "3", "U"],
   papers: H_2024.papers
 };
 
@@ -73,7 +76,7 @@ eq("2024 dated → kind official", d24.kind, "official");
 eq("2024 dated → top 197", d24.top, 197);
 eq("2024 dated → year 2024", d24.year, 2024);
 check("2024 dated → source label cites June 2024", (d24.sourceLabel || "").includes("June 2024"), d24.sourceLabel);
-eq("2024 dated → grade 8 via table = 186", findGradeMark(d24.table, "8"), 186);
+eq("2024 dated → grade 8 via table = 167", findGradeMark(d24.table, "8"), 167);
 
 // 2. Dated 2025 → official, user-verified 217.
 const d25 = resolveBoundaryDecision(cache, MATHS, 2025, "June", {});
