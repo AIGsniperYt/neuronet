@@ -28,7 +28,10 @@ export function sittingRequirement(sitting, resolveEnrollment) {
   const enrollment = resolveEnrollment ? resolveEnrollment(sitting) : null;
   if (!enrollment) return null;
   const month = monthFromWord(sitting.series);
-  const series = { month: month || "JUN", year };
+  // A blank/unmapped series word stays UNKNOWN — never invent "JUN". The
+  // repository resolves a month-less sitting only when exactly one series for
+  // that year exists; everything else surfaces as unknown/ambiguous.
+  const series = { month: month || null, year };
   const ck = courseKey(enrollment);
   if (!ck) return null;
   const board = ck.split(":")[0];
@@ -52,7 +55,8 @@ export function sittingRequirement(sitting, resolveEnrollment) {
 export function planRequirements(sittings, resolveEnrollment, isSatisfied) {
   const out = new Map();
   const add = (type, base) => {
-    const key = `${type}|${base.courseKey}|${base.seriesId}`;
+    const sid = base.seriesId || `Y${base.series.year}`; // keep months-unknown years distinct
+    const key = `${type}|${base.courseKey}|${sid}`;
     if (out.has(key)) return;
     if (isSatisfied && isSatisfied(type, base.courseKey, base.seriesId, base)) return;
     out.set(key, { ...base, type, key });

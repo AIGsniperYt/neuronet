@@ -1194,7 +1194,7 @@ export function initTrackerTool(deps, context = {}) {
       if (type === REQUIREMENT_TYPES.BOUNDARY) {
         const year = Number(base.series.year);
         if (!Number.isFinite(year)) return true;
-        const word = { JUN: "Jun", NOV: "Nov" }[String(base.series.month || "JUN").toUpperCase()] ||
+        const word = { JUN: "Jun", NOV: "Nov" }[String(base.series.month || "").toUpperCase()] ||
           String(base.series.month || "");
         const decision = resolveBoundaryDecision(cache, parsed, year, word, {});
         return decision.kind === "official" || decision.kind === "manual";

@@ -1,6 +1,7 @@
 import {
   resolveBoundaryDecision,
-  findGradeMark
+  findGradeMark,
+  reconcileCourse
 } from "/home/aigsniper/Documents/website/neuronet/frontend/src/tools/gradeBoundaries.js";
 
 // ---------------------------------------------------------------------------
@@ -139,6 +140,25 @@ eq("mock series → top null", mock.top, null);
 const nada = resolveBoundaryDecision({ entries: {} }, null, null, "", {});
 eq("no course no data → kind unknown", nada.kind, "unknown");
 eq("no course no data → reason no-data", nada.reason, "no-data");
+
+// 13. reconcileCourse honours a stored explicit tier (frontier acceptance: a
+// confirmed Foundation link stays Foundation even when Higher is cached too).
+const tierCache = { entries: {
+  "pearson:jun-2024:gcse": { board: "pearson", qual: "gcse", series: { month: "JUN", year: 2024, label: "June 2024" }, fetchedAt: 1,
+    subjects: [
+      { code: "1MA1", title: "Mathematics", tier: "H", maxMark: 240, grades: { "9": 197, "8": 186 }, gradesInOrder: ["9", "8"], papers: [] },
+      { code: "1MA1", title: "Mathematics", tier: "F", maxMark: 240, grades: { "5": 137, "4": 112 }, gradesInOrder: ["5", "4"], papers: [] }
+    ] }
+} };
+const storedFoundation = { board: "pearson", code: "1MA1", title: "Mathematics (Foundation)", qual: "gcse" };
+const healedF = reconcileCourse(tierCache, storedFoundation, null);
+eq("stored explicit Foundation stays Foundation", healedF && healedF.tier, "F");
+eq("stored Foundation resolves to F row", healedF && healedF.code, "1MA1");
+const storedHigher = { board: "pearson", code: "1MA1", title: "Mathematics (Higher)", qual: "gcse" };
+eq("stored explicit Higher stays Higher", reconcileCourse(tierCache, storedHigher, null) && reconcileCourse(tierCache, storedHigher, null).tier, "H");
+const tierless = { board: "pearson", code: "1MA1", title: "Mathematics", qual: "gcse" };
+eq("genuinely tier-less legacy link maps to 9-1 table", reconcileCourse(tierCache, tierless, null) && reconcileCourse(tierCache, tierless, null).tier, "H");
+eq("subject-name tier still wins over stored tier", reconcileCourse(tierCache, storedFoundation, "H") && reconcileCourse(tierCache, storedFoundation, "H").tier, "H");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

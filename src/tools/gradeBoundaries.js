@@ -592,17 +592,20 @@ export function resolveTrackedCourse(cache, query = {}) {
 
 // Reconcile a stored officialCourse (possibly stale / tier-less / pre-picker-fix)
 // against the live cache so a linked subject always resolves to the exact row
-// the cache actually carries for its board+qual+code. Heals old Foundation
-// links saved before the tier-aware picker fix.
+// the cache actually carries for its board+qual+code.
 //
-// The stored course's own title/code tier is NOT trusted: pre-fix links carry
-// the alphabetically-first (Foundation) row, so relying on them re-breaks the
-// exact bug being healed. Authority order is:
+// A stored explicit selection is authoritative: the user confirmed this course,
+// so we must NOT silently flip its tier. Authority order is:
 //   1. the subject's own tier (from its name, e.g. "Maths (Higher)"), then
-//   2. the Higher row when the code is shared, else the only cached row.
-// This mirrors matchOfficialCourse/findSubjectInEntry so every funnel entry
-// point picks the same tier. Returns null only when the linked course can't
-// be found anywhere in the cache.
+//   2. the stored course's own explicit tier (a real Foundation link stays
+//      Foundation — even when a Higher row is also cached for the shared code),
+//   3. the Higher row ONLY when the stored link is genuinely tier-less (legacy
+//      pre-picker links stored the alphabetically-first row, so a bare shared
+//      code maps to the 9-1 table, never silently to Foundation),
+//   4. the only cached row.
+// A stored tier the cache cannot satisfy returns null (surface candidates)
+// instead of guessing. Returns null only when the linked course can't be
+// found anywhere in the cache.
 export function reconcileCourse(cache, course, preferredTier) {
   if (!course || !cache) return null;
   const b = boardToId(course.board);
@@ -636,9 +639,17 @@ export function reconcileCourse(cache, course, preferredTier) {
     const same = rows.filter((item) => courseTierOf(item) === preferredTier);
     if (same.length) return toCourse(same[0], preferredTier);
     if (!uni) return null; // asked for a tier this series doesn't carry
-  } else if (!uni) {
-    const higher = rows.filter((item) => courseTierOf(item) === "H");
-    if (higher.length) return toCourse(higher[0], "H");
+  } else {
+    const storedTier = courseTierOf(course);
+    if (storedTier) {
+      const same = rows.filter((item) => courseTierOf(item) === storedTier);
+      if (same.length) return toCourse(same[0], storedTier);
+      if (!uni) return null; // stored tier the cache doesn't satisfy — surface
+    } else if (!uni) {
+      // genuinely tier-less stored link on a shared code: map to the 9-1 table
+      const higher = rows.filter((item) => courseTierOf(item) === "H");
+      if (higher.length) return toCourse(higher[0], "H");
+    }
   }
   return toCourse(rows[0], courseTierOf(rows[0]));
 }

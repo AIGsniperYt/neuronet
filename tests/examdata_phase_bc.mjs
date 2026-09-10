@@ -14,6 +14,10 @@ import {
   provenanceOf,
   provenanceLabel
 } from "/home/aigsniper/Documents/website/neuronet/frontend/src/tools/examData/index.js";
+import {
+  qualId,
+  canonicalGradeKey
+} from "/home/aigsniper/Documents/website/neuronet/frontend/src/tools/examData/schema.js";
 
 let passed = 0;
 let failed = 0;
@@ -151,6 +155,49 @@ const zero = planRequirements(sittings.slice(0, 2), resolveEnrollment, () => fal
 eq("ordered asc year + boundary-first prefix", zero[0].type + "|" + zero[0].series.year + "," + zero[1].type + "|" + zero[1].series.year + "," + zero[2].type + "|" + zero[2].series.year, "boundary|2024,papers|2024,boundary|2025");
 eq("sittingRequirement returns null for mock", sittingRequirement({ subject: "M", year: 2024, series: "Mock" }, resolveEnrollment), null);
 eq("sittingRequirement returns null when no year", sittingRequirement({ subject: "M", year: "", series: "" }, resolveEnrollment), null);
+
+// ---- Honour fixes (frontier audit): absence stays absent --------------------
+eq("qualId: blank qual stays null (never GCSE)", qualId(""), null);
+eq("qualId: unknown qual stays null", qualId("BTEC"), null);
+eq("qualId: GCSE maps", qualId("GCSE"), "gcse");
+eq("qualId: A-Level maps", qualId("A-Level"), "alevel");
+eq("courseKey: unknown qual not keyable (no silent gcse)", courseKey({ board: "pearson", qual: "", code: "1MA1", tier: "H" }), null);
+eq("canonicalGradeKey: plain A stays A (A-level)", canonicalGradeKey("A"), "A");
+eq("canonicalGradeKey: A* stays A*", canonicalGradeKey("A*"), "A*");
+eq("canonicalGradeKey: B stays B", canonicalGradeKey("B"), "B");
+eq("canonicalGradeKey: 9 stays 9", canonicalGradeKey("9"), "9");
+
+// pickBoundary exactness: a specified month must match exactly, never fall to
+// another month of the same year.
+const novrej = openExamRepository(index)
+  .pickBoundary({ board: "pearson", qual: "gcse", code: "1MA1", tier: "H" }, 2024, "November");
+eq("June-2024 request with only June cached still resolves (2024, june)", (openExamRepository(index).pickBoundary({ board: "pearson", qual: "gcse", code: "1MA1", tier: "H" }, 2024, "june") || {}).boundary && 1, 1);
+eq("month-mismatch: request June when only November exists -> null", novrej, null);
+
+// year-only, two series in the same year -> ambiguous (must not silently pick);
+// year-only, exactly one series -> resolves.
+const twoSeries = buildExamIndex({ entries: {
+  "pearson:jun-2020:gcse": { board: "pearson", qual: "gcse", series: { month: "JUN", year: 2020, label: "June 2020" }, fetchedAt: 1,
+    subjects: [{ code: "1MA1", title: "Mathematics", tier: "H", grades: { 9: 200, 8: 190 }, gradesInOrder: ["9", "8"] }] },
+  "pearson:nov-2020:gcse": { board: "pearson", qual: "gcse", series: { month: "NOV", year: 2020, label: "November 2020" }, fetchedAt: 1,
+    subjects: [{ code: "1MA1", title: "Mathematics", tier: "H", grades: { 9: 192, 8: 181 }, gradesInOrder: ["9", "8"] }] },
+  "pearson:nov-2021:gcse": { board: "pearson", qual: "gcse", series: { month: "NOV", year: 2021, label: "November 2021" }, fetchedAt: 1,
+    subjects: [{ code: "1MA1", title: "Mathematics", tier: "H", grades: { 9: 188, 8: 177 }, gradesInOrder: ["9", "8"] }] }
+} });
+const twoRepo = openExamRepository(twoSeries);
+eq("year-only ambiguity (JUN+NOV 2020) -> null, no silent pick", twoRepo.pickBoundary({ board: "pearson", qual: "gcse", code: "1MA1", tier: "H" }, 2020, ""), null);
+eq("year-only ambiguous decision -> unknown", deriveBoundaryDecision(twoRepo, { board: "Pearson (Edexcel)", qual: "GCSE", code: "1MA1", tier: "H" }, 2020, "", {}).kind, "unknown");
+eq("year-only single series (2021 only NOV) -> resolves to Nov", (twoRepo.pickBoundary({ board: "pearson", qual: "gcse", code: "1MA1", tier: "H" }, 2021, "") || {}).boundary && (((twoRepo.pickBoundary({ board: "pearson", qual: "gcse", code: "1MA1", tier: "H" }, 2021, "") || {}).boundary.series.month)), "NOV");
+eq("specified-month exact match (2021, november) -> Nov", (twoRepo.pickBoundary({ board: "pearson", qual: "gcse", code: "1MA1", tier: "H" }, 2021, "November") || {}).boundary && ((twoRepo.pickBoundary({ board: "pearson", qual: "gcse", code: "1MA1", tier: "H" }, 2021, "November") || {}).boundary.series.month), "NOV");
+eq("specified-month mismatch (2021, june) -> null", twoRepo.pickBoundary({ board: "pearson", qual: "gcse", code: "1MA1", tier: "H" }, 2021, "June"), null);
+
+// blank series stays monthless in the planner (never invented as June)
+const blank = sittingRequirement({ subject: "Maths (Higher)", year: 2024, series: "" }, resolveEnrollment);
+eq("blank series requirement: month stays null", blank && blank.series.month, null);
+eq("blank series requirement: seriesId null", blank && blank.seriesId, null);
+const blankDated = planRequirements([{ subject: "Maths (Higher)", year: 2024, series: "" }], resolveEnrollment, () => false);
+eq("blank series plan keeps year-distinct keys (no JUN collision)", blankDated.length, 2);
+eq("blank series boundary req has no fabricated month", (blankDated.find((r) => r.type === "boundary") || {}).series && blankDated.find((r) => r.type === "boundary").series.month, null);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

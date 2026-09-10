@@ -116,7 +116,7 @@ export function openExamRepository(index) {
     pickBoundary(course, year, seriesWord) {
       const requestedYear = numberEq(year === "" ? null : year);
       const monthAbbr = monthFromWord(seriesWord);
-      const candidates = [];
+      let candidates = [];
       for (const b of index.boundaries.values()) {
         if (b.courseKey !== courseKey(course)) continue;
         const p = seriesProximity(b.series, requestedYear, monthAbbr);
@@ -124,13 +124,20 @@ export function openExamRepository(index) {
         candidates.push({ b, p });
       }
       if (!candidates.length) return null;
-      candidates.sort((a, b) => {
-        const ea = a.p.exactYear && a.p.exactMonth;
-        const eb = b.p.exactYear && b.p.exactMonth;
-        if (ea !== eb) return ea ? -1 : 1;
-        if (a.p.exactYear !== b.p.exactYear) return a.p.exactYear ? -1 : 1;
-        if (a.p.d !== b.p.d) return a.p.d - b.p.d;
-        if (a.p.exactMonth !== b.p.exactMonth) return a.p.exactMonth ? -1 : 1;
+      if (requestedYear !== null && monthAbbr) {
+        // Exact month is a rule, not a preference: a "June 2024" request must
+        // never resolve to a November 2024 table. No exact-match row -> no hit.
+        const exact = candidates.filter((c) => c.p.exactMonth);
+        if (!exact.length) return null;
+        candidates = exact;
+      } else if (requestedYear !== null && !monthAbbr) {
+        // Month-less dated sitting: the year must resolve to exactly one
+        // series. Two series in the same year is ambiguous — never silently
+        // prefer one month over another.
+        const distinct = new Set(candidates.map((c) => c.b.seriesId || ""));
+        if (distinct.size > 1) return null;
+      }
+      const sorted = candidates.slice().sort((a, b) => {
         if (requestedYear === null) {
           const ya = Number(a.b.series && a.b.series.year) || 0;
           const yb = Number(b.b.series && b.b.series.year) || 0;
@@ -143,9 +150,10 @@ export function openExamRepository(index) {
         const bp = Number(b.b.provenance && b.b.provenance.parsedAt) || 0;
         return bp - ap;
       });
+      const chosen = sorted[0];
       return {
-        boundary: candidates[0].b,
-        fresh: Date.now() - (Number(candidates[0].b.provenance && candidates[0].b.provenance.parsedAt) || 0) <= FRESH_MS
+        boundary: chosen.b,
+        fresh: Date.now() - (Number(chosen.b.provenance && chosen.b.provenance.parsedAt) || 0) <= FRESH_MS
       };
     }
   };

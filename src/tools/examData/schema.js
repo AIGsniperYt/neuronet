@@ -27,11 +27,14 @@ export function boardName(id) {
   return { aqa: "AQA", ocr: "OCR", pearson: "Edexcel" }[id] || String(id || "");
 }
 
+// Qualification id from a token; null when the qual is unrecognised or absent.
+// Absence stays absent: a blank/unmapped qual must never silently become GCSE.
 export function qualId(qual) {
   const q = String(qual || "").trim().toLowerCase();
+  if (q.includes("gcse")) return "gcse";
   if (q.includes("a level") || q === "a-level" || q === "alevel") return "alevel";
   if (q === "as") return "as";
-  return "gcse";
+  return null;
 }
 
 export function qualName(id) {
@@ -47,7 +50,7 @@ export function singleCode(code) {
 }
 
 export function baseCode(code) {
-  return singleCode(code).replace(/[H|F]$/, "");
+  return singleCode(code).replace(/[HF]$/, "");
 }
 
 // Tier of a course or boundary row. Authority order: explicit tier field, then
@@ -59,7 +62,7 @@ export function tierOf(item) {
   const title = normalizeTitle(item.title || "");
   if (/\bhigher\b/.test(title)) return "H";
   if (/\bfoundation\b/.test(title)) return "F";
-  const codeTier = /[H|F]$/.test(singleCode(item.code || ""));
+  const codeTier = /[HF]$/.test(singleCode(item.code || ""));
   if (codeTier) return singleCode(item.code).slice(-1);
   return null;
 }
@@ -69,17 +72,21 @@ export function courseKey(course = {}) {
   const { board, qual, code, tier } = course || {};
   const b = boardId(board);
   if (!b) return null;
-  return `${b}:${qualId(qual)}:${singleCode(code)}:${tierOf({ tier, code: code || "", title: "" }) || "_"}`;
+  const q = qualId(qual);
+  if (!q) return null; // a course without a known qualification cannot be keyed
+  return `${b}:${q}:${singleCode(code)}:${tierOf({ tier, code: code || "", title: "" }) || "_"}`;
 }
 
 export function courseKeyFromRow(board, qual, row) {
   const b = boardId(board);
   if (!b) return null;
-  return `${b}:${qualId(qual)}:${singleCode(row && row.code)}:${tierOf(row) || "_"}`;
+  const q = qualId(qual);
+  if (!q) return null;
+  return `${b}:${q}:${singleCode(row && row.code)}:${tierOf(row) || "_"}`;
 }
 
 export function parseCourseKey(key) {
-  const m = /^([a-z]+):(gcse|alevel|as):([^:]*):([H|F|_])$/.exec(String(key || ""));
+  const m = /^([a-z]+):(gcse|alevel|as):([^:]*):([HF_])$/.exec(String(key || ""));
   if (!m) return null;
   return { board: m[1], qual: m[2], code: m[3] || null, tier: m[4] === "_" ? null : m[4] };
 }
@@ -101,12 +108,20 @@ export function seriesKeyOf(board, qualId, series) {
 
 // Friendly label from a series word ("June 2025", "JUN-2025", "2025") or null.
 const MONTH_WORDS = { JAN: "January", FEB: "February", MAR: "March", APR: "April", MAY: "May", JUN: "June", JUL: "July", AUG: "August", SEP: "September", OCT: "October", NOV: "November", DEC: "December" };
+const MONTH_TO_ABBR = Object.freeze(Object.fromEntries(
+  Object.entries(MONTH_WORDS).map(([abbr, name]) => [name.toLowerCase(), abbr])
+));
+const MONTH_TOKEN = /(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)/;
 
 export function monthFromWord(word) {
   const w = String(word || "").trim().toLowerCase();
   if (!w) return null;
-  if (MONTH_WORDS[w]) return w.toUpperCase();
-  for (const [abbr] of Object.entries(MONTH_WORDS)) if (abbr.toLowerCase() === w) return abbr;
+  if (MONTH_TO_ABBR[w]) return MONTH_TO_ABBR[w];
+  const token = w.match(MONTH_TOKEN);
+  if (token) {
+    const t = token[0];
+    return MONTH_TO_ABBR[t] || t.slice(0, 3).toUpperCase();
+  }
   return null;
 }
 
@@ -129,10 +144,7 @@ export function currentExamYear(now = Date.now()) {
 export function canonicalGradeKey(value) {
   const s = String(value == null ? "" : value).replace(/\s+/g, "").toUpperCase();
   if (/^[9U]$/.test(s)) return s;
-  if (/^[A-E]$/.test(s)) {
-    if (s === "A") return "A*"; // "A" alone is ambiguous; prefer A* mapping when seen as top
-    return s;
-  }
+  if (/^[A-E]$/.test(s)) return s;
   if (/^\*?[A-E]$/.test(s)) return s.replace(/^\*/, "");
   if (/^A\*$/.test(s)) return "A*";
   return s;
