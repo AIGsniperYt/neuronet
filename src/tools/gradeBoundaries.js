@@ -510,47 +510,39 @@ function titleTokensMatch(subjectToken, courseToken) {
   return false;
 }
 
-// Deep metrics for tie-breaking between otherwise-equal candidates: prefer the
-// board we actually know the most about (most cached series, freshest data,
-// component papers) so a board-unknown subject resolves to the pack we've got.
-function courseDataDepth(cache, boardId, qualId, code) {
-  const base = baseCourseCode(singleCode(code));
-  let series = 0;
-  let lastFetched = 0;
-  for (const entry of Object.values((cache && cache.entries) || {})) {
-    if (boardToId(entry.board) !== boardId) continue;
-    if (qualToId(entry.qual) !== qualId) continue;
-    const has = (entry.subjects || []).some((item) => baseCourseCode(item.code) === base);
-    if (!has) continue;
-    series++;
-    lastFetched = Math.max(lastFetched, Number(entry.fetchedAt) || 0);
-  }
-  return { series, lastFetched };
+// Tier preference rank for a candidate given the query. This is an IDENTITY
+// preference (a "higher" in the typed name), never a cache-richness signal.
+function tierPreference(c, wantTier) {
+  if (wantTier) return (c.tier || null) === wantTier ? 0 : 1;
+  if (!c.tier) return 2;
+  return c.tier === "H" ? 0 : 1;
 }
 
-// Best single cached course for a subject. Returns null only when nothing
-// plausible is cached yet (then the fetch pipeline warms by board instead).
-export function resolveTrackedCourse(cache, { board, qual, title, code, tier } = {}) {
-  if (!cache || !title) return null;
+// Raw identity scoring of every cached course against a query. The comparator
+// uses ONLY identity signals (title/code matching, requested tier) with a
+// deterministic board tiebreak for DISPLAY ordering. Cache data volume,
+// fetch recency, paper-list presence and title length NEVER participate in
+// identity — so a richer cache can never make one candidate "more true".
+export function scoreCourseCandidates(cache, { board, qual, title, code, tier } = {}) {
+  if (!cache || !title) return [];
   const wantBoard = boardToId(board);
   const wantQual = qualToId(qual);
   const normCode = singleCode(code).trim().toUpperCase();
   const wantTier = tier === "H" || tier === "F" ? tier : null;
   const excludeMe = COURSE_EXCLUDE.test(String(title || ""));
   const subjectTokens = titleTokens(String(title));
-  if (subjectTokens.length === 0) return null;
+  const tierRank = (t) => (t === "H" ? 0 : t === "F" ? 2 : 1);
+  if (subjectTokens.length === 0) return [];
 
   const scored = [];
-  const depthCache = new Map();
   for (const c of listCachedCourses(cache)) {
     if (wantBoard && c.board !== wantBoard) continue;
     if (wantQual && c.qual !== wantQual) continue;
-    if (wantTier && c.tier && c.tier !== wantTier) continue;
     const cTitle = String(c.title || "");
     const cCode = singleCode(c.code).toUpperCase();
     if (normCode) {
       if (cCode !== normCode && baseCourseCode(c.code) !== baseCourseCode(normCode)) continue;
-      scored.push({ c, score: 100, exact: true, depth: 0, lastFetched: 0 });
+      scored.push({ c, score: 100, exact: true });
       continue;
     }
     if (!cTitle) continue;
@@ -563,47 +555,39 @@ export function resolveTrackedCourse(cache, { board, qual, title, code, tier } =
     const courseMatched = courseTokens.filter((ct) => subjectTokens.some((st) => titleTokensMatch(st, ct))).length;
     const exact = courseTokens.length === subjectTokens.length && missing.length === 0 && courseTokens.every((ct, i) => titleTokensMatch(subjectTokens[i], ct));
     const ratio = courseMatched / Math.max(subjectTokens.length, courseTokens.length);
-    scored.push({
-      c,
-      score: (exact ? 3 : 0) + ratio,
-      exact,
-      depth: 0,
-      lastFetched: 0
+    scored.push({ c, score: (exact ? 3 : 0) + ratio, exact });
+  }
+
+  return scored
+    .map((s) => ({ ...s, tpref: tierPreference(s.c, wantTier), tierRank: tierRank(s.c.tier) }))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (a.tpref !== b.tpref) return a.tpref - b.tpref;
+      if (a.tierRank !== b.tierRank) return a.tierRank - b.tierRank;
+      return String(a.c.board).localeCompare(String(b.c.board));
     });
-  }
+}
+
+// Full candidate list for a query, identity-ordered. This is what an
+// ambiguous picker surfaces (board-grouped in the tracker); it is NOT a
+// resolution.
+export function listCourseCandidates(cache, query) {
+  return scoreCourseCandidates(cache, query).map((s) => s.c);
+}
+
+export function resolveTrackedCourse(cache, query = {}) {
+  const scored = scoreCourseCandidates(cache, query);
   if (scored.length === 0) return null;
-
-  for (const s of scored) {
-    const key = `${s.c.board}:${s.c.qual}:${baseCourseCode(s.c.code)}`;
-    let d = depthCache.get(key);
-    if (!d) { d = courseDataDepth(cache, s.c.board, s.c.qual, s.c.code); depthCache.set(key, d); }
-    s.depth = d.series;
-    s.lastFetched = d.lastFetched;
+  const top = scored[0];
+  // The identity class = everything tied on identity score AND tier preference.
+  // Any tie inside it is REAL ambiguity (e.g. "Geography" across boards).
+  // Resolving by cache data at this point would violate the honesty rule, so
+  // we never do; callers present the candidates instead.
+  const group = scored.filter((s) => s.score === top.score && s.tpref === top.tpref);
+  if (group.length > 1) {
+    return { ambiguous: true, candidates: group.map((s) => s.c) };
   }
-
-  const tierRank = (t) => (t === "H" ? 0 : t === "F" ? 2 : 1);
-  scored.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
-    const ta = tierRank(a.c.tier);
-    const tb = tierRank(b.c.tier);
-    if (wantTier) {
-      const am = a.c.tier === wantTier ? 0 : 1;
-      const bm = b.c.tier === wantTier ? 0 : 1;
-      if (am !== bm) return am - bm;
-    } else if (ta !== tb) {
-      if (a.c.tier && !b.c.tier) return -1;
-      if (!a.c.tier && b.c.tier) return 1;
-      if (a.c.tier && b.c.tier) return ta - tb;
-    }
-    if (b.depth !== a.depth) return b.depth - a.depth;
-    if (b.lastFetched !== a.lastFetched) return b.lastFetched - a.lastFetched;
-    const ap = a.c.papers ? 1 : 0;
-    const bp = b.c.papers ? 1 : 0;
-    if (bp !== ap) return bp - ap;
-    if (String(a.c.title).length !== String(b.c.title).length) return String(b.c.title).length - String(a.c.title).length;
-    return String(a.c.board).localeCompare(String(b.c.board));
-  });
-  return scored[0].c;
+  return top.c;
 }
 
 // Reconcile a stored officialCourse (possibly stale / tier-less / pre-picker-fix)

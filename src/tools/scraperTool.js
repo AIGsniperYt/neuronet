@@ -5,8 +5,11 @@ import {
   boardToId,
   qualToId,
   trackerSeriesToMonth,
-  ensureBoundarySeries
+  ensureBoundarySeries,
+  loadBoundaryCache,
+  saveBoundaryCache
 } from "./gradeBoundaries.js";
+import { adapterFor, defaultSeriesWindow } from "./examData/adapters.js";
 
 export function initScraperTool(deps, context = {}) {
   const { escapeHtml, getAllNodes } = deps;
@@ -23,7 +26,9 @@ export function initScraperTool(deps, context = {}) {
     qualSelect: $("scraperQual"),
     seriesSelect: $("scraperSeries"),
     subjectInput: $("scraperSubjectInput"),
-    suggestions: $("scraperSuggestions")
+    suggestions: $("scraperSuggestions"),
+    forceBtn: $("scraperForceBtn"),
+    diag: $("scraperDiag")
   };
 
   let subjects = [];
@@ -882,11 +887,27 @@ export function initScraperTool(deps, context = {}) {
     pearson: QR
   };
 
+  // Qualification options for a board, declared by the exam-data adapter
+  // vocabulary (EXAM_BOARDS). The legacy registry keeps its sheet/file config;
+  // the *set* of offered qualifications comes from the adapter.
+  function adapterQuals(board) {
+    const adapter = adapterFor(board);
+    if (!adapter) return board === "aqa" ? AQA_QUALIFICATIONS : QR;
+    const source = board === "aqa" ? AQA_QUALIFICATIONS : QR;
+    const allowed = new Set(adapter.qualifications.map((q) => (q === "alevel" ? "aLevel" : q)));
+    return Object.fromEntries(
+      Object.entries(source).filter(([key]) => allowed.has(key))
+    );
+  }
+
   function populateQualificationPicker() {
     if (!el.qualSelect) return;
     const keep = el.qualSelect.value;
     el.qualSelect.innerHTML = "";
-    const quals = boardQuals[currentBoardId()] || QR;
+    // Qualification options come from the exam-data adapter vocabulary, not a
+    // per-board hardcoded list — e.g. the Pearson adapter declares no AS, so no
+    // AS option appears, while OCR/AQA offer GCSE/A-level/AS.
+    const quals = adapterQuals(currentBoardId());
     Object.values(quals).forEach((q) => {
       const opt = document.createElement("option");
       opt.value = q.id;
@@ -962,6 +983,8 @@ export function initScraperTool(deps, context = {}) {
     const boardName = board === "aqa" ? "AQA" : board === "ocr" ? "OCR" : "Pearson";
     setStatus(`Fetching ${boardName} ${qual.name} ${series.label}...`, "busy");
     appendLog(`Board: ${boardName}`);
+    const adapter = adapterFor(board);
+    if (adapter) appendLog(`adapter: ${adapter.id} (${adapter.name}) — ${adapter.source}`);
     appendLog(`URL: ${url}`);
     appendLog(`proxy: ${proxyUrl(url)}`);
     setScratchBusy(true);
@@ -1052,10 +1075,44 @@ export function initScraperTool(deps, context = {}) {
     setStatus(`${boardName} ${qual.name} ${series.label} loaded${fromCache ? " (cached)" : ""}`, "ok");
   }
 
+  // ---------- adapter diagnostics + force refetch ----------
+  // Repoint check: the tool surfaces WHICH exam-data adapter its vocabulary
+  // came from, the source contract, and the default series window. Force
+  // refetch drops the isolated cache entry for the current selection first so
+  // the fetch path really re-downloads + re-parses the source.
+  function renderDiagnostics() {
+    if (!el.diag) return;
+    const board = currentBoardId();
+    const adapter = adapterFor(board);
+    if (!adapter) {
+      el.diag.textContent = "No exam-data adapter for this board.";
+      return;
+    }
+    const window = defaultSeriesWindow(board).map((s) => `${s.month} ${s.year}`).join(", ");
+    el.diag.textContent =
+      `adapter: ${adapter.id} · ${adapter.name}\n` +
+      `source: ${adapter.source}\n` +
+      `qualifications: ${adapter.qualifications.join("/")}\n` +
+      `default series window: ${window}`;
+  }
+
+  function dropCurrentEntry() {
+    const board = currentBoardId();
+    const qual = currentQualification();
+    const series = currentSeries();
+    if (!series) return false;
+    const key = `${board}:${seriesKey(series)}:${qual.id}`;
+    const cache = loadBoundaryCache();
+    if (cache.entries && cache.entries[key]) delete cache.entries[key];
+    saveBoundaryCache(cache);
+    return true;
+  }
+
   // ---------- events ----------
   function refreshPickers() {
     populateQualificationPicker();
     populateSeriesPicker();
+    renderDiagnostics();
   }
 
   function bindEvents() {
@@ -1126,6 +1183,24 @@ export function initScraperTool(deps, context = {}) {
         } finally {
           el.fetchBtn.disabled = false;
           el.fetchBtn.textContent = "Fetch boundaries";
+        }
+      });
+    }
+
+    if (el.forceBtn) {
+      el.forceBtn.addEventListener("click", async () => {
+        const dropped = dropCurrentEntry();
+        el.forceBtn.disabled = true;
+        el.forceBtn.textContent = "Refetching...";
+        try {
+          if (dropped) appendLog("Cache entry dropped for this series — refetching from source.");
+          await fetchBoundaries();
+        } catch (e) {
+          setStatus(e.message || String(e), "err");
+          appendLog("ERROR: " + (e.message || String(e)));
+        } finally {
+          el.forceBtn.disabled = false;
+          el.forceBtn.textContent = "Force refetch";
         }
       });
     }

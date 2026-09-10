@@ -34,6 +34,12 @@
     .scraper-status { font-size: 0.85rem; color: var(--text-muted); }
     .scraper-status.ok { color: var(--accent); }
     .scraper-status.err { color: #ff8c8c; }
+    .scraper-diag {
+      width: 100%; margin: 0; padding: 8px 12px; border: 1px dashed var(--glass-border);
+      border-radius: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.72rem; line-height: 1.5; color: var(--text-muted);
+      background: rgba(0,0,0,0.18); white-space: pre-wrap; word-break: break-word;
+    }
     .scraper-status.busy {
       background-image: linear-gradient(100deg, rgba(230,255,245,0.55) 30%, rgba(44,255,179,0.95) 50%, rgba(230,255,245,0.55) 70%);
       background-size: 200% 100%;
@@ -224,6 +230,7 @@
       </div>
       <button id="scraperScanBtn" class="scraper-btn" title="Scrape the exam board pages for available series">Scan site</button>
       <button id="scraperFetchBtn" class="scraper-btn">Fetch boundaries</button>
+      <button id="scraperForceBtn" class="scraper-btn" title="Drop this series from the isolated cache and re-download + re-parse from the source">Force refetch</button>
       <div class="scraper-pick scraper-subject-pick">
         <span>Subject</span>
         <div class="scraper-combo">
@@ -232,6 +239,7 @@
         </div>
       </div>
       <div id="scraperStatus" class="scraper-status"></div>
+      <pre id="scraperDiag" class="scraper-diag"></pre>
     </div>
 
     <div class="scraper-grid">

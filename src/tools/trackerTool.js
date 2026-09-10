@@ -29,6 +29,8 @@ import {
   resolveBoundaryDecision,
   seriesRecentlyAttempted
 } from "./gradeBoundaries.js";
+import { planRequirements, REQUIREMENT_TYPES } from "./examData/scheduler.js";
+import { parseCourseKey, seriesKeyOf, courseKey, seriesId } from "./examData/schema.js";
 
 export function initTrackerTool(deps, context = {}) {
   const { getAllNodes, addNode, addNodes, deleteNode, getSubjects, escapeHtml } = deps;
@@ -175,10 +177,31 @@ export function initTrackerTool(deps, context = {}) {
     } catch (e) { /* ignore */ }
   }
 
+  // Canonical identity keys for a sitting (Phase D): every stored sitting
+  // references the course (board:qual:code:tier) and series (MONTH-YEAR) it
+  // belongs to, when those are resolvable. Identity comes from the confirmed
+  // course or a unique resolution — an ambiguous subject stays null rather than
+  // guessing. These keys are written once at save time and read for import
+  // dedupe, warm planning, and export.
+  function annotateSitting(rec) {
+    const out = { ...rec };
+    if (out.subject) {
+      const resolved = resolveCourse(loadBoundaryCache(), out.subject);
+      if (resolved && out.courseId === undefined) out.courseId = courseKey(resolved) || null;
+      if (out.courseId === undefined) out.courseId = null;
+    }
+    if (out.courseId === undefined) out.courseId = null;
+    if (!out.seriesId) {
+      const y = numberEq(out.year);
+      out.seriesId = (y !== null && out.series) ? seriesId({ month: trackerSeriesToMonth(out.series), year: y }) : null;
+    }
+    return out;
+  }
+
   async function persist(paper) {
     const now = nowISO();
     const record = {
-      ...paper,
+      ...annotateSitting(paper),
       type: "pastpaper",
       results: Array.isArray(paper.results) ? paper.results : [],
       createdAt: paper.createdAt || now,
@@ -193,7 +216,7 @@ export function initTrackerTool(deps, context = {}) {
   async function persistMany(list) {
     const now = nowISO();
     const records = list.map((p) => ({
-      ...p,
+      ...annotateSitting(p),
       type: "pastpaper",
       results: Array.isArray(p.results) ? p.results : [],
       createdAt: p.createdAt || now,
@@ -280,6 +303,23 @@ export function initTrackerTool(deps, context = {}) {
   // so stale/pre-fix Foundation links heal to the tier the course really is),
   // else we resolve it automatically from the subject's meta
   // (board/qualification/code) or by exact title match.
+  // Resolution outcome for a subject: the resolved course plus an explosion
+  // flag. Identity never resolves on cache richness: when the resolver reports
+  // ambiguity (equal-score candidates, e.g. "Geography" across boards) we do
+  // NOT pick one — the caller surfaces the candidate list and asks.
+  function courseResolution(subject, cacheSrc) {
+    const meta = subjectMeta[subject || ""] || {};
+    const res = resolveTrackedCourse(cacheSrc || loadBoundaryCache(), {
+      board: meta.examBoard,
+      qual: meta.qualification,
+      title: subject,
+      code: meta.code,
+      tier: tierFromName(subject)
+    });
+    if (res && res.ambiguous) return { course: null, ambiguous: true, candidates: res.candidates || [] };
+    return { course: res || null, ambiguous: false, candidates: [] };
+  }
+
   function resolveCourse(cache, name) {
     if (!name) return null;
     const linked = coursesBySubject[name];
@@ -288,20 +328,15 @@ export function initTrackerTool(deps, context = {}) {
       if (healed) return healed;
       return linked;
     }
-    const meta = subjectMeta[name] || {};
     // Tolerant resolver: matches by code when known, else by normalized word
     // tokens with subject aliases ("Maths" → "Mathematics (Higher)", "Geography"
     // → "Geography B", "English Lit" → "English Literature"). Without this, an
     // unlinked "Maths"/"Geography" row resolves to null and the whole pipeline
     // (auto-warm fetch, grade chips, boundary badge) silently dead-ends even
-    // after a successful pack fetch.
-    return resolveTrackedCourse(cache, {
-      board: meta.examBoard,
-      qual: meta.qualification,
-      title: name,
-      code: meta.code,
-      tier: tierFromName(name)
-    }) || null;
+    // after a successful pack fetch. Ambiguity returns null here — an unstable
+    // guess is worse than none, and the row UI points the user at the picker.
+    const res = courseResolution(name, cache);
+    return res.course;
   }
 
   function resolveBoundaryTable(subject, year, series, cacheSrc) {
@@ -616,11 +651,13 @@ export function initTrackerTool(deps, context = {}) {
     if (course) {
       el.linkPill.innerHTML = `<button type="button" class="tracker-link-pill linked" data-act="open" title="${escapeHtml(courseSummary(course))}"><i class="fa-solid fa-link"></i> ${escapeHtml(courseSummary(course))}</button>`;
     } else {
-      linkHint = subject && !coursesBySubject[subject]
-        ? resolveCourse(loadBoundaryCache(), subject)
-        : null;
-      if (linkHint) {
-        el.linkPill.innerHTML = `<button type="button" class="tracker-link-pill suggest" data-act="suggest" title="Matched from your fetched pack. Click to confirm.">Link: ${escapeHtml(courseSummary(linkHint))}</button>`;
+      const res = subject && !coursesBySubject[subject] ? courseResolution(subject) : { course: null, ambiguous: false, candidates: [] };
+      linkHint = res.ambiguous ? null : res.course;
+      if (res.ambiguous) {
+        const n = res.candidates.length;
+        el.linkPill.innerHTML = `<button type="button" class="tracker-link-pill suggest" data-act="ambiguity" title="${n} matched courses — choose the one that is yours.">Ambiguous (${n} courses) — choose yours</button>`;
+      } else if (linkHint) {
+        el.linkPill.innerHTML = `<button type="button" class="tracker-link-pill suggest" data-act="suggest" title="Matched from your fetched pack. Click to confirm.">Is this your course? ${escapeHtml(courseSummary(linkHint))}</button>`;
       } else {
         el.linkPill.innerHTML = `<button type="button" class="tracker-link-pill" data-act="open"><i class="fa-solid fa-link"></i> Link subject</button>`;
       }
@@ -1105,6 +1142,8 @@ export function initTrackerTool(deps, context = {}) {
   let warmRunning = false;
 
   function collectWarmJobs(cache) {
+    // Legacy fixed-candidate planner — superseded by planRequirements below;
+    // kept only for callers that still query it synchronously.
     const jobs = new Map();
     for (const sitting of papers || []) {
       if (!sitting || !sitting.subject) continue;
@@ -1126,6 +1165,58 @@ export function initTrackerTool(deps, context = {}) {
     return jobs;
   }
 
+  // ---- planner-based warm path (examData scheduler) ----
+  // Only the exam-data scheduler decides what work exists. This browser layer
+  // owns execution: real network fetches, the retry window, and the per-kick
+  // cap. Boundary and paper requirements for the same course+series are two
+  // outputs of one fetch (the scraper returns papers with the boundary pack),
+  // so the executor satisfies both with a single ensureBoundarySeries call.
+
+  function warmEnrollment(sitting, cache) {
+    if (!sitting || !sitting.subject) return null;
+    const course = resolveCourse(cache, sitting.subject);
+    if (!course) return null;
+    const board = boardToId(course && course.board);
+    const qual = qualToId(course && course.qual);
+    if (!board || !qual) return null;
+    return {
+      board,
+      qual,
+      code: String(course.code || ""),
+      tier: String(course.tier || "").toUpperCase() || undefined
+    };
+  }
+
+  function warmSatisfied(cache) {
+    return (type, courseKey, seriesKey, base) => {
+      const parsed = parseCourseKey(courseKey);
+      if (!parsed) return true;
+      if (type === REQUIREMENT_TYPES.BOUNDARY) {
+        const year = Number(base.series.year);
+        if (!Number.isFinite(year)) return true;
+        const word = { JUN: "Jun", NOV: "Nov" }[String(base.series.month || "JUN").toUpperCase()] ||
+          String(base.series.month || "");
+        const decision = resolveBoundaryDecision(cache, parsed, year, word, {});
+        return decision.kind === "official" || decision.kind === "manual";
+      }
+      // Papers are satisfied once the series entry carries paper metadata — the
+      // boundary fetch itself delivers that, so the seam needs no extra work.
+      const entry = (cache.entries || {})[seriesKeyOf(base.board, base.qual, base.series)];
+      return !!(entry && Array.isArray(entry.subjects) &&
+        entry.subjects.some((s) => Array.isArray(s.papers) && s.papers.length > 0));
+    };
+  }
+
+  function planWarmRequirements(cache) {
+    const reqs = planRequirements(
+      papers,
+      (sitting) => warmEnrollment(sitting, cache),
+      warmSatisfied(cache)
+    );
+    return reqs.filter((r) => r.type === REQUIREMENT_TYPES.BOUNDARY &&
+      !seriesRecentlyAttempted(r.key));
+  }
+
   function scheduleWarm() {
     if (warmRunning || warmTimer) return;
     warmTimer = setTimeout(() => {
@@ -1145,18 +1236,18 @@ export function initTrackerTool(deps, context = {}) {
   // share one in-flight fetch inside ensureBoundarySeries.
   async function runWarmFlight() {
     const cache = loadBoundaryCache();
-    const jobs = collectWarmJobs(cache);
-    if (jobs.size === 0) return;
+    const reqs = planWarmRequirements(cache);
+    if (reqs.length === 0) return;
     let madeFetch = false;
     let attempted = 0;
-    for (const { board, qualId, series } of jobs.values()) {
-      const key = `${board}:${series.month}-${series.year}:${qualId}`;
-      if (seriesRecentlyAttempted(key)) continue;
+    for (const r of reqs) {
+      if (r.type !== REQUIREMENT_TYPES.BOUNDARY) continue;
+      if (seriesRecentlyAttempted(r.key)) continue;
       if (attempted >= MAX_WARM_JOBS_PER_KICK) break;
       attempted++;
-      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((res) => setTimeout(res, 0));
       try {
-        await ensureBoundarySeries(board, { id: qualId }, series, () => {});
+        await ensureBoundarySeries(r.board, { id: r.qual }, r.series, () => {});
         madeFetch = true;
       } catch (e) {
         /* best-effort */
@@ -1164,9 +1255,11 @@ export function initTrackerTool(deps, context = {}) {
     }
     // If this kick did real work and rows still need series, continue in a
     // fresh macrotask rather than recursively re-entering the flight.
-    if (madeFetch && collectWarmJobs(loadBoundaryCache()).size > 0) {
-      scheduleWarm();
-    }
+    const remaining = planWarmRequirements(loadBoundaryCache()).length > 0;
+    if (madeFetch && remaining) scheduleWarm();
+    // If only paper requirements remain (entries lack paper metadata) there is
+    // nothing fetchable for them here yet — the paper catalogue seam (Phase C-2)
+    // will own that work; do not busy-loop over it.
   }
 
   function shortSeries(s) {
@@ -1259,6 +1352,9 @@ export function initTrackerTool(deps, context = {}) {
 
     const tr = document.createElement("tr");
     tr.className = "row-main";
+    const annotatedSitting = annotateSitting(sitting);
+    tr.dataset.courseId = String(annotatedSitting.courseId || "");
+    tr.dataset.seriesId = String(annotatedSitting.seriesId || "");
 
     const cells = [];
     if (showSubject) {

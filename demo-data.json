@@ -1,6 +1,6 @@
 {
   "schemaVersion": 6,
-  "exportedAt": "2026-08-30T06:40:57.373Z",
+  "exportedAt": "2026-09-10T18:24:37.248Z",
   "nodes": [
     {
       "id": "0d2fbc41-4723-470b-8d1c-1f7ed424aaa9",
@@ -82,48 +82,63 @@
       "type": "subject",
       "subject": "Computer Science",
       "name": "Computer Science",
-      "examBoard": "",
+      "examBoard": "Pearson (Edexcel)",
       "qualification": "GCSE",
       "customized": false,
       "officialCourse": null,
       "createdAt": 1788067815720,
-      "updatedAt": 1788067820606,
+      "updatedAt": 1788973737435,
       "id": "19d2cbfa-80b3-4714-8e22-ca43788af538"
     },
     {
       "type": "subject",
       "subject": "Physics",
       "name": "Physics",
-      "examBoard": "",
+      "examBoard": "AQA",
       "qualification": "GCSE",
       "customized": false,
-      "officialCourse": null,
+      "officialCourse": {
+        "board": "aqa",
+        "code": "8463H",
+        "title": "PHYSICS TIER H",
+        "qual": "gcse"
+      },
       "createdAt": 1788067815712,
-      "updatedAt": 1788067820586,
+      "updatedAt": 1788637599664,
       "id": "21a58f49-5bd1-47ce-a36a-6592d787d86f"
     },
     {
       "type": "subject",
       "subject": "Maths",
       "name": "Maths",
-      "examBoard": "",
+      "examBoard": "Pearson (Edexcel)",
       "qualification": "GCSE",
       "customized": false,
-      "officialCourse": null,
+      "officialCourse": {
+        "board": "pearson",
+        "code": "1MA1",
+        "title": "Mathematics (Foundation)",
+        "qual": "gcse"
+      },
       "createdAt": 1788067815715,
-      "updatedAt": 1788067820579,
+      "updatedAt": 1788973443735,
       "id": "220691d7-6708-45c2-85ad-b9587455a9cd"
     },
     {
       "type": "subject",
       "subject": "Chemistry",
       "name": "Chemistry",
-      "examBoard": "",
+      "examBoard": "AQA",
       "qualification": "GCSE",
       "customized": false,
-      "officialCourse": null,
+      "officialCourse": {
+        "board": "aqa",
+        "code": "8462H",
+        "title": "CHEMISTRY TIER H",
+        "qual": "gcse"
+      },
       "createdAt": 1788067815709,
-      "updatedAt": 1788067820591,
+      "updatedAt": 1788604455426,
       "id": "2217bc9a-08b9-43cb-8266-4f32266c8e8d"
     },
     {
@@ -292,24 +307,24 @@
       "type": "subject",
       "subject": "English Lang",
       "name": "English Lang",
-      "examBoard": "",
+      "examBoard": "AQA",
       "qualification": "GCSE",
       "customized": false,
       "officialCourse": null,
       "createdAt": 1788067815733,
-      "updatedAt": 1788067820595,
+      "updatedAt": 1788979521077,
       "id": "4eaf18a7-397a-4513-8f2e-90860879152d"
     },
     {
       "type": "subject",
       "subject": "Geography",
       "name": "Geography",
-      "examBoard": "",
+      "examBoard": "Pearson (Edexcel)",
       "qualification": "GCSE",
       "customized": false,
       "officialCourse": null,
       "createdAt": 1788067815736,
-      "updatedAt": 1788067820583,
+      "updatedAt": 1788933142486,
       "id": "4ee2b828-cabd-40d0-9446-d6c034acfaa9"
     },
     {
@@ -783,6 +798,28 @@
       "updatedAt": 1777371371951
     },
     {
+      "id": "9924d282-61c1-45cd-b415-d0e790bf4885",
+      "type": "source",
+      "subject": "",
+      "section": "",
+      "title": "shdf",
+      "content": "asfasfasf",
+      "contentHtml": "<p>asfasfasf</p>",
+      "contentText": "asfasfasf",
+      "contentMarkdown": "asfasfasf",
+      "quote": "",
+      "analysis": "",
+      "link": {},
+      "meta": {
+        "kind": "source",
+        "softBreaks": true,
+        "hierarchyPath": [],
+        "formatVersion": 2
+      },
+      "createdAt": 1788557972694,
+      "updatedAt": 1788557972694
+    },
+    {
       "id": "a695c879-e078-4475-9eb6-2dd202096592",
       "type": "source",
       "subject": "Macbeth",
@@ -1198,7 +1235,9 @@
         "kind": "subject"
       },
       "createdAt": 1776855139992,
-      "updatedAt": 1776855139992
+      "updatedAt": 1788600393096,
+      "customized": false,
+      "officialCourse": null
     },
     {
       "id": "d6d516b3-edbd-4167-a1a4-c2461dbab684",
@@ -1274,12 +1313,12 @@
       "type": "subject",
       "subject": "English Lit",
       "name": "English Lit",
-      "examBoard": "",
+      "examBoard": "AQA",
       "qualification": "GCSE",
       "customized": false,
       "officialCourse": null,
       "createdAt": 1788067815728,
-      "updatedAt": 1788067820599,
+      "updatedAt": 1788973715160,
       "id": "da7edfd1-65f1-4a2a-b787-ec3cffa05998"
     },
     {
@@ -1402,12 +1441,17 @@
       "type": "subject",
       "subject": "Biology",
       "name": "Biology",
-      "examBoard": "",
+      "examBoard": "AQA",
       "qualification": "GCSE",
       "customized": false,
-      "officialCourse": null,
+      "officialCourse": {
+        "board": "aqa",
+        "code": "8461H",
+        "title": "BIOLOGY TIER H",
+        "qual": "gcse"
+      },
       "createdAt": 1788067815702,
-      "updatedAt": 1788067820574,
+      "updatedAt": 1788600591126,
       "id": "efd872bf-aea6-4cc9-8990-f7d57ff1217e"
     },
     {
@@ -1688,6 +1732,49 @@
       "type": "pastpaper",
       "createdAt": "2026-08-30T05:30:15.647Z",
       "updatedAt": "2026-08-30T05:30:15.647Z"
+    },
+    {
+      "subject": "Maths",
+      "year": 2024,
+      "series": "",
+      "gradeBoundary": 197,
+      "gradeBoundaries": {
+        "grades": {
+          "3": 26,
+          "4": 42,
+          "5": 73,
+          "6": 105,
+          "7": 137,
+          "8": 167,
+          "9": 197,
+          "U": 0
+        },
+        "gradesInOrder": [
+          "9",
+          "8",
+          "7",
+          "6",
+          "5",
+          "4",
+          "3",
+          "U"
+        ],
+        "maxMark": 240,
+        "papers": [],
+        "board": "pearson",
+        "qual": "gcse",
+        "seriesLabel": "June 2024",
+        "seriesKey": "JUN-2024",
+        "fresh": true
+      },
+      "notes": "",
+      "examBoard": "Pearson (Edexcel)",
+      "qualification": "GCSE",
+      "results": [],
+      "id": "paper-2c70a53a-964d-4669-8110-cdf8c723d891",
+      "createdAt": "2026-09-09T17:03:53.245Z",
+      "type": "pastpaper",
+      "updatedAt": "2026-09-09T17:03:53.249Z"
     },
     {
       "subject": "Chemistry",
@@ -2272,10 +2359,10 @@
     {
       "subject": "Physics",
       "year": 2025,
-      "series": null,
+      "series": "",
       "label": null,
       "gradeBoundary": 72,
-      "examBoard": "",
+      "examBoard": "AQA",
       "notes": "",
       "results": [
         {
@@ -2295,7 +2382,37 @@
       "id": "paper-697a2c46-e343-49ee-b464-a706e443b253",
       "type": "pastpaper",
       "createdAt": "2026-08-30T05:30:15.647Z",
-      "updatedAt": "2026-08-30T05:30:15.647Z"
+      "updatedAt": "2026-09-05T19:46:39.574Z",
+      "gradeBoundaries": {
+        "grades": {
+          "3": 57,
+          "4": 67,
+          "5": 87,
+          "6": 107,
+          "7": 128,
+          "8": 142,
+          "9": 157
+        },
+        "gradesInOrder": [
+          "9",
+          "8",
+          "7",
+          "6",
+          "5",
+          "4",
+          "3",
+          "2",
+          "1"
+        ],
+        "maxMark": 200,
+        "papers": [],
+        "board": "aqa",
+        "qual": "gcse",
+        "seriesLabel": "June 2026",
+        "seriesKey": "JUN-2026",
+        "fresh": true
+      },
+      "qualification": "GCSE"
     },
     {
       "subject": "Chemistry",
@@ -2341,10 +2458,10 @@
     {
       "subject": "Computer Science",
       "year": 2023,
-      "series": null,
+      "series": "",
       "label": null,
       "gradeBoundary": 127,
-      "examBoard": "",
+      "examBoard": "Pearson (Edexcel)",
       "notes": "",
       "results": [
         {
@@ -2364,7 +2481,41 @@
       "id": "paper-719f9de7-83c2-4a89-9759-6281e645dc87",
       "type": "pastpaper",
       "createdAt": "2026-08-30T05:30:15.647Z",
-      "updatedAt": "2026-08-30T05:30:15.647Z"
+      "updatedAt": "2026-09-05T19:45:18.452Z",
+      "gradeBoundaries": {
+        "grades": {
+          "1": 8,
+          "2": 20,
+          "3": 33,
+          "4": 46,
+          "5": 60,
+          "6": 74,
+          "7": 88,
+          "8": 103,
+          "9": 118,
+          "U": 0
+        },
+        "gradesInOrder": [
+          "9",
+          "8",
+          "7",
+          "6",
+          "5",
+          "4",
+          "3",
+          "2",
+          "1",
+          "U"
+        ],
+        "maxMark": 150,
+        "papers": [],
+        "board": "pearson",
+        "qual": "gcse",
+        "seriesLabel": "June 2026",
+        "seriesKey": "JUN-2026",
+        "fresh": true
+      },
+      "qualification": "GCSE"
     },
     {
       "subject": "Geography",
@@ -2725,10 +2876,10 @@
     {
       "subject": "Biology",
       "year": 2024,
-      "series": null,
+      "series": "",
       "label": null,
-      "gradeBoundary": null,
-      "examBoard": "",
+      "gradeBoundary": 133,
+      "examBoard": "AQA",
       "notes": "",
       "results": [
         {
@@ -2748,7 +2899,36 @@
       "id": "paper-972b1d09-52d9-4cf9-b690-30aed0c04ebb",
       "type": "pastpaper",
       "createdAt": "2026-08-30T05:30:15.647Z",
-      "updatedAt": "2026-08-30T05:30:15.647Z"
+      "updatedAt": "2026-09-05T09:29:51.078Z",
+      "gradeBoundaries": {
+        "grades": {
+          "3": 43,
+          "4": 52,
+          "5": 70,
+          "6": 88,
+          "7": 107,
+          "8": 120,
+          "9": 133
+        },
+        "gradesInOrder": [
+          "9",
+          "8",
+          "7",
+          "6",
+          "5",
+          "4",
+          "3",
+          "2",
+          "1"
+        ],
+        "maxMark": 200,
+        "board": "aqa",
+        "qual": "gcse",
+        "seriesLabel": "June 2026",
+        "seriesKey": "JUN-2026",
+        "fresh": true
+      },
+      "qualification": "GCSE"
     },
     {
       "subject": "Computer Science",
@@ -2795,10 +2975,10 @@
     {
       "subject": "Chemistry",
       "year": 2024,
-      "series": null,
+      "series": "",
       "label": null,
-      "gradeBoundary": null,
-      "examBoard": "",
+      "gradeBoundary": 155,
+      "examBoard": "AQA",
       "notes": "",
       "results": [
         {
@@ -2818,7 +2998,36 @@
       "id": "paper-b0c7fd1e-0db3-4f4f-9da4-19a3efbeb03e",
       "type": "pastpaper",
       "createdAt": "2026-08-30T05:30:15.647Z",
-      "updatedAt": "2026-08-30T05:30:15.647Z"
+      "updatedAt": "2026-09-05T10:34:15.359Z",
+      "gradeBoundaries": {
+        "grades": {
+          "3": 30,
+          "4": 43,
+          "5": 68,
+          "6": 94,
+          "7": 120,
+          "8": 137,
+          "9": 155
+        },
+        "gradesInOrder": [
+          "9",
+          "8",
+          "7",
+          "6",
+          "5",
+          "4",
+          "3",
+          "2",
+          "1"
+        ],
+        "maxMark": 200,
+        "board": "aqa",
+        "qual": "gcse",
+        "seriesLabel": "June 2026",
+        "seriesKey": "JUN-2026",
+        "fresh": true
+      },
+      "qualification": "GCSE"
     },
     {
       "subject": "Maths",
@@ -2887,6 +3096,49 @@
       "type": "pastpaper",
       "createdAt": "2026-08-30T05:30:15.647Z",
       "updatedAt": "2026-08-30T05:30:15.647Z"
+    },
+    {
+      "subject": "Maths",
+      "year": 2025,
+      "series": "",
+      "gradeBoundary": 217,
+      "gradeBoundaries": {
+        "grades": {
+          "3": 36,
+          "4": 53,
+          "5": 87,
+          "6": 121,
+          "7": 156,
+          "8": 186,
+          "9": 217,
+          "U": 0
+        },
+        "gradesInOrder": [
+          "9",
+          "8",
+          "7",
+          "6",
+          "5",
+          "4",
+          "3",
+          "U"
+        ],
+        "maxMark": 240,
+        "papers": [],
+        "board": "pearson",
+        "qual": "gcse",
+        "seriesLabel": "June 2025",
+        "seriesKey": "JUN-2025",
+        "fresh": true
+      },
+      "notes": "",
+      "examBoard": "Pearson (Edexcel)",
+      "qualification": "GCSE",
+      "results": [],
+      "id": "paper-bc5e9208-534a-4d07-99bd-f301fc5013c5",
+      "createdAt": "2026-09-09T17:04:03.455Z",
+      "type": "pastpaper",
+      "updatedAt": "2026-09-09T17:04:03.455Z"
     },
     {
       "subject": "Physics",
@@ -3268,23 +3520,27 @@
         "analysisNodeIds": [
           "8a7c102f-de0f-4179-8dc7-6fff749412c5"
         ],
-        "S": 0.7679515306906929,
-        "D": 1.1487099123123061,
-        "U": 0.6069288631351397,
-        "interval": 0.18871937944368838,
-        "nextReview": 1777386192049.344,
-        "lastReview": 1777371865933,
-        "reviewCount": 1,
-        "expectedTime": 4,
-        "avgTime": 3.5742000000000003,
-        "timeVariance": 1.140178048,
-        "consistency": 0.657693513153154,
-        "confidence": 0.6323064868468458,
-        "lastGrade": "didnt_know",
-        "schemaUpgrade": 1
+        "S": 0.8704063286084237,
+        "D": 0.9879884034746991,
+        "U": 0.6780805991380925,
+        "interval": 0.22680628320511956,
+        "nextReview": 1788255936495.8586,
+        "lastReview": 1788238997975,
+        "reviewCount": 2,
+        "avgTime": 3.3852,
+        "timeVariance": 1.7695329280000003,
+        "consistency": 0.7376119733155856,
+        "confidence": 0.7546908457066795,
+        "lastGrade": "easy",
+        "schemaUpgrade": 1,
+        "L_phase": "warming",
+        "easyStreak": 1,
+        "recentGrades": [
+          "easy"
+        ]
       },
       "createdAt": 1777371641748,
-      "updatedAt": 1777371865933
+      "updatedAt": 1788238997975
     },
     {
       "id": "369085f7-a631-423d-a621-a27e670a1058",
