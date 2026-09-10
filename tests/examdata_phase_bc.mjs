@@ -13,11 +13,11 @@ import {
   summarize,
   provenanceOf,
   provenanceLabel
-} from "/home/aigsniper/Documents/website/neuronet/frontend/src/tools/examData/index.js";
+} from "../src/tools/examData/index.js";
 import {
   qualId,
   canonicalGradeKey
-} from "/home/aigsniper/Documents/website/neuronet/frontend/src/tools/examData/schema.js";
+} from "../src/tools/examData/schema.js";
 
 let passed = 0;
 let failed = 0;

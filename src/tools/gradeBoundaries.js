@@ -262,8 +262,16 @@ export function createBoundaryCacheStore() {
     getCachedSubjects(board, qualId, series) {
       const entry = cache.entries[key(board, qualId, series)];
       if (!entry) return null;
-      if (Date.now() - (entry.fetchedAt || 0) > RESULTS_WINDOW_MS) return null;
+      // Official results for an exact (board, qual, series) are immutable:
+      // historical data NEVER expires. Age only gates revalidation, never
+      // usability — a cached official fetch is the answer whether it happened
+      // yesterday or two years ago. (Future contentHash revalidation, not an
+      // expiry window, is the mechanism for detecting stale/bad sources.)
       return entry.subjects || null;
+    },
+    isFresh(board, qualId, series) {
+      const entry = cache.entries[key(board, qualId, series)];
+      return Boolean(entry) && Date.now() - (entry.fetchedAt || 0) <= RESULTS_WINDOW_MS;
     },
     setCachedSubjects(board, qualId, series, subjects) {
       cache.entries[key(board, qualId, series)] = {

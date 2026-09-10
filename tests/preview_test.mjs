@@ -1,4 +1,4 @@
-import { findGradeTable, courseBoundarySeries } from "/home/aigsniper/Documents/website/neuronet/frontend/src/tools/gradeBoundaries.js";
+import { findGradeTable, courseBoundarySeries } from "../src/tools/gradeBoundaries.js";
 
 const MATHS = { board: "Pearson (Edexcel)", qual: "GCSE", title: "Mathematics (Higher)", code: "1MA1" };
 

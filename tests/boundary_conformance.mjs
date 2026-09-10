@@ -1,8 +1,10 @@
 import {
   resolveBoundaryDecision,
   findGradeMark,
-  reconcileCourse
-} from "/home/aigsniper/Documents/website/neuronet/frontend/src/tools/gradeBoundaries.js";
+  reconcileCourse,
+  createBoundaryCacheStore,
+  flushBoundaryCache
+} from "../src/tools/gradeBoundaries.js";
 
 // ---------------------------------------------------------------------------
 // ExamData conformance suite — derived-decision honesty contract.
@@ -162,6 +164,20 @@ eq("stored explicit Higher stays Higher", reconcileCourse(tierCache, storedHighe
 const tierless = { board: "pearson", code: "1MA1", title: "Mathematics", qual: "gcse" };
 eq("genuinely tier-less legacy link maps to 9-1 table", reconcileCourse(tierCache, tierless, null) && reconcileCourse(tierCache, tierless, null).tier, "H");
 eq("subject-name tier still wins over stored tier", reconcileCourse(tierCache, storedFoundation, "H") && reconcileCourse(tierCache, storedFoundation, "H").tier, "H");
+
+// 14. Historical-data permanence (execution-spec #33/#34): an official fetch
+// made more than 60 days ago must NEVER make the data unusable. Age only gates
+// revalidation (isFresh), never whether getCachedSubjects returns the answer.
+const store = createBoundaryCacheStore();
+store.setCachedSubjects("pearson", "gcse", { month: "JUN", year: 2024, label: "June 2024" }, [
+  { code: "1MA1", title: "Mathematics", tier: "H", maxMark: 240, grades: { "9": 197 }, gradesInOrder: ["9"], papers: [] }
+]);
+const DAY = 24 * 60 * 60 * 1000;
+store.getEntry("pearson", "gcse", { month: "JUN", year: 2024, label: "June 2024" }).fetchedAt = Date.now() - 61 * DAY;
+flushBoundaryCache();
+eq("61-day-old official cache entry still returns subjects", Array.isArray(store.getCachedSubjects("pearson", "gcse", { month: "JUN", year: 2024, label: "June 2024" })), true);
+eq("61-day-old entry isFresh=false (revalidation gate only)", store.isFresh("pearson", "gcse", { month: "JUN", year: 2024, label: "June 2024" }), false);
+eq("absent series still null", store.getCachedSubjects("pearson", "gcse", { month: "NOV", year: 2022, label: "November 2022" }), null);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

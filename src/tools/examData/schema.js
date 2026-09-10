@@ -68,13 +68,17 @@ export function tierOf(item) {
 }
 
 // Canonical course key: board:qual:code:tier (tier '_' when unknown).
+// Tier derivation is title-aware on BOTH sides of identity: an enrollment
+// named "Mathematics (Higher)" keys identically to a boundary row whose
+// title/code carries the same tier — otherwise a stored sitting can never
+// match its own fetched boundary table.
 export function courseKey(course = {}) {
-  const { board, qual, code, tier } = course || {};
+  const { board, qual, code } = course || {};
   const b = boardId(board);
   if (!b) return null;
   const q = qualId(qual);
   if (!q) return null; // a course without a known qualification cannot be keyed
-  return `${b}:${q}:${singleCode(code)}:${tierOf({ tier, code: code || "", title: "" }) || "_"}`;
+  return `${b}:${q}:${singleCode(code)}:${tierOf(course) || "_"}`;
 }
 
 export function courseKeyFromRow(board, qual, row) {

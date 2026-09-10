@@ -7,7 +7,7 @@ import {
   planRequirements,
   REQUIREMENT_TYPES,
   seriesId
-} from "/home/aigsniper/Documents/website/neuronet/frontend/src/tools/examData/index.js";
+} from "../src/tools/examData/index.js";
 
 let passed = 0;
 let failed = 0;
