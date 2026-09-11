@@ -62,11 +62,16 @@ function buildLayoutLines(pageResults) {
 // proxied absolute URL. We fetch through it so the browser can read the file.
 // Optional `onProgress(page, total)` fires per page for live progress feedback.
 export async function extractPdfLayoutLines(url, proxyFn, onProgress) {
-  const lib = await ensurePdfJs();
   const res = await fetch(proxyFn(url));
   if (!res.ok) throw new Error(`HTTP ${res.status} fetching PDF`);
-  const buf = await res.arrayBuffer();
-  const doc = await lib.getDocument({ data: new Uint8Array(buf) }).promise;
+  return extractPdfLayoutLinesFromBuffer(await res.arrayBuffer(), onProgress);
+}
+
+// Buffer-based extraction (used by the canonical ingestion pipeline, which
+// validates magic bytes and content-hashes BEFORE handing bytes to the parser).
+export async function extractPdfLayoutLinesFromBuffer(buffer, onProgress) {
+  const lib = await ensurePdfJs();
+  const doc = await lib.getDocument({ data: new Uint8Array(buffer) }).promise;
 
   const pageResults = [];
   for (let p = 1; p <= doc.numPages; p++) {

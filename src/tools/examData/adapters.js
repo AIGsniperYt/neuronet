@@ -7,6 +7,7 @@
 // adapters here are the schema for that wiring.
 
 import { boardId, qualId, currentExamYear } from "./schema.js";
+import * as PearsonSource from "./sources/PearsonSource.js";
 
 export const EXAM_BOARDS = [
   {
@@ -61,4 +62,48 @@ export function defaultSeriesWindow(board, now = Date.now()) {
     { month: "JUN", year: y },
     { month: "NOV", year: y - (board && boardId(board) === "pearson" ? 0 : 1) }
   ];
+}
+
+// ---- executable source adapters (execution-spec #54) -----------------------
+// `sourceFor(board)` returns an object implementing the adapter contract:
+//   { name, discover(opts), fetch?(resource, opts), parse?(bytes, opts), notes }
+// Pearson is fully implemented. AQA/OCR adapters exist as interface-only stubs
+// (marked `implemented:false`); requesting sync/async acquisition from a stub
+// resolves to the structured "NO_EXACT_SOURCE - adapter not yet implemented"
+// reason so the tracker surface fails closed, never invents.
+export function sourceFor(board) {
+  const id = boardId(board);
+  if (!id) return null;
+  if (id === "pearson") {
+    return {
+      name: "PearsonSource",
+      implemented: true,
+      discover: (opts) => PearsonSource.discover(opts),
+      parse: (bytes, opts) => PearsonSource.parseSource(bytes, opts),
+      notes: "landing-page discovery + verified catalogue; content-hash validated; never filename-guesses"
+    };
+  }
+  if (id === "aqa") {
+    return {
+      name: "AQASource",
+      implemented: false,
+      discover: async () => ({ resources: [] }),
+      parse: async () => ({ ok: false, reason: "NO_EXACT_SOURCE", rows: [] }),
+      notes: "interface-only — AQA archive/XLSX-first adapter is a future step"
+    };
+  }
+  if (id === "ocr") {
+    return {
+      name: "OCRSiteSource",
+      implemented: false,
+      discover: async () => ({ resources: [] }),
+      parse: async () => ({ ok: false, reason: "NO_EXACT_SOURCE", rows: [] }),
+      notes: "interface-only — OCR datasheet crawl is a future step"
+    };
+  }
+  return null;
+}
+
+export function adaptersImplemented() {
+  return { pearson: true, aqa: false, ocr: false };
 }

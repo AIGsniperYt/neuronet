@@ -8,6 +8,7 @@
 
 import * as XLSX from "../vendor/xlsx/index.js";
 import { extractPdfLayoutLines, parsePdfBoundaries } from "./pdfBoundaries.js";
+import { VERIFIED_CATALOGUE } from "./examData/sources/PearsonSource.js";
 import { buildExamIndex, openExamRepository, deriveBoundaryDecision } from "./examData/index.js";
 
 export const BOUNDARY_CACHE_KEY = "neuronet:gradeBoundaries";
@@ -1001,13 +1002,19 @@ const OCR_QUAL_PATTERNS = {
 
 const PEARSON_PAGE = "https://qualifications.pearson.com/en/support/support-topics/results-certification/grade-boundaries.html";
 const PEARSON_DAM = "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries";
+// Baseline = every series in the VERIFIED_CATALOGUE (real, hash-confirmed PDFs)
+// plus the live landing-page trails. June 2022 (2206-…pdf) is genuinely
+// acquirable; the old pattern-URL for it was a dead guess.
 const PEARSON_BASELINE = [
+  { month: "JUN", year: 2022, label: "June 2022" },
   { month: "JUN", year: 2023, label: "June 2023" },
   { month: "JUN", year: 2024, label: "June 2024" },
   { month: "NOV", year: 2024, label: "November 2024" },
   { month: "JUN", year: 2025, label: "June 2025" },
   { month: "NOV", year: 2025, label: "November 2025" }
 ];
+// Verified official url per "MONTH-YEAR:qual" (content-hash confirmed).
+const PEARSON_VERIFIED = new Map(VERIFIED_CATALOGUE.map((r) => [`${r.month}-${r.year}:${r.qual}`, r.url]));
 
 const discovered = { aqa: new Map(), ocr: new Map(), pearson: new Map() };
 let boundaryDiscoveryPromise = null;
@@ -1191,12 +1198,13 @@ function aqaSeriesUrl(qual, series) {
 }
 
 function pearsonSeriesUrl(qual, series) {
-  const url = discovered.pearson.get(`${seriesKey(series)}:${qual.id}`);
+  const url = discovered.pearson.get(`${seriesKey(series)}:${qual.id}`)
+    || PEARSON_VERIFIED.get(`${seriesKey(series)}:${qual.id}`);
   if (url) return url;
+  // GCSE: never invent a filename. A series with no discovered or verified
+  // official resource is simply not acquirable — return null (caller throws).
+  if (qual.id === "gcse") return null;
   const slug = monthAbbrevToSlug(series.month);
-  if (qual.id === "gcse") {
-    return `${PEARSON_DAM}/GCSE/grade-boundaries-${slug}-${series.year}-gcse.pdf`;
-  }
   return `${PEARSON_DAM}/A-level/grade-boundaries-${slug}-${series.year}-gce.pdf`;
 }
 

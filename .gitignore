@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# dont commit this or this gitignore, just ignore it, its a temporary file
+advice.md
+# keep sandbox/plan docs local, like advice.md
+docs/EXAMDATA.md

@@ -104,6 +104,85 @@ export function seriesId({ month, year } = {}) {
   return `${m}-${y}`;
 }
 
+// ---- deterministic record ids (execution-spec #1) --------------------------
+// Every canonical record carries a stable, derivable id so identity never
+// depends on insertion order or cache richness: board:qual:code:tier for a
+// course, MONTH-YEAR for a series, course|series for a boundary, course|series|
+// component for a paper, and a hash of the official url for a source.
+
+export function quickHash(input) {
+  let h = 2166136261;
+  const s = String(input ?? "");
+  for (let i = 0; i < s.length; i += 1) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+
+export function courseRecord(ck) {
+  const p = parseCourseKey(ck);
+  return p
+    ? { id: ck, board: p.board, qual: p.qual, code: p.code, tier: p.tier }
+    : { id: ck, board: null, qual: null, code: null, tier: null };
+}
+
+export function seriesRecord(series) {
+  const sid = seriesId(series);
+  if (!sid) return { id: null, ...series };
+  return { id: sid, month: series.month, year: Number(series.year), label: series.label || seriesLabel(series) };
+}
+
+export function boundaryRecordId(courseKey, seriesIdValue) {
+  return `${courseKey}|${String(seriesIdValue == null ? "" : seriesIdValue)}`;
+}
+
+export function paperRecordId(courseKey, seriesIdValue, paper) {
+  const code = singleCode(paper && paper.code);
+  const label = String((paper && (paper.label || paper.name || paper.title)) || "").trim()
+    .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const key = code || label || "unnamed";
+  return `${courseKey}|${String(seriesIdValue == null ? "" : seriesIdValue)}|${key}`;
+}
+
+export function sourceRecordId(url) {
+  return url ? `src-${quickHash(url)}` : "src-manual";
+}
+
+export function jobRecordId(type, courseKey, seriesIdValue) {
+  return `${type}|${String(courseKey == null ? "" : courseKey)}|${String(seriesIdValue == null ? "" : seriesIdValue)}`;
+}
+
+// ---- grade scale from qualification (spec #12) -----------------------------
+// GCSE uses the numeric 9-1 ladder (grades 2/1 are often absent from official
+// tables — absence stays absent). A/AS use A*-E. Double-award GCSE tables
+// carry paired labels (9-9 … 1-1) and are detected, never flattened.
+export function qualGradeScale(qual) {
+  const q = qualId(qual);
+  if (q === "gcse") return ["9", "8", "7", "6", "5", "4", "3", "2", "1", "U"];
+  if (q === "alevel") return ["A*", "A", "B", "C", "D", "E", "U"];
+  if (q === "as") return ["A", "B", "C", "D", "E", "U"];
+  return null;
+}
+
+export function qualGradeScope(qual) {
+  const q = qualId(qual);
+  if (q === "gcse") return "9-1";
+  return q === "as" ? "A-E" : "A*-E";
+}
+
+// Paired labels for double-award GCSE (spec: never treat "9-9" as two grades).
+export function doubleAwardLabels() {
+  const labels = ["9-9", "9-8", "8-8", "8-7", "7-7", "7-6", "6-6", "6-5", "5-5", "5-4", "4-4", "4-3", "3-3", "3-2", "2-2", "2-1", "1-1", "U"];
+  return labels;
+}
+
+export function isDoubleAwardGrades(grades) {
+  if (!grades) return false;
+  const keys = Object.keys(grades);
+  return keys.length > 0 && keys.every((k) => /^\d-\d$/.test(String(k)) || String(k) === "U");
+}
+
 export function seriesKeyOf(board, qualId, series) {
   const id = seriesId(series);
   if (!id) return null;

@@ -15,7 +15,8 @@ import {
   monthFromWord,
   seriesLabel,
   qualName,
-  boardName
+  boardName,
+  singleCode
 } from "./schema.js";
 
 export function numberEq(v) {
@@ -68,18 +69,33 @@ export function openExamRepository(index) {
       if (ck && index.courses.has(ck)) return index.courses.get(ck);
       // title fallback (rows historically stored without codes)
       const title = normalizeTitle(enrollment && enrollment.title);
-      if (!title) return null;
-      const board = (enrollment && enrollment.board) || "";
-      const qual = (enrollment && enrollment.qual) || "";
-      let best = null;
-      for (const course of index.courses.values()) {
-        if (String(course.board).toLowerCase() !== String(board).toLowerCase()) continue;
-        if (String(course.qual).toLowerCase() !== String(qual).toLowerCase()) continue;
-        if (course.title !== title) continue;
-        if (!best) best = course;
-        if (best.tier !== (enrollment && enrollment.tier) && course.tier === (enrollment && enrollment.tier)) best = course;
+      if (title) {
+        const board = (enrollment && enrollment.board) || "";
+        const qual = (enrollment && enrollment.qual) || "";
+        let best = null;
+        for (const course of index.courses.values()) {
+          if (String(course.board).toLowerCase() !== String(board).toLowerCase()) continue;
+          if (String(course.qual).toLowerCase() !== String(qual).toLowerCase()) continue;
+          if (course.title !== title) continue;
+          if (!best) best = course;
+          if (best.tier !== (enrollment && enrollment.tier) && course.tier === (enrollment && enrollment.tier)) best = course;
+        }
+        if (best) return best;
       }
-      return best;
+      // code+tier fallback for minimal enrollment objects
+      const code = singleCode(enrollment.code);
+      if (code) {
+        const wantTier = String(enrollment.tier || "").toUpperCase();
+        let best = null;
+        for (const course of index.courses.values()) {
+          if (singleCode(course.code) !== code) continue;
+          if (wantTier && String(course.tier || "").toUpperCase() !== wantTier) continue;
+          if (!best) best = course;
+          if (wantTier && String(course.tier || "").toUpperCase() === wantTier) { best = course; break; }
+        }
+        return best || null;
+      }
+      return null;
     },
     seriesOf(course) {
       const out = [];
@@ -272,4 +288,43 @@ export function deriveBoundaryDecision(repo, enrollment, year, seriesWord, sitti
 export function markForDecisionGrade(decision, label) {
   if (!decision || !decision.hasTable) return null;
   return findGradeMarkIn(decision.table, label);
+}
+
+// Scheduler-satisfaction predicate (execution-spec #35-#38): a requirement is
+// satisfied when the repository already holds the exact course+series record —
+// boundary or papers — and it isn't in a failed verification state. Absence
+// and failure keep the requirement open; nothing is ever "good enough" by
+// approximation.
+export function boundarySatisfies(repo, requirement) {
+  if (!repo || !repo.index || !requirement) return false;
+  const ck = requirement.courseKey;
+  if (!ck) return false;
+  const sid = requirement.seriesId || seriesKeySafe(requirement.series);
+  if (!sid) {
+    // month-less year: only satisfied when a boundary exists for that year and
+    // the year resolves unambiguously (single series) — matching pickBoundary.
+    const forYear = [...repo.index.boundaries.values()]
+      .filter((b) => b.courseKey === ck && Number(b.series.year) === Number(requirement.series && requirement.series.year));
+    if (!forYear.length) return false;
+    const distinct = new Set(forYear.map((b) => b.seriesId));
+    return distinct.size === 1;
+  }
+  const target = `${ck}|${sid}`;
+  if (requirement.type === "papers") {
+    for (const b of repo.index.boundaries.values()) {
+      if (b.courseKey === ck && (b.seriesId === sid) && Array.isArray(b.papers) && b.papers.length) return true;
+    }
+    return false;
+  }
+  const b = repo.index.boundaries.get(target);
+  if (!b) return false;
+  const v = b.provenance && b.provenance.verification;
+  return v !== "failed" && v !== "conflicting";
+}
+
+function seriesKeySafe(series) {
+  if (!series) return null;
+  const m = String(series.month || "").trim().toUpperCase();
+  const y = Number(series.year);
+  return m && Number.isFinite(y) ? `${m}-${y}` : series.id || null;
 }
