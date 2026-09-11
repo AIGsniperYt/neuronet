@@ -19,15 +19,19 @@ export const VERIFY = Object.freeze({
   FAILED: "failed"
 });
 
-export function provenanceOf({ kind, url, publishedAt, parsedAt, verification, contentHash, sourceName } = {}) {
+export function provenanceOf({ kind, url, publishedAt, accessedAt, parsedAt, verification, contentHash, sourceName, publisher, sourceTitle, parserVersion } = {}) {
   const k = String(kind || "").toLowerCase();
   if (!["official", "manual", "inferred"].includes(k)) return { kind: "manual", reason: "unverifiable" };
   const out = { kind: k };
   if (url) out.url = url;
   if (publishedAt) out.publishedAt = publishedAt;
+  if (accessedAt) out.accessedAt = accessedAt;
   if (parsedAt) out.parsedAt = parsedAt;
   if (contentHash) out.contentHash = contentHash;
   if (sourceName) out.sourceName = sourceName;
+  if (publisher) out.publisher = publisher;
+  if (sourceTitle) out.sourceTitle = sourceTitle;
+  if (parserVersion) out.parserVersion = parserVersion;
   // Official data without a traceable source url cannot claim to be verified:
   // default an official row with no url to "uncertain" — never "verified".
   const v = String(verification || "").toLowerCase();
@@ -48,11 +52,11 @@ export function verificationLabel(v) {
 }
 
 // True only for provenance that may present as "official" without a manual
-// override. Conflicting sources and parser failures never do.
+// override. The standard is the verified state — a provenance that is merely
+// "uncertain" (official-family but not independently provable) must not render
+// its numbers as official; conflicting sources and parser failures never do.
 export function isPresentableOfficial(p) {
-  if (!p || p.kind !== "official") return false;
-  const v = p.verification;
-  return v === VERIFY.VERIFIED || v === VERIFY.UNCERTAIN;
+  return Boolean(p) && p.kind === "official" && p.verification === VERIFY.VERIFIED;
 }
 
 export function provenanceLabel(p) {

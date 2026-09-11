@@ -28,6 +28,7 @@ import * as PearsonSource from "./sources/PearsonSource.js";
 
 export const UNKNOWN_REASONS = Object.freeze({
   COURSE_UNRESOLVED: "COURSE_UNRESOLVED",
+  AMBIGUOUS: "AMBIGUOUS",
   NO_EXACT_SOURCE: "NO_EXACT_SOURCE",
   TIER_MISMATCH: "TIER_MISMATCH",
   CONFLICTING_SOURCES: "CONFLICTING_SOURCES",
@@ -93,9 +94,12 @@ function selectTargetRow(rows, request) {
     problems.push(UNKNOWN_REASONS.TIER_MISMATCH);
     return { target: null, identityProblems: problems };
   }
-  // Ambiguous (e.g. no tier hint, more than one candidate) — prefer the first,
-  // mirroring how the legacy whole-table load keyed by courseKey+series.
-  return { target: candidates[0], identityProblems: problems };
+  // Multiple candidates and the evidence cannot pick between them (e.g. no tier
+  // hint, or both tiers present): report AMBIGUOUS rather than silently
+  // preferring the first row. Deterministic first-row preference would
+  // fabricate identity where the document does not resolve it.
+  problems.push(UNKNOWN_REASONS.AMBIGUOUS);
+  return { target: null, identityProblems: problems };
 }
 
 function baseCodeOf(code) {
@@ -140,7 +144,14 @@ async function persistRows(rows, request, sources) {
 
   for (const source of sources) {
     const sid = sourceRecordId(source.url);
-    if (!sourcesMap.has(sid)) sourcesMap.set(sid, { id: sid, url: source.url, contentHash: source.contentHash, status: source.status || null, verifiedAt: now });
+    if (!sourcesMap.has(sid)) sourcesMap.set(sid, {
+      id: sid, url: source.url, contentHash: source.contentHash,
+      status: source.status || null,
+      title: source.title || null,
+      publisher: source.publisher || "Pearson Edexcel",
+      accessedAt: source.accessedAt || now,
+      verifiedAt: now
+    });
   }
 
   for (const row of rows) {
@@ -148,6 +159,7 @@ async function persistRows(rows, request, sources) {
     if (!ck) continue;
     const sid = seriesRecord.id;
     const bid = `${ck}|${sid}`;
+    const src = sources[0] && sources[0].url ? sources[0] : null;
     const boundary = {
       id: bid,
       courseKey: ck,
@@ -159,11 +171,14 @@ async function persistRows(rows, request, sources) {
       tier: row.tier,
       provenance: provenanceOf({
         kind: "official",
-        url: sources[0] && sources[0].url || null,
+        url: src && src.url || null,
         parsedAt: now,
-        contentHash: sources[0] && sources[0].contentHash || null,
+        contentHash: src && src.contentHash || null,
         verification: VERIFY.VERIFIED,
-        sourceName: "PearsonSource"
+        sourceName: "PearsonSource",
+        publisher: src && src.publisher || "Pearson Edexcel",
+        sourceTitle: src && src.title || null,
+        parserVersion: row.provenance && row.provenance.parserVersion || null
       })
     };
     boundariesMap.set(bid, boundary);
@@ -217,7 +232,7 @@ export async function acquirePearson(request, { fetchImpl, proxyFn, onProgress, 
     if (onProgress) onProgress({ stage: "fetch", message: `Fetching ${resource.url}...` });
     const result = await PearsonSource.fetchSource(resource, { fetchImpl });
     if (!result.ok) {
-      if (result.reason === "NOT_PDF" || result.reason === "CONTENT_TYPE") {
+      if (result.reason === "NOT_PDF" || result.reason === "CONTENT_TYPE" || result.reason === "HOST_UNVERIFIED") {
         return unknown(UNKNOWN_REASONS.WRONG_DOCUMENT, { stage: "fetch", url: result.url, fetchReason: result.reason, contentType: result.contentType, status: result.status });
       }
       fetchResults.push(null);
@@ -263,7 +278,12 @@ export async function acquirePearson(request, { fetchImpl, proxyFn, onProgress, 
   if (anyWrongYear) return unknown(UNKNOWN_REASONS.WRONG_YEAR, { stage: "validate-series", problems: seriesProblems });
   if (anyWrongSeries) return unknown(UNKNOWN_REASONS.WRONG_SERIES, { stage: "validate-series", problems: seriesProblems });
 
+  // Persist ONLY rows whose own validation passed (validation.ok === true).
+  // "Not provenance-FAILED" is not a licence to persist: a row that parsed with
+  // invalid maxMark/labels/series must not land in the snapshot. Doc-mates
+  // (subjects we did not request) persist only when they themselves validate.
   const validRows = allParsedRows[0].rows
+    .filter((row) => row._validation && row._validation.ok === true)
     .filter((row) => !row.provenance || row.provenance.verification !== VERIFY.FAILED);
   if (!validRows.length) return unknown(UNKNOWN_REASONS.WRONG_DOCUMENT, { stage: "validate-series", problems: seriesProblems });
 
@@ -281,7 +301,14 @@ export async function acquirePearson(request, { fetchImpl, proxyFn, onProgress, 
     if (!target) return unknown(UNKNOWN_REASONS.COURSE_UNRESOLVED, { stage: "validate-identity", message: "Parsed document did not contain the requested course." });
   }
 
-  const sources = allParsedRows.map((r) => ({ url: r.resource.url, contentHash: r.result.contentHash }));
+  const sources = allParsedRows.map((r) => ({
+    url: r.resource.url,
+    contentHash: r.result.contentHash,
+    status: r.result.status,
+    title: r.resource.title || null,
+    publisher: "Pearson Edexcel",
+    accessedAt: Date.now()
+  }));
   await persistRows(validRows, request, sources);
 
   const tableLead = target || validRows[0];
@@ -315,9 +342,11 @@ export async function acquirePearson(request, { fetchImpl, proxyFn, onProgress, 
 
 // ---- ExamData.getForSitting facade (execution-spec #39) --------------------
 // The ONLY public API for resolving a boundary decision. Wraps
-// deriveBoundaryDecision with provenance verification gating: only rows whose
-// provenance carries verification "verified" or "uncertain" render as
-// presentable "official";  "conflicting" and "failed" are surfaced as unknown.
+// deriveBoundaryDecision with provenance verification gating: rows whose
+// provenance verification is "failed" or "conflicting" are surfaced as unknown
+// (never presented). Whether a "verified"/"uncertain" official envelope is
+// *presentable as official* is governed separately by isPresentableOfficial
+// (provenance.js) — uncertain must not render its numbers as official.
 export async function getForSitting(repo, enrollment, year, seriesWord, sitting = {}, { extraKnown = [], allowInferred = false } = {}) {
   // Import here to avoid circular dependency with repository.js
   const { deriveBoundaryDecision, markForDecisionGrade } = await import("./repository.js");

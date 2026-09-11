@@ -38,7 +38,9 @@ import {
   courseKeyFromRow,
   UNKNOWN_REASONS,
   acquirePearson,
-  getForSitting
+  getForSitting,
+  extractDocumentSeries,
+  PEARSON_ARCHIVE
 } from "../src/tools/examData/index.js";
 import { buildExamIndex } from "../src/tools/examData/migrate.js";
 import { openExamRepository } from "../src/tools/examData/repository.js";
@@ -108,6 +110,35 @@ check("discover: mislabelled filename loses to title", Boolean(dec2024), JSON.st
 check("discover: international gcse filtered", !found.resources.some((r) => /iGCSE/i.test(r.title)));
 check("discover: catalogue fallback when landing unreachable", (await discover({ request: { qual: "gcse", series: { month: "JUN", year: 2022 } }, fetchImpl: async () => fakeRes(LANDING, { status: 503, contentType: "text/html", body: "down" }) })).resources.some((r) => r.url === C2022));
 
+// ---- (2b) archive walk: genuine history traversal ---------------------------
+// The archive index links a January 2020 GCSE page; the walker must follow the
+// sub-page and harvest it (this is the crawl the frontier review demanded, not
+// a reserved placeholder).
+const ARCH_JAN2020 = "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/jan-2020-gcse-grade-boundaries.pdf";
+const ARCH_SUB = "https://qualifications.pearson.com/en/support/support-topics/results-certification/grade-boundaries-january-2020.html";
+const archiveHtml = `
+<span class="hiddenAssetTitle">GCSE (9-1) grade boundaries June 2019</span>
+<span class="hiddenAssetUrl">https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/1906-gcse-grade-boundaries.pdf</span>
+<a href="${ARCH_SUB}">January 2020 grade boundaries</a>
+<a href="https://www.evil-pearson.example/not-official.pdf">off-host resource</a>
+`;
+const archiveSubHtml = `
+<span class="hiddenAssetTitle">GCSE (9-1) grade boundaries January 2020</span>
+<span class="hiddenAssetUrl">${ARCH_JAN2020}</span>
+`;
+const archiveWalked = await discover({
+  request: { qual: "gcse", series: { month: "JAN", year: 2020 } },
+  proxyFn: null,
+  fetchImpl: fetchFrom({
+    [LANDING]: { contentType: "text/html", body: "" },
+    [PEARSON_ARCHIVE]: { contentType: "text/html", body: archiveHtml },
+    [ARCH_SUB]: { contentType: "text/html", body: archiveSubHtml }
+  })
+});
+check("archive: followed sub-page harvests JAN-2020", archiveWalked.resources.some((r) => r.url === ARCH_JAN2020 && r.month === "JAN" && r.year === 2020));
+check("archive: same-page June 2019 harvested from index", archiveWalked.resources.some((r) => r.year === 2019));
+check("archive: off-host link rejected", !archiveWalked.resources.some((r) => /evil-pearson/.test(r.url)));
+
 // ---- (3) content validation is authoritative -------------------------------
 check("magic: %PDF- accepted", isPdfBuffer(new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31])));
 check("magic: short buffer rejected", !isPdfBuffer(new Uint8Array([0x25, 0x50])));
@@ -121,6 +152,25 @@ eq("fetch: octet-stream html -> NOT_PDF", octetHtml.reason, "NOT_PDF");
 const good = await fetchSource({ url: C2024 }, { fetchImpl: fetchFrom({ [C2024]: { contentType: "application/pdf", body: PDF_BYTES } }) });
 check("fetch: real pdf accepted", good.ok && /^[0-9a-f]{64}$/.test(good.contentHash));
 check("fetch: host verified", good.hostVerified === true);
+
+// redirect to a non-pearson host -> hard HOST_UNVERIFIED, not silently trusted
+const evilRedirect = await fetchSource({ url: C2024 }, {
+  fetchImpl: async () => fakeRes("https://evil.example.com/grade-boundaries.pdf", {
+    contentType: "application/pdf",
+    body: PDF_BYTES
+  })
+});
+eq("fetch: redirect to off-host pdf -> HOST_UNVERIFIED", evilRedirect.reason, "HOST_UNVERIFIED");
+check("fetch: off-host not accepted even with pdf magic", evilRedirect.ok === false);
+
+// lookalike/host-spoofing host -> HOST_UNVERIFIED (no https wildcard escape)
+const spoof = await fetchSource({ url: C2024 }, {
+  fetchImpl: async () => fakeRes("https://pearson.com.evil.example/x.pdf", {
+    contentType: "application/pdf",
+    body: PDF_BYTES
+  })
+});
+eq("fetch: lookalike host rejected", spoof.reason, "HOST_UNVERIFIED");
 
 // ---- (4) parse faithful to the official 2022 table -------------------------
 // Reproduce the aligned layout items pdf.js yields for the verified 2206 doc
@@ -168,6 +218,20 @@ const flat = normalizeParsedRow({ code: "1MA1", title: "Mathematics (Higher)", t
 check("validate: monotonicity guard", validateParsedBoundary(flat, wantSeries).problems.some((p) => p.includes("strictly descending")));
 const frac = { ...normH, maxMark: 240.5 };
 check("validate: non-integer maxmark guard", validateParsedBoundary(frac, wantSeries).problems.some((p) => p.includes("maxmark")));
+
+// ---- (5b) document-series identity is extracted from the DOCUMENT -----------
+// The wrong-year/wrong-series guard must rest on the document's own series,
+// never on the series the request claims (frontier review, must-fix #2).
+const docLines = [
+  { page: 1, items: [{ x: 10, str: "GCSE" }, { x: 40, str: "(9-1)" }, { x: 80, str: "Grade" }, { x: 130, str: "Boundaries" }] },
+  { page: 1, items: [{ x: 10, str: "June" }, { x: 60, str: "2022" }] },
+  { page: 2, items: [{ x: 10, str: "1MA1" }, { x: 60, str: "Mathematics" }, { x: 210, str: "(Higher)" }] }
+];
+eq("docseries: extracted from document title text", extractDocumentSeries(docLines), { month: "JUN", year: 2022, label: "June 2022" });
+const noSeriesLines = [{ page: 1, items: [{ x: 10, str: "Some" }, { x: 60, str: "Cover" }] }];
+eq("docseries: absent -> null (no request fallback)", extractDocumentSeries(noSeriesLines), null);
+const laterSeries = [...docLines.slice(0, 1), { page: 1, items: [{ x: 10, str: "November" }, { x: 60, str: "2024" }] }];
+eq("docseries: later line on same page wins over earlier non-series", extractDocumentSeries(laterSeries), { month: "NOV", year: 2024, label: "November 2024" });
 eq("scale: gcse", qualGradeScale("gcse"), ["9", "8", "7", "6", "5", "4", "3", "2", "1", "U"]);
 eq("scope: gcse", qualGradeScope("gcse"), "9-1");
 check("double-award: paired labels recognised", isDoubleAwardGrades({ "9-9": 276, "8-8": 254 }));
@@ -177,7 +241,8 @@ eq("prov: official + url -> verified", provenanceOf({ kind: "official", url: C20
 eq("prov: official no url -> uncertain (never silent verified)", provenanceOf({ kind: "official" }).verification, VERIFY.UNCERTAIN);
 eq("prov: explicit conflicting preserved", provenanceOf({ kind: "official", url: C2024, verification: VERIFY.CONFLICTING }).verification, VERIFY.CONFLICTING);
 check("prov: presentable official verified", isPresentableOfficial(provenanceOf({ kind: "official", url: C2024 })));
-check("prov: uncertain still presentable (official-family)", isPresentableOfficial(provenanceOf({ kind: "official" })));
+check("prov: uncertain is NOT presentable as official", !isPresentableOfficial(provenanceOf({ kind: "official" })));
+check("prov: uncertain-with-url also NOT presentable", !isPresentableOfficial(provenanceOf({ kind: "official", url: C2024, verification: VERIFY.UNCERTAIN })));
 check("prov: conflicting NOT presentable", !isPresentableOfficial(provenanceOf({ kind: "official", url: C2024, verification: VERIFY.CONFLICTING })));
 check("prov: failed NOT presentable", !isPresentableOfficial(provenanceOf({ kind: "official", url: C2024, verification: VERIFY.FAILED })));
 eq("prov: label official", provenanceLabel(provenanceOf({ kind: "official", url: C2024 })), "Official");
@@ -193,8 +258,8 @@ check("id: sourceRecordId distinct per url", sourceRecordId(C2022) !== sourceRec
 const resetStores = async () => { clearSnapshotCache(); await clearAllStores(); };
 await resetStores();
 
-// Parse-injection mirrors PearsonSource.parseSource exactly (same shaping),
-// minus the PDF extraction step.
+// Parse-injection mirrors PearsonSource.parseSource exactly (same shaping,
+// same per-row _validation from validateParsedBoundary), minus PDF extraction.
 const makeParse = (rowSets) => async (bytes, { qual, series } = {}) => {
   let rows;
   if (Array.isArray(rowSets)) rows = rowSets;
@@ -202,14 +267,14 @@ const makeParse = (rowSets) => async (bytes, { qual, series } = {}) => {
     const len = bytes.byteLength;
     rows = len <= 120 ? rowSets.small : rowSets.large;
   }
+  // The injected parse stamps the DOCUMENT's own series (mirroring the real
+  // parser, which reads series from the PDF text — never from the request).
   const rowsN = rows.map((r) => normalizeParsedRow(r, series, "pearson", qual));
-  const problems = [];
-  for (const r of rowsN) {
-    const v = validateParsedBoundary(r, { series });
-    if (!v.ok) problems.push(...v.problems);
-  }
-  const final = rowsN.map((r, i) => ({
+  const validated = rowsN.map((r) => ({ row: r, v: validateParsedBoundary(r, { series }) }));
+  const problems = validated.flatMap(({ v }) => (v.ok ? [] : v.problems));
+  const final = validated.map(({ row: r, v }, i) => ({
     ...r,
+    _validation: v,
     courseKey: courseKeyFromRow("pearson", qual, r),
     boundaryId: r.courseKey && series ? `${r.courseKey}|${seriesId(series)}` : null,
     provenance: provenanceOf({
@@ -261,13 +326,11 @@ check("acquire: nothing persisted on WRONG_DOCUMENT", !snap.examBoundaries.some(
 // wrong-year: the parsed document is 2023 -> structured WRONG_YEAR, no persist
 const wrongYearParse = async (bytes, { qual } = {}) => {
   const rowsN = [higher22].map((r) => normalizeParsedRow(r, { month: "JUN", year: 2023, label: "June 2023" }, "pearson", qual));
-  const problems = [];
-  for (const r of rowsN) {
-    const v = validateParsedBoundary(r, { series: series2022 });
-    if (!v.ok) problems.push(...v.problems);
-  }
-  const final = rowsN.map((r, i) => ({
+  const validated = rowsN.map((r) => ({ row: r, v: validateParsedBoundary(r, { series: series2022 }) }));
+  const problems = validated.flatMap(({ v }) => (v.ok ? [] : v.problems));
+  const final = validated.map(({ row: r, v }, i) => ({
     ...r,
+    _validation: v,
     courseKey: courseKeyFromRow("pearson", qual, r),
     boundaryId: `${r.courseKey}|JUN-2023`,
     provenance: provenanceOf({ kind: "official", parsedAt: Date.now(), verification: VERIFY.FAILED })
@@ -318,6 +381,25 @@ const noCourse = await acquirePearson({ ...req22, expectedCourse: { code: "2F01"
   parse: makeParse([higher22])
 });
 eq("acquire: course absent from doc -> COURSE_UNRESOLVED", noCourse.reason, UNKNOWN_REASONS.COURSE_UNRESOLVED);
+
+// ambiguous identity: document has BOTH tiers of 1MA1 and the request gives no
+// tier hint — no deterministic first-row preference (frontier review, #3)
+await resetStores();
+const ambiguous = await acquirePearson({ ...req22, expectedCourse: { code: "1MA1", tier: null } }, {
+  fetchImpl: fetchFrom({ [C2022]: { contentType: "application/pdf", body: PDF_BYTES } }),
+  parse: makeParse(docRows22)
+});
+eq("acquire: ambiguous candidates (no tier hint) -> AMBIGUOUS", ambiguous.reason, UNKNOWN_REASONS.AMBIGUOUS);
+snap = await loadSnapshot();
+check("acquire: nothing persisted on AMBIGUOUS", !snap.examBoundaries.some((b) => b.id === bidH));
+
+// ambiguous identity: tier hint matches BOTH returned candidates
+await resetStores();
+const ambiguousBoth = await acquirePearson(req22, {
+  fetchImpl: fetchFrom({ [C2022]: { contentType: "application/pdf", body: PDF_BYTES } }),
+  parse: makeParse([{ ...higher22, code: "1MA1" }, { ...higher22, code: "1MA1", title: "Mathematics (Higher) (12MA1)" }])
+});
+eq("acquire: two rows claim same code+tier -> AMBIGUOUS", ambiguousBoth.reason, UNKNOWN_REASONS.AMBIGUOUS);
 
 // no exact official resource for a requested series -> NO_EXACT_SOURCE
 await resetStores();

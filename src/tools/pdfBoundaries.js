@@ -12,7 +12,7 @@ async function ensurePdfJs() {
   if (pdfjs) return pdfjs;
   pdfjs = await import("../vendor/pdfjs/index.js");
   pdfjs.GlobalWorkerOptions.workerSrc =
-    new URL("../vendor/pdfjs/pdf.worker.min.mjs", import.meta.url).href;
+    new URL("../vendor/pdfjs/pdf.legacy.worker.min.mjs", import.meta.url).href;
   return pdfjs;
 }
 

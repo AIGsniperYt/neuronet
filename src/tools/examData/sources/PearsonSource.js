@@ -38,6 +38,11 @@ export const PEARSON_HOST = "https://qualifications.pearson.com";
 export const PEARSON_LANDING = `${PEARSON_HOST}/en/support/support-topics/results-certification/grade-boundaries.html`;
 export const PEARSON_ARCHIVE = `${PEARSON_HOST}/en/support/support-topics/results-certification/grade-boundaries-archive.html`;
 export const PEARSON_DAM = `${PEARSON_HOST}/content/dam/pdf/Support/Grade-boundaries`;
+export const PEARSON_PARSER_VERSION = "1.1";
+
+// Only the official host (pearson.com or a subdomain) may act as a boundary
+// source. `evilpearson.com` must NOT pass: the pattern anchors the host.
+export const PEARSON_HOST_RE = /^(https?:)?\/\/(?:[a-z0-9-]+\.)*pearson\.com([:\/]|$)/i;
 
 // ---- VERIFIED_CATALOGUE ----------------------------------------------------
 // Every entry: URL confirmed HTTP 200 + application/pdf + %PDF magic bytes +
@@ -107,51 +112,129 @@ export function catalogueForRequest(request) {
 
 // ---- discovery -------------------------------------------------------------
 // Walk the official landing page for live resource links (new/seasonal series
-// published by Pearson live here first), then normalise links and merge with
-// the verified catalogue. Returns resources in a stable order. Landing HTML is
-// fetched through the caller's proxyFn so browsers can actually read it.
+// published by Pearson live here first), then walk the grade-boundaries
+// ARCHIVE (genuine history traversal — not a reserved stub), then normalise
+// links and merge with the verified catalogue. Returns resources in a stable
+// order. Landing/archive HTML is fetched through the caller's proxyFn so
+// browsers can actually read it.
 export async function discover({ proxyFn, fetchImpl, request, onProgress } = {}) {
   const resources = [...catalogueForRequest(request)];
   const seen = new Set(resources.map((r) => r.url));
 
   const doFetch = fetchImpl || fetchBoundaryResourceWithProxy;
   const add = (url, title, source) => {
-    const u = url.replace(/^https?:\/\//, "").replace(/\/+/g, "/");
-    const abs = url.startsWith("http") ? url : `${PEARSON_HOST}${url.startsWith("/") ? "" : "/"}${url}`;
-    if (seen.has(abs)) return;
+    const abs = url.startsWith("http")
+      ? url
+      : `${PEARSON_HOST}${url.startsWith("/") ? "" : "/"}${url}`;
+    if (!PEARSON_HOST_RE.test(abs)) return false; // only the official host feeds discovery
+    if (seen.has(abs)) return false;
     const meta = classifyResource(abs, title);
-    if (!meta) return;
+    if (!meta) return false;
     seen.add(abs);
     resources.push({ ...meta, url: abs, source });
+    return true;
   };
 
-  let html = null;
-  try {
-    const res = await doFetch(
-      proxyFn
-        ? proxyFn(PEARSON_LANDING)
-        : PEARSON_LANDING
-    );
-    if (res && res.ok) html = await res.text();
-  } catch {
-    html = null; // catalogue still answers; discovery is best-effort
-  }
-  if (html) {
-    const titles = [...html.matchAll(/class= *"hiddenAssetTitle">\s*([^<]+?)\s*<\/span>/g)].map((m) => m[1]);
-    const urls = [...html.matchAll(/class= *"hiddenAssetUrl">\s*([^<]+?)\s*<\/span>/g)].map((m) => m[1].trim());
-    for (let i = 0; i < Math.min(titles.length, urls.length, 200); i++) {
-      if (!/\.pdf$/i.test(urls[i])) continue;
-      add(urls[i], titles[i], "landing");
-    }
-  }
+  const landingScanned = Boolean(
+    await fetchPageResources({
+      doFetch,
+      proxyFn,
+      url: PEARSON_LANDING,
+      add,
+      source: "landing"
+    })
+  );
 
-  // Optional archive-page walk (best-effort; a failed walk is not an error).
-  if (html && typeof archiveWalk === "function") {
-    // reserved: follow the archive/history page link from the landing page.
-  }
+  // Historical series live on the archive index (and its linked year pages);
+  // walk it as a crawl, never a reserved placeholder.
+  await archiveWalk({ doFetch, proxyFn, add, onProgress });
 
   if (onProgress) onProgress(`Pearson discovery: ${resources.length} candidate resource(s)`);
-  return { resources, requestCatalogueOnly: resources.every((r) => r.source === "catalogue"), landingScanned: Boolean(html) };
+  return { resources, requestCatalogueOnly: resources.every((r) => r.source === "catalogue"), landingScanned };
+}
+
+// Fetch one page and harvest its (title, url) resource links. Returns the raw
+// HTML on success (landing scan detects it), null otherwise. Best-effort: an
+// unreachable page is not an error — the catalogue still answers.
+async function fetchPageResources({ doFetch, proxyFn, url, add, source }) {
+  let html = null;
+  try {
+    const res = await doFetch(proxyFn ? proxyFn(url) : url);
+    if (res && res.ok) html = await res.text();
+  } catch {
+    html = null; // best-effort discovery
+  }
+  if (!html) return null;
+  const titles = [...html.matchAll(/class= *"hiddenAssetTitle">\s*([^<]+?)\s*<\/span>/g)].map((m) => m[1]);
+  const urls = [...html.matchAll(/class= *"hiddenAssetUrl">\s*([^<]+?)\s*<\/span>/g)].map((m) => m[1].trim());
+  for (let i = 0; i < Math.min(titles.length, urls.length, 200); i++) {
+    if (!/\.pdf$/i.test(urls[i])) continue;
+    add(urls[i], titles[i], source);
+  }
+  return html;
+}
+
+// Genuine traversal of the Pearson grade-boundaries archive. The archive index
+// lists per-season resource links (hiddenAsset spans) and further archive
+// sub-pages (anchors to other grade-boundaries pages). We crawl a bounded
+// frontier of those pages, harvesting every classified resource. Discovery
+// stays best-effort end to end: a dead or partial archive never fails the
+// request, but when it answers we actually capture its history.
+const ARCHIVE_MAX_PAGES = 8;
+const ARCHIVE_MAX_RESOURCES = 400;
+
+async function archiveWalk({ doFetch, proxyFn, add, onProgress }) {
+  const visited = new Set();
+  const queue = [
+    proxyFn ? proxyFn(PEARSON_ARCHIVE) : PEARSON_ARCHIVE
+  ];
+  let harvested = 0;
+
+  while (queue.length && visited.size < ARCHIVE_MAX_PAGES && harvested < ARCHIVE_MAX_RESOURCES) {
+    const url = queue.shift();
+    if (visited.has(url)) continue;
+    visited.add(url);
+
+    let html = null;
+    try {
+      const res = await doFetch(url);
+      if (res && res.ok) html = await res.text();
+    } catch {
+      html = null;
+    }
+    if (!html) continue;
+
+    // 1) harvest resource links exactly like the landing page does
+    const titles = [...html.matchAll(/class= *"hiddenAssetTitle">\s*([^<]+?)\s*<\/span>/g)].map((m) => m[1]);
+    const urls = [...html.matchAll(/class= *"hiddenAssetUrl">\s*([^<]+?)\s*<\/span>/g)].map((m) => m[1].trim());
+    const before = harvested;
+    for (let i = 0; i < Math.min(titles.length, urls.length, 200); i++) {
+      if (!/\.pdf$/i.test(urls[i])) continue;
+      if (harvested >= ARCHIVE_MAX_RESOURCES) break;
+      if (add(urls[i], titles[i], "archive")) harvested += 1;
+    }
+    // 2) anchors: some archive pages use plain <a> lists for older series
+    if (harvested < ARCHIVE_MAX_RESOURCES) {
+      const anchors = [...html.matchAll(/href="([^"]+\.pdf)"[^>]*>\s*([^<]*)</gi)];
+      for (const [, href, text] of anchors) {
+        if (harvested >= ARCHIVE_MAX_RESOURCES) break;
+        if (add(href, (text || "").trim() || href, "archive")) harvested += 1;
+      }
+    }
+    // 3) follow links to further archive sub-pages on the same official host
+    for (const [, href] of html.matchAll(/href="([^"]+)"/g)) {
+      if (visited.size >= ARCHIVE_MAX_PAGES) break;
+      let abs = href.startsWith("http") ? href : `${PEARSON_HOST}${href.startsWith("/") ? "" : "/"}${href}`;
+      abs = abs.split("#")[0];
+      if (!/\.pdf$/i.test(abs)) {
+        const norm = abs.replace(/\/+$/, "");
+        if (/grade-boundaries/i.test(norm) && /pearson\.com([:\/]|$)/i.test(norm) && !visited.has(norm) && !queue.includes(norm)) {
+          queue.push(norm);
+        }
+      }
+    }
+    if (harvested > before && onProgress) onProgress(`Pearson archive walk: ${harvested} resource(s) harvested`);
+  }
 }
 
 // Classify a discovered URL+title into { month, year, qual, title } or null.
@@ -215,7 +298,11 @@ export async function fetchSource(resource, { fetchImpl } = {}) {
     return { ok: false, url: resource.url, reason: "NETWORK", error: String(e && e.message || e) };
   }
   const finalUrl = res.url || resource.url;
-  const hostOk = /^(https?:)?\/\/[^/]*?(pearson\.com|qualifications\.pearson\.com)([:\/]|$)/i.test(finalUrl) || /^https?:\/\//i.test(finalUrl);
+  // A redirect may land anywhere; the FINAL url must still be on the official
+  // host. Any off-host result is a hard failure — no https-wildcard escape.
+  if (!PEARSON_HOST_RE.test(finalUrl)) {
+    return { ok: false, url: finalUrl, status: res.status, reason: "HOST_UNVERIFIED" };
+  }
   if (!res.ok) return { ok: false, url: finalUrl, status: res.status, reason: `HTTP_${res.status}` };
   const contentType = String(res.headers && res.headers.get && res.headers.get("content-type") || "").toLowerCase();
   const bytes = new Uint8Array(await res.arrayBuffer());
@@ -229,11 +316,16 @@ export async function fetchSource(resource, { fetchImpl } = {}) {
   return {
     ok: true, url: finalUrl, status: res.status, contentType,
     bytes, byteLength: bytes.byteLength, contentHash,
-    hostVerified: hostOk && /(pearson\.com)/i.test(finalUrl)
+    hostVerified: true
   };
 }
 
 // ---- parse (evidence-based, never silent repair) ---------------------------
+// The document's OWN series identity is read from the PDF's extracted text
+// (e.g. a title/header line "…June 2022…"); it is NEVER copied from the
+// request. Rows carry that document-derived series, then each row is validated
+// against the REQUEST's series — so a wrong-year/wrong-series document fails
+// its own identity, independent of whatever the request claimed.
 export async function parseSource(bytes, { qual, series, expected } = {}) {
   const q = qualId(qual);
   if (!q) return { ok: false, reason: "QUAL_UNKNOWN", rows: [], problems: [] };
@@ -244,22 +336,20 @@ export async function parseSource(bytes, { qual, series, expected } = {}) {
     return { ok: false, reason: "PARSE_FAILED", error: String(e && e.message || e), rows: [], problems: [] };
   }
   const parsed = parsePearsonRows(lines, q);
-  const rows = (parsed || []).map((row) => normalizeParsedRow(row, series, "pearson", q));
-  const problems = [];
+  const docSeries = extractDocumentSeries(lines);
+  const rows = (parsed || []).map((row) => normalizeParsedRow(row, docSeries, "pearson", q));
   // Series identity is validated against EVERY row of the document (a doc is
-  // for one series). Course identity (code/tier) is deliberately NOT checked
-  // here — doc-mates are other subjects, checked only when selecting the
-  // request's target row in the pipeline (ingest.js).
+  // for one series), against the REQUEST's series. Course identity (code/tier)
+  // is deliberately NOT checked here — doc-mates are other subjects, checked
+  // only when selecting the request's target row in the pipeline (ingest.js).
   const wantedSeries = { series: series || (expected && expected.series) || null };
-  for (const row of rows) {
-    const v = validateParsedBoundary(row, wantedSeries);
-    if (!v.ok) problems.push(...v.problems);
-  }
   const rowsWithProvenance = rows.map((row, i) => {
+    const validation = validateParsedBoundary(row, wantedSeries);
     const ck = courseKeyFromRow("pearson", q, row);
-    const hasIdentityProblem = problems.some((p) => p.includes("wrong-year") || p.includes("wrong-series"));
+    const hasIdentityProblem = validation.problems.some((p) => p.includes("wrong-year") || p.includes("wrong-series"));
     return {
       ...row,
+      _validation: validation,
       courseKey: ck,
       boundaryId: ck && series ? `${ck}|${seriesId(series)}` : null,
       provenance: provenanceOf({
@@ -268,11 +358,41 @@ export async function parseSource(bytes, { qual, series, expected } = {}) {
         parsedAt: Date.now(),
         verification: hasIdentityProblem ? VERIFY.FAILED : VERIFY.VERIFIED,
         contentHash: null,
+        publisher: "Pearson Edexcel",
+        parserVersion: PEARSON_PARSER_VERSION,
         parserIndex: i
       })
     };
   });
-  return { ok: rowsWithProvenance.length > 0, rows: rowsWithProvenance, problems, reason: rowsWithProvenance.length ? "parsed" : "EMPTY" };
+  const problems = [];
+  for (const row of rowsWithProvenance) {
+    if (!row._validation || !row._validation.ok) problems.push(...(row._validation.problems || []));
+  }
+  const hasIdentityProblem = problems.some((p) => p.includes("wrong-year") || p.includes("wrong-series"));
+  return {
+    ok: rowsWithProvenance.length > 0,
+    rows: hasIdentityProblem ? rowsWithProvenance.map((r) => ({ ...r, provenance: { ...r.provenance, verification: VERIFY.FAILED } })) : rowsWithProvenance,
+    problems,
+    docSeries: docSeries || null,
+    reason: rowsWithProvenance.length ? "parsed" : "EMPTY"
+  };
+}
+
+// Extract the document's own series identity from the extracted layout text.
+// Scans every line (cover title and repeated page headers both carry it) and
+// returns the FIRST month+year pair found, or null if the document declares
+// no series in its text. Identity never falls back to the request.
+export function extractDocumentSeries(lines) {
+  const re = /(January|February|March|April|May|June|July|August|September|October|November|December)\.?\s+(\d{4})/i;
+  for (const line of lines || []) {
+    const text = (line.items || []).map((it) => String(it.str || "")).join(" ");
+    const m = text.match(re);
+    if (!m) continue;
+    const month = monthFromWord(m[1]);
+    const year = Number(m[2]);
+    if (month && Number.isFinite(year)) return { month, year, label: `${m[1]} ${m[2]}` };
+  }
+  return null;
 }
 
 // Pearson PDF sections -> subject rows. Uses the shared parser and only passes
