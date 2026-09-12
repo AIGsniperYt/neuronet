@@ -45,6 +45,7 @@ import { extractPdfLayoutLinesFromBuffer } from "../../pdfBoundaries.js";
 import { provenanceOf, VERIFY } from "../provenance.js";
 import { normalizeParsedRow, validateParsedBoundary } from "../validation.js";
 import { crawlOfficialIndex, classifyCandidate as engineClassifyCandidate, extractLinks, rankCandidates } from "./officialEngine.js";
+import { documentIdentityOf, compareDocumentIdentity } from "../identity.js";
 
 export const PEARSON_HOST = "https://qualifications.pearson.com";
 export const PEARSON_LANDING = `${PEARSON_HOST}/en/support/support-topics/results-certification/grade-boundaries.html`;
@@ -326,10 +327,13 @@ export async function fetchSource(resource, { fetchImpl } = {}) {
 }
 
 // ---- parse (evidence-based, never silent repair) ---------------------------
-// The document's OWN series identity is read from the PDF's extracted text
-// (e.g. a title/header line "…June 2022…"); it is NEVER copied from the
-// request. Rows carry that document-derived series, then each row is validated
-// against the REQUEST's series — so a wrong-year/wrong-series document fails
+// The document's OWN identity is read from the file, never copied from the
+// request (frontier #6/#7):
+//   · the pdf text declares qual / documentType / publisher → DocumentIdentity;
+//   · the pdf text declares the series (title/header line "…June 2022…");
+//   · rows are normalized WITH the document-derived series identity;
+// then each row is validated against the REQUEST's series + the DOCUMENT's
+// identity — so a wrong-year/wrong-series/other-qualification document fails
 // its own identity, independent of whatever the request claimed.
 export async function parseSource(bytes, { qual, series, expected } = {}) {
   const q = qualId(qual);
@@ -342,16 +346,27 @@ export async function parseSource(bytes, { qual, series, expected } = {}) {
   }
   const parsed = parsePearsonRows(lines, q);
   const docSeries = extractDocumentSeries(lines);
+  const docIdentity = documentIdentityOf({ board: "pearson", lines, rows: parsed || [], series: docSeries });
+  const documentLevel = compareDocumentIdentity(docIdentity, { qual: q, series });
   const rows = (parsed || []).map((row) => normalizeParsedRow(row, docSeries, "pearson", q));
   // Series identity is validated against EVERY row of the document (a doc is
-  // for one series), against the REQUEST's series. Course identity (code/tier)
-  // is deliberately NOT checked here — doc-mates are other subjects, checked
-  // only when selecting the request's target row in the pipeline (ingest.js).
-  const wantedSeries = { series: series || (expected && expected.series) || null };
+  // for one series), against the REQUEST's series; the document's own qual and
+  // table type are validated the same way (WRONG_QUALIFICATION /
+  // COMPONENT_BOUNDARY evidence). Course identity (code/tier) is deliberately
+  // NOT checked here — doc-mates are other subjects, checked only when
+  // selecting the request's target row in the pipeline (ingest.js).
+  const wanted = {
+    series: series || (expected && expected.series) || null,
+    documentQualification: docIdentity.qualification,
+    documentType: docIdentity.documentType
+  };
+  const isIdentityProblem = (p) =>
+    p.includes("wrong-year") || p.includes("wrong-series")
+    || p.startsWith("qualification:") || p.startsWith("component:");
   const rowsWithProvenance = rows.map((row, i) => {
-    const validation = validateParsedBoundary(row, wantedSeries);
+    const validation = validateParsedBoundary(row, wanted);
     const ck = courseKeyFromRow("pearson", q, row);
-    const hasIdentityProblem = validation.problems.some((p) => p.includes("wrong-year") || p.includes("wrong-series"));
+    const hasIdentityProblem = validation.problems.some(isIdentityProblem);
     return {
       ...row,
       _validation: validation,
@@ -373,12 +388,14 @@ export async function parseSource(bytes, { qual, series, expected } = {}) {
   for (const row of rowsWithProvenance) {
     if (!row._validation || !row._validation.ok) problems.push(...(row._validation.problems || []));
   }
-  const hasIdentityProblem = problems.some((p) => p.includes("wrong-year") || p.includes("wrong-series"));
+  const hasIdentityProblem = problems.some(isIdentityProblem);
   return {
     ok: rowsWithProvenance.length > 0,
     rows: hasIdentityProblem ? rowsWithProvenance.map((r) => ({ ...r, provenance: { ...r.provenance, verification: VERIFY.FAILED } })) : rowsWithProvenance,
     problems,
     docSeries: docSeries || null,
+    docIdentity: docIdentity || null,
+    documentLevel,
     reason: rowsWithProvenance.length ? "parsed" : "EMPTY"
   };
 }

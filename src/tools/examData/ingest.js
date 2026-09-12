@@ -39,6 +39,8 @@ export const UNKNOWN_REASONS = Object.freeze({
   WRONG_YEAR: "WRONG_YEAR",
   WRONG_SERIES: "WRONG_SERIES",
   WRONG_DOCUMENT: "WRONG_DOCUMENT",
+  WRONG_QUALIFICATION: "WRONG_QUALIFICATION",
+  COMPONENT_BOUNDARY: "COMPONENT_BOUNDARY",
   FETCH_FAILED: "FETCH_FAILED"
 });
 
@@ -300,6 +302,19 @@ export async function acquirePearson(request, { fetchImpl, proxyFn, onProgress, 
   const anyWrongSeries = seriesProblems.some((p) => p.includes("wrong-series"));
   if (anyWrongYear) return unknown(UNKNOWN_REASONS.WRONG_YEAR, { stage: "validate-series", problems: seriesProblems });
   if (anyWrongSeries) return unknown(UNKNOWN_REASONS.WRONG_SERIES, { stage: "validate-series", problems: seriesProblems });
+
+  // Document-identity is judged against what the FILE declares (frontier #6/#7):
+  // a fetch-document that itself declares a different qualification, or that
+  // declares itself a component-level (notional) table, can never establish the
+  // requested identity — deterministic structured unknowns, nothing persisted.
+  const anyWrongQualification = seriesProblems.some((p) => p.startsWith("qualification:"));
+  const anyComponentBoundary = seriesProblems.some((p) => p.startsWith("component:"));
+  if (anyWrongQualification) {
+    return unknown(UNKNOWN_REASONS.WRONG_QUALIFICATION, { stage: "validate-document-identity", problems: seriesProblems });
+  }
+  if (anyComponentBoundary) {
+    return unknown(UNKNOWN_REASONS.COMPONENT_BOUNDARY, { stage: "validate-document-identity", problems: seriesProblems });
+  }
 
   // Persist ONLY rows whose own validation passed (validation.ok === true).
   // "Not provenance-FAILED" is not a licence to persist: a row that parsed with

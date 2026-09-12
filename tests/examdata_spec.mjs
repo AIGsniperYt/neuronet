@@ -44,11 +44,14 @@ import {
   PEARSON_ARCHIVE_INDEX,
   PEARSON_HOST_RE,
   DISCOVERY_INCOMPLETE,
-  UNKNOWN_METADATA
+  UNKNOWN_METADATA,
+  documentIdentityOf,
+  compareDocumentIdentity,
+  resolveCourseIdentity
 } from "../src/tools/examData/index.js";
 import { resolveUrl, extractLinks, verifyOfficialHost, classifyCandidate, rankCandidates, crawlOfficialIndex } from "../src/tools/examData/sources/officialEngine.js";
 import { buildExamIndex } from "../src/tools/examData/migrate.js";
-import { openExamRepository } from "../src/tools/examData/repository.js";
+import { openExamRepository, deriveBoundaryDecision } from "../src/tools/examData/repository.js";
 import { loadSnapshot, saveSnapshot, clearAllStores, clearSnapshotCache } from "../src/tools/examData/storage.js";
 import { parsePearsonBoundaries } from "../src/tools/examData/sources/PearsonSectionParser.js";
 
@@ -542,6 +545,98 @@ indexFailed.boundaries.get("pearson:gcse:1MA1:H|JUN-2025").provenance = provenan
 const dFailed = await getForSitting(openExamRepository(indexFailed), { code: "1MA1", tier: "H" }, "2025", "June", {});
 eq("getForSitting: failed provenance -> unknown", dFailed.kind, "unknown");
 eq("getForSitting: failed reason", dFailed.reason, UNKNOWN_REASONS.WRONG_DOCUMENT);
+
+// ---- (8) Phase 2B: DocumentIdentity (what the FILE is, not what was asked) --
+const DOC_GCSE = [
+  { items: [{ str: "GCSE (9-1) Grade Boundaries" }] },
+  { items: [{ str: "June 2022" }] },
+  { items: [{ str: "Pearson Edexcel" }] }
+];
+const ident = documentIdentityOf({ board: "pearson", lines: DOC_GCSE, rows: [higher22] });
+eq("identity: document declares gcse", ident.qualification, "gcse");
+eq("identity: document declares grade-boundaries type", ident.documentType, "grade-boundaries");
+eq("identity: document declares publisher", ident.publisher, "Pearson Edexcel");
+eq("identity: single-course scope", ident.scope, "single-course");
+eq("identity: courses from doc rows", ident.courses, [{ code: "1MA1", tier: "H", maxMark: 240 }]);
+
+const identOk = compareDocumentIdentity(documentIdentityOf({ board: "pearson", lines: DOC_GCSE, rows: [higher22], series: { month: "JUN", year: 2022 } }), { qual: "gcse", series: { month: "JUN", year: 2022 } });
+eq("identity: request matches document", identOk.ok, true);
+const identWrong = compareDocumentIdentity(documentIdentityOf({ board: "pearson", lines: DOC_GCSE, rows: [higher22], series: { month: "JUN", year: 2022 } }), { qual: "alevel", series: { month: "NOV", year: 2019 } });
+check("identity: wrong-qual problem surfaced", identWrong.problems.some((p) => p.startsWith("qualification:")));
+check("identity: wrong-year problem surfaced", identWrong.problems.some((p) => p.includes("wrong-year guard")));
+
+const identNotional = documentIdentityOf({ board: "pearson", lines: [{ items: [{ str: "GCSE (9-1) Notional Component Grade Boundaries June 2022" }] }], rows: [higher22] });
+eq("identity: notional document type", identNotional.documentType, "notional-component");
+eq("identity: notional scope is component", identNotional.scope, "component");
+const identComp = compareDocumentIdentity(identNotional, { qual: "gcse", series: { month: "JUN", year: 2022 } });
+check("identity: component problem surfaced", identComp.problems.includes("component: document is a component-level boundary table"));
+
+// validation carries document-level identity evidence (frontier #6/#7)
+const vQ = validateParsedBoundary(normalizeParsedRow(higher22, { month: "JUN", year: 2022 }, "pearson", "gcse"), { qual: "gcse", series: { month: "JUN", year: 2022 }, documentQualification: "alevel" });
+check("validation: document qual mismatch flagged", vQ.problems.some((p) => p.startsWith("qualification:")));
+const vT = validateParsedBoundary(normalizeParsedRow(higher22, { month: "JUN", year: 2022 }, "pearson", "gcse"), { qual: "gcse", series: { month: "JUN", year: 2022 }, documentType: "notional-component" });
+check("validation: component table flagged", vT.problems.includes("component: document is a component-level boundary table"));
+
+// acquire: a fetched doc that DECLARES the wrong qualification -> deterministic
+// WRONG_QUALIFICATION (nothing persisted); a notional component doc -> COMPONENT_BOUNDARY.
+const makeDocLevelParse = (prefix) => async (bytes, { qual, series } = {}) => {
+  const rowsN = [higher22].map((r) => normalizeParsedRow(r, series, "pearson", qual));
+  const problems = [`${prefix}: injected document identity failure`];
+  const final = rowsN.map((r) => ({
+    ...r,
+    _validation: { ok: false, problems },
+    courseKey: courseKeyFromRow("pearson", qual, r),
+    boundaryId: null,
+    provenance: provenanceOf({ kind: "official", parsedAt: Date.now(), verification: VERIFY.FAILED })
+  }));
+  return { ok: true, rows: final, problems, reason: "parsed" };
+};
+await resetStores();
+const wrongQual = await acquirePearson(req22, {
+  fetchImpl: fetchFrom({ [C2022]: { contentType: "application/pdf", body: PDF_BYTES } }),
+  parse: makeDocLevelParse("qualification: document declares ALEVEL != requested GCSE")
+});
+eq("acquire: doc declares other qual -> WRONG_QUALIFICATION", wrongQual.reason, UNKNOWN_REASONS.WRONG_QUALIFICATION);
+snap = await loadSnapshot();
+check("acquire: nothing persisted on WRONG_QUALIFICATION", !snap.examBoundaries.some((b) => b.id === bidH));
+
+await resetStores();
+const componentDoc = await acquirePearson(req22, {
+  fetchImpl: fetchFrom({ [C2022]: { contentType: "application/pdf", body: PDF_BYTES } }),
+  parse: makeDocLevelParse("component: document is a component-level boundary table")
+});
+eq("acquire: notional component doc -> COMPONENT_BOUNDARY", componentDoc.reason, UNKNOWN_REASONS.COMPONENT_BOUNDARY);
+eq("acquire: COMPONENT_BOUNDARY in REASONS surface", UNKNOWN_REASONS.COMPONENT_BOUNDARY, "COMPONENT_BOUNDARY");
+eq("acquire: WRONG_QUALIFICATION in REASONS surface", UNKNOWN_REASONS.WRONG_QUALIFICATION, "WRONG_QUALIFICATION");
+
+// ---- (9) Phase 2B: resolveCourseIdentity (evidence scoring, never "best") ---
+const courseH = { id: "pearson:gcse:1MA1:H", board: "pearson", qual: "gcse", code: "1MA1", tier: "H" };
+const courseF = { id: "pearson:gcse:1MA1:F", board: "pearson", qual: "gcse", code: "1MA1", tier: "F" };
+const resExact = resolveCourseIdentity({ board: "pearson", qual: "gcse", code: "1MA1", tier: "H" }, [courseH]);
+eq("resolve: exact code+tier -> resolved", resExact.state, "resolved");
+eq("resolve: resolved course", resExact.course && resExact.course.id, "pearson:gcse:1MA1:H");
+eq("resolve: no tier hint -> ambiguous", resolveCourseIdentity({ board: "pearson", qual: "gcse", code: "1MA1" }, [courseH, courseF]).state, "ambiguous");
+eq("resolve: tier pins the H course -> resolved", resolveCourseIdentity({ board: "pearson", qual: "gcse", code: "1MA1", tier: "H" }, [courseH, courseF]).state, "resolved");
+eq("resolve: no code/title evidence -> unresolved", resolveCourseIdentity({ board: "pearson", qual: "gcse", code: "1MA1" }, [{ id: "pearson:gcse:2F01:H", board: "pearson", qual: "gcse", code: "2F01", tier: "H" }]).state, "unresolved");
+eq("resolve: title tie pinned by tier -> resolved", resolveCourseIdentity({ board: "pearson", qual: "gcse", title: "Mathematics (Higher)", tier: "H" }, [
+  { ...courseH, title: "Mathematics (Higher)" },
+  { ...courseF, title: "Mathematics (Higher)" }
+]).state, "resolved");
+
+// repository courseFor delegates to the resolver: ambiguity is surfaced as
+// null (decision -> unknown), never silently-picked (frontier #9/#10).
+const rawRepo = openExamRepository({
+  courses: new Map([
+    ["pearson:gcse:1MA1:H", courseH],
+    ["pearson:gcse:1MA1:F", courseF]
+  ]),
+  boundaries: new Map()
+});
+eq("repo: courseFor exact key resolves", rawRepo.courseFor({ board: "pearson", qual: "gcse", code: "1MA1", tier: "H" }).id, "pearson:gcse:1MA1:H");
+eq("repo: courseFor ambiguous -> null", rawRepo.courseFor({ board: "pearson", qual: "gcse", code: "1MA1" }), null);
+const dAmb = deriveBoundaryDecision(rawRepo, { board: "pearson", qual: "gcse", code: "1MA1" }, "2022", "June", {});
+eq("repo: ambiguous course -> unknown decision", dAmb.kind, "unknown");
+eq("repo: unresolved course -> unknown decision", deriveBoundaryDecision(rawRepo, { board: "pearson", qual: "gcse", code: "9MA0" }, "2022", "June", {}).kind, "unknown");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

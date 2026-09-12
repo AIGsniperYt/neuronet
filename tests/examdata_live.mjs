@@ -67,6 +67,16 @@ eq("live: 1MA1 H top (9) = 194", rowH && rowH.grades["9"], 194);
 eq("live: 1MA1 H U = 0", rowH && rowH.grades["U"], 0);
 check("live: rows carry per-row validation", p.rows.every((r) => r._validation && typeof r._validation.ok === "boolean"));
 
+// ---- Phase 2B: DocumentIdentity from the real file --------------------------
+// The identity is what the PDF itself declares (text), never what was asked.
+check("live: docIdentity qualification gcse", p.docIdentity && p.docIdentity.qualification === "gcse", JSON.stringify(p.docIdentity));
+check("live: docIdentity type grade-boundaries", p.docIdentity && p.docIdentity.documentType === "grade-boundaries");
+check("live: docIdentity publisher Pearson Edexcel", p.docIdentity && p.docIdentity.publisher === "Pearson Edexcel");
+eq("live: docIdentity series from text", p.docIdentity && p.docIdentity.series && p.docIdentity.series.month, "JUN");
+eq("live: docIdentity series year", p.docIdentity && p.docIdentity.series && p.docIdentity.series.year, 2022);
+eq("live: documentLevel ok for exact request", p.documentLevel && p.documentLevel.ok, true);
+check("live: docIdentity courses include 1MA1 H", (p.docIdentity.courses || []).some((c) => c.code === "1MA1" && c.tier === "H" && c.maxMark === 240));
+
 // ---- wrong-year proof against the live doc ----------------------------------
 const wrong = await parseSource(f.bytes, { qual: "gcse", series: { month: "NOV", year: 2024 } });
 check("live: real PDF rejects a different requested series", wrong.problems.some((x) => x.includes("wrong-year") || x.includes("wrong-series")), JSON.stringify((wrong.problems || []).slice(0, 3)));

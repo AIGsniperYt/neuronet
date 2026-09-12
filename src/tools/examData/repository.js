@@ -18,6 +18,7 @@ import {
   boardName,
   singleCode
 } from "./schema.js";
+import { resolveCourseIdentity } from "./identity.js";
 
 export function numberEq(v) {
   if (v === null || v === undefined || v === "") return null;
@@ -65,37 +66,23 @@ export function openExamRepository(index) {
     courses() { return [...index.courses.values()]; },
     courseFor(enrollment) {
       if (!enrollment) return null;
+      // Exact canonical key first — the fastest and strongest evidence.
       const ck = courseKey(enrollment);
       if (ck && index.courses.has(ck)) return index.courses.get(ck);
-      // title fallback (rows historically stored without codes)
-      const title = normalizeTitle(enrollment && enrollment.title);
-      if (title) {
-        const board = (enrollment && enrollment.board) || "";
-        const qual = (enrollment && enrollment.qual) || "";
-        let best = null;
-        for (const course of index.courses.values()) {
-          if (String(course.board).toLowerCase() !== String(board).toLowerCase()) continue;
-          if (String(course.qual).toLowerCase() !== String(qual).toLowerCase()) continue;
-          if (course.title !== title) continue;
-          if (!best) best = course;
-          if (best.tier !== (enrollment && enrollment.tier) && course.tier === (enrollment && enrollment.tier)) best = course;
-        }
-        if (best) return best;
+      // Otherwise the deterministic resolver (never "best"). Ambiguity and
+      // unresolved states return null — the renderer surfaces unknown rather
+      // than a silently-picked course (frontier #9/#10).
+      let courses = [...index.courses.values()];
+      if (String(enrollment.board || "").trim()) {
+        const b = String(enrollment.board).toLowerCase();
+        courses = courses.filter((c) => String(c.board).toLowerCase() === b);
       }
-      // code+tier fallback for minimal enrollment objects
-      const code = singleCode(enrollment.code);
-      if (code) {
-        const wantTier = String(enrollment.tier || "").toUpperCase();
-        let best = null;
-        for (const course of index.courses.values()) {
-          if (singleCode(course.code) !== code) continue;
-          if (wantTier && String(course.tier || "").toUpperCase() !== wantTier) continue;
-          if (!best) best = course;
-          if (wantTier && String(course.tier || "").toUpperCase() === wantTier) { best = course; break; }
-        }
-        return best || null;
+      if (String(enrollment.qual || "").trim()) {
+        const q = String(enrollment.qual).toLowerCase();
+        courses = courses.filter((c) => String(c.qual).toLowerCase() === q);
       }
-      return null;
+      const resolved = resolveCourseIdentity(enrollment, courses);
+      return resolved.state === "resolved" ? resolved.course : null;
     },
     seriesOf(course) {
       const out = [];

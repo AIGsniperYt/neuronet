@@ -64,6 +64,22 @@ export function validateParsedBoundary(record, expected = {}) {
     }
   }
 
+  // ---- document identity (frontier #6/#7) ----------------------------------
+  // A boundary value is judged against what the DOCUMENT actually is, never
+  // against what the request claimed it was. A file that itself declares a
+  // different qualification, or declares it is a component-level (notional)
+  // table, carries a document-identity problem on every row — the document
+  // cannot establish the requested identity, so no row is persisted.
+  if (expected.documentQualification) {
+    const docQid = qualId(expected.documentQualification);
+    if (docQid && qid && docQid !== qid) {
+      problems.push(`qualification: document declares ${String(docQid).toUpperCase()} != requested ${String(qid).toUpperCase()}`);
+    }
+  }
+  if (expected.documentType === "notional-component") {
+    problems.push("component: document is a component-level boundary table");
+  }
+
   // ---- max mark (spec #18 component-vs-qualification / maxMark) -----------
   const maxMark = Number(row.maxMark);
   if (!Number.isFinite(maxMark) || maxMark <= 0) {

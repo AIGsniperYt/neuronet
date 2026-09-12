@@ -4,6 +4,7 @@
 // this one, never the reverse). Consumers should speak to this surface.
 
 export * from "./schema.js";
+export * from "./identity.js";
 export * from "./provenance.js";
 export * from "./migrate.js";
 export * from "./repository.js";
