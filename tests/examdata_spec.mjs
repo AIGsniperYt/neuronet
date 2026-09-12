@@ -675,5 +675,89 @@ eq("freshness: 200-day-old boundary still renders official", dStale.kind, "offic
 check("freshness: stale boundary surfaces fresh:false as a signal only", dStale.table && dStale.table.fresh === false);
 eq("freshness: old official top still 217", dStale.top, 217);
 
+// ---- (12) Phase 2E: real job scheduler (#16) --------------------------------
+import { createJob, transitionJob, nextDueJob, outcomeToState, priorityFor, JOB_STATES, JOB_PRIORITIES, REQUIREMENT_TYPES } from "../src/tools/examData/scheduler.js";
+const reqE = { type: REQUIREMENT_TYPES.BOUNDARY, courseKey: "pearson:gcse:1MA1:H", series: { month: "JUN", year: 2022 }, seriesId: "JUN-2022" };
+const j0 = createJob(reqE, { priority: JOB_PRIORITIES.P1_SITTING });
+eq("job: created queued", j0.state, JOB_STATES.QUEUED);
+eq("job: deterministic id", j0.id, createJob(reqE, { priority: JOB_PRIORITIES.P1_SITTING }).id);
+const jRun = transitionJob(j0, JOB_STATES.RUNNING);
+check("job: queued -> running legal", jRun.ok && jRun.job.state === "running");
+const jDone = transitionJob(jRun.job, JOB_STATES.SUCCEEDED);
+eq("job: running -> succeeded", jDone.ok && jDone.job.state, JOB_STATES.SUCCEEDED);
+check("job: succeeded -> running illegal", !transitionJob(jDone.job, JOB_STATES.RUNNING).ok);
+check("job: queued -> succeeded illegal", !transitionJob(j0, JOB_STATES.SUCCEEDED).ok);
+const jRetryPath = transitionJob(transitionJob(j0, JOB_STATES.RUNNING).job, JOB_STATES.RETRYABLE);
+eq("job: running -> retryable path", jRetryPath.ok && jRetryPath.job.state, JOB_STATES.RETRYABLE);
+const jRequeue = transitionJob(jRetryPath.job, JOB_STATES.QUEUED);
+check("job: retryable -> queued legal", jRequeue.ok);
+const jFailPath = transitionJob(transitionJob(j0, JOB_STATES.RUNNING).job, JOB_STATES.PERMANENT_FAILURE);
+eq("job: running -> permanent-failure", jFailPath.ok && jFailPath.job.state, JOB_STATES.PERMANENT_FAILURE);
+
+eq("job: outcome FETCH_FAILED -> retryable", outcomeToState("FETCH_FAILED"), JOB_STATES.RETRYABLE);
+eq("job: outcome WRONG_DOCUMENT -> permanent-failure", outcomeToState("WRONG_DOCUMENT"), JOB_STATES.PERMANENT_FAILURE);
+eq("job: outcome DISCOVERY_INCOMPLETE -> retryable", outcomeToState("DISCOVERY_INCOMPLETE"), JOB_STATES.RETRYABLE);
+eq("job: outcome AMBIGUOUS -> permanent-failure", outcomeToState("AMBIGUOUS"), JOB_STATES.PERMANENT_FAILURE);
+
+const makeJob = (priority, createdAt, state = "queued") => ({ id: `j-${priority}-${createdAt}`, courseKey: "pearson:gcse:1MA1:H", priority, state, createdAt });
+const p0 = makeJob("P0-exact-request", 100);
+const p1 = makeJob("P1-sitting", 50);
+const p5 = makeJob("P5-archive-sweep", 10);
+const nextRun = nextDueJob([p5, p1, p0]);
+eq("job: nextDueJob picks highest priority", nextRun.id, p0.id);
+const p1s = makeJob("P1-sitting", 100);
+const p1e = makeJob("P1-sitting", 200);
+eq("job: same priority -> oldest first", nextDueJob([p1e, p1s]).id, p1s.id);
+eq("job: priorityFor exact request", priorityFor({ exactRequest: true }), JOB_PRIORITIES.P0_EXACT_REQUEST);
+eq("job: priorityFor sitting", priorityFor({ fromSitting: true }), JOB_PRIORITIES.P1_SITTING);
+eq("job: priorityFor linked history", priorityFor({ linkedHistory: true }), JOB_PRIORITIES.P2_LINKED_HISTORY);
+eq("job: priorityFor recent", priorityFor({ recent: true }), JOB_PRIORITIES.P3_RECENT_SERIES);
+eq("job: priorityFor maintenance", priorityFor({ maintenance: true }), JOB_PRIORITIES.P4_MAINTENANCE);
+eq("job: priorityFor sweep", priorityFor({ scan: true }), JOB_PRIORITIES.P5_ARCHIVE_SWEEP);
+
+// ---- (13) Phase 2E: ensureExamData (#17) -----------------------------------
+import { ensureExamData, ENSURE_STATUS } from "../src/tools/examData/ensure.js";
+await resetStores();
+const missingCourse = await ensureExamData({ courseId: "pearson:gcse:9MA0:H", seriesId: "JUN-2022" });
+eq("ensure: unknown course -> UNKNOWN", missingCourse.status, ENSURE_STATUS.UNKNOWN);
+check("ensure: unknown course lists 'course' missing", missingCourse.missing.includes("course"));
+check("ensure: unknown course queues nothing", missingCourse.queue.length === 0);
+
+await putBoundary({
+  id: "pearson:gcse:1MA1:H|JUN-2022", courseKey: "pearson:gcse:1MA1:H", seriesId: "JUN-2022",
+  series: { month: "JUN", year: 2022 }, grades: { 9: 194, U: 0 }, gradesInOrder: ["9", "U"], maxMark: 240,
+  tier: "H", sourceIds: [sidSrc],
+  provenance: provenanceOf({ kind: "official", url: C2022, verification: VERIFY.VERIFIED, parsedAt: Date.now() })
+});
+await putCourse({ id: "pearson:gcse:1MA1:H", board: "pearson", qual: "gcse", code: "1MA1", tier: "H" });
+await putSeries({ id: "JUN-2022", month: "JUN", year: 2022, label: "June 2022", qual: "gcse", board: "pearson" });
+await putSource({ id: sidSrc, url: C2022, contentHash: "abc", publisher: "Pearson Edexcel", accessedAt: Date.now(), verifiedAt: Date.now() });
+const complete = await ensureExamData({ courseId: "pearson:gcse:1MA1:H", seriesId: "JUN-2022" });
+eq("ensure: complete status", complete.status, ENSURE_STATUS.COMPLETE);
+check("ensure: complete has sources valid", complete.sourcesValid === true && complete.boundary.id === "pearson:gcse:1MA1:H|JUN-2022");
+check("ensure: complete queues nothing", complete.queue.length === 0);
+
+const partial = await ensureExamData({ courseId: "pearson:gcse:1MA1:H", seriesId: "JUN-2019" });
+eq("ensure: no boundary -> PARTIAL", partial.status, ENSURE_STATUS.PARTIAL);
+check("ensure: partial lists boundary missing", partial.missing.includes("boundary"));
+check("ensure: partial queues a P0 boundary job", partial.queue.length === 1 && partial.queue[0].type === "boundary" && /P0/.test(partial.queue[0].priority));
+await putBoundary({ ...complete.boundary, provenance: provenanceOf({ kind: "official", url: C2022, verification: VERIFY.CONFLICTING, parsedAt: Date.now() }), sourceIds: [] });
+const conflictInvalid = await ensureExamData({ courseId: "pearson:gcse:1MA1:H", seriesId: "JUN-2022" });
+eq("ensure: conflicting provenance -> PARTIAL (sources invalid)", conflictInvalid.status, ENSURE_STATUS.PARTIAL);
+check("ensure: conflicting lists sources missing", conflictInvalid.missing.includes("sources"));
+
+// ensureExamData(acquire:true) executes the pipeline and flips PARTIAL->COMPLETE
+await resetStores();
+await putCourse({ id: "pearson:gcse:1MA1:H", board: "pearson", qual: "gcse", code: "1MA1", tier: "H" });
+await putSeries({ id: "JUN-2022", month: "JUN", year: 2022, label: "June 2022", qual: "gcse", board: "pearson" });
+const acquired = await ensureExamData({
+  courseId: "pearson:gcse:1MA1:H", seriesId: "JUN-2022", acquire: true,
+  fetchImpl: fetchFrom({ [C2022]: { contentType: "application/pdf", body: PDF_BYTES } }),
+  parse: makeParse([higher22, foundation22])
+});
+eq("ensure: acquire flips to COMPLETE", acquired.status, ENSURE_STATUS.COMPLETE);
+eq("ensure: acquired boundary top 9=194", acquired.boundary && acquired.boundary.grades["9"], 194);
+check("ensure: acquired boundary has canonical sourceIds", Boolean(acquired.boundary && Array.isArray(acquired.boundary.sourceIds) && acquired.boundary.sourceIds.length));
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

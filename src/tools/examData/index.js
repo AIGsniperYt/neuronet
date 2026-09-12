@@ -13,6 +13,7 @@ export * from "./adapters.js";
 export * from "./papers.js";
 export * from "./validation.js";
 export * from "./ingest.js";
+export * from "./ensure.js";
 export * from "./storage.js";
 export * from "./sources/PearsonSource.js";
 // The reusable official-source discovery engine (Phase 2A). Both this module
