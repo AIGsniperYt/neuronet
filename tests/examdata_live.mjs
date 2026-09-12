@@ -92,8 +92,37 @@ const snap = await loadSnapshot();
 const bH = snap.examBoundaries.find((b) => b.id === "pearson:gcse:1MA1:H|JUN-2022");
 check("live: boundary persisted", Boolean(bH));
 eq("live: persisted 9=194", bH && bH.grades["9"], 194);
+eq("live: persisted max mark 240", bH && bH.maxMark, 240);
+eq("live: persisted 8 legal grades (9..3,U)", bH && bH.gradesInOrder.length, 8);
 check("live: persisted provenance carries parser version", Boolean(bH && bH.provenance.parserVersion));
 check("live: persisted provenance presentable official", Boolean(bH && isPresentableOfficial(bH.provenance)));
+
+// ---- frontier #20: THE definitive machine test — NO catalogue assistance -----
+// request -> archive discovery -> NO catalogue -> official source -> download ->
+// source identity verified -> PDF parsed -> 1MA1 Higher found -> 240 max mark ->
+// 8 legal grades -> 9=194 -> persist -> retrieve from repository -> tracker
+// decision = official. This block proves the machine, not the fixture.
+clearSnapshotCache();
+await clearAllStores();
+const noCatRoot = await acquirePearson({ board: "pearson", qual: "gcse", series: { month: "JUN", year: 2022 }, expectedCourse: { code: "1MA1", tier: "H" } }, { includeCatalogue: false });
+eq("live#20: kind official", noCatRoot.kind, "official");
+eq("live#20: 1MA1 Higher found, 9=194", noCatRoot.top, 194);
+eq("live#20: 240 max mark", noCatRoot.table && noCatRoot.table.maxMark, 240);
+eq("live#20: 8 legal grades", noCatRoot.table && noCatRoot.table.gradesInOrder.length, 8);
+check("live#20: source is archive traversal, not catalogue", noCatRoot.sources.length > 0 && /pearson\.com/.test(noCatRoot.sources[0].url));
+const snap20 = await loadSnapshot();
+const b20 = snap20.examBoundaries.find((b) => b.id === "pearson:gcse:1MA1:H|JUN-2022");
+check("live#20: persisted to IndexedDB", Boolean(b20));
+eq("live#20: persisted 9=194", b20 && b20.grades["9"], 194);
+check("live#20: persisted carries canonical sourceIds", Boolean(b20 && Array.isArray(b20.sourceIds) && b20.sourceIds.length));
+const repo20 = openExamRepository({
+  courses: new Map((snap20.examCourses || []).map((r) => [r.id, { ...r }])),
+  series: new Map((snap20.examSeries || []).map((r) => [r.id, { ...r }])),
+  boundaries: new Map((snap20.examBoundaries || []).map((r) => [r.id, { ...r }]))
+});
+const tracker20 = await getForSitting(repo20, { code: "1MA1", tier: "H" }, "2022", "June", {});
+eq("live#20: tracker decision official", tracker20.kind, "official");
+eq("live#20: tracker top 9=194", tracker20.top, 194);
 
 // ---- Phase 2A: discovery proven from the traversal, catalogue EXCLUDED -------
 // includeCatalogue:false must resolve Jun-2022 from the official archive graph
@@ -117,6 +146,16 @@ eq("live: Nov-2019 1MA1 H top = 197", a2019.top, 197);
 check("live: Nov-2019 source title recorded from traversal", a2019.sources.length > 0 && /Grade Boundaries/.test(a2019.sources[0].title || ""), JSON.stringify(a2019.sources.map((s) => s.url)));
 const snap2019 = await loadSnapshot();
 check("live: Nov-2019 boundary persisted", snap2019.examBoundaries.some((b) => b.id === "pearson:gcse:1MA1:H|NOV-2019"));
+// the second half of frontier #20: the same machine, another historical year
+// not present in the catalogue — retrieve from the repository, tracker official.
+const repo2019 = openExamRepository({
+  courses: new Map((snap2019.examCourses || []).map((r) => [r.id, { ...r }])),
+  series: new Map((snap2019.examSeries || []).map((r) => [r.id, { ...r }])),
+  boundaries: new Map((snap2019.examBoundaries || []).map((r) => [r.id, { ...r }]))
+});
+const tracker2019 = await getForSitting(repo2019, { code: "1MA1", tier: "H" }, "2019", "November", {});
+eq("live#20: Nov-2019 tracker decision official", tracker2019.kind, "official");
+eq("live#20: Nov-2019 tracker top = 197", tracker2019.top, 197);
 
 // ---- Phase 2A: recent year not in the curated catalogue (June 2026) ----------
 const jun2026Req = { qual: "gcse", series: { month: "JUN", year: 2026 } };

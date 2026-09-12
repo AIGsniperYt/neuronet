@@ -41,7 +41,9 @@ export const UNKNOWN_REASONS = Object.freeze({
   WRONG_DOCUMENT: "WRONG_DOCUMENT",
   WRONG_QUALIFICATION: "WRONG_QUALIFICATION",
   COMPONENT_BOUNDARY: "COMPONENT_BOUNDARY",
-  FETCH_FAILED: "FETCH_FAILED"
+  FETCH_FAILED: "FETCH_FAILED",
+  RATE_LIMITED: "RATE_LIMITED",
+  SOURCE_NOT_FOUND: "SOURCE_NOT_FOUND"
 });
 
 function unknown(reason, extra = {}) {
@@ -246,6 +248,7 @@ export async function acquirePearson(request, { fetchImpl, proxyFn, onProgress, 
   }
 
   const fetchResults = [];
+  const fetchFailures = [];
   for (const resource of matching) {
     if (onProgress) onProgress({ stage: "fetch", message: `Fetching ${resource.url}...` });
     const result = await PearsonSource.fetchSource(resource, { fetchImpl });
@@ -253,6 +256,7 @@ export async function acquirePearson(request, { fetchImpl, proxyFn, onProgress, 
       if (result.reason === "NOT_PDF" || result.reason === "CONTENT_TYPE" || result.reason === "HOST_UNVERIFIED") {
         return unknown(UNKNOWN_REASONS.WRONG_DOCUMENT, { stage: "fetch", url: result.url, fetchReason: result.reason, contentType: result.contentType, status: result.status });
       }
+      fetchFailures.push(result.reason);
       fetchResults.push(null);
       continue;
     }
@@ -260,7 +264,15 @@ export async function acquirePearson(request, { fetchImpl, proxyFn, onProgress, 
   }
 
   const successful = fetchResults.filter(Boolean);
-  if (!successful.length) return unknown(UNKNOWN_REASONS.FETCH_FAILED, { stage: "fetch" });
+  if (!successful.length) {
+    // Deterministic per-failure classification (frontier #21): a throttle
+    // (HTTP 429) and a network drop are transient — retry. A dead official URL
+    // (404/410) is a structural absence — that source is gone for good. Any
+    // other fetch failure (500, odd status…) is a generic transient FETCH_FAILED.
+    if (fetchFailures.includes("HTTP_429")) return unknown(UNKNOWN_REASONS.RATE_LIMITED, { stage: "fetch", reasons: fetchFailures });
+    if (fetchFailures.includes("HTTP_404") || fetchFailures.includes("HTTP_410")) return unknown(UNKNOWN_REASONS.SOURCE_NOT_FOUND, { stage: "fetch", reasons: fetchFailures });
+    return unknown(UNKNOWN_REASONS.FETCH_FAILED, { stage: "fetch", reasons: fetchFailures });
+  }
 
   const allParsedRows = [];
   for (const { resource, result } of successful) {

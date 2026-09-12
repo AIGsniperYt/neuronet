@@ -759,5 +759,106 @@ eq("ensure: acquire flips to COMPLETE", acquired.status, ENSURE_STATUS.COMPLETE)
 eq("ensure: acquired boundary top 9=194", acquired.boundary && acquired.boundary.grades["9"], 194);
 check("ensure: acquired boundary has canonical sourceIds", Boolean(acquired.boundary && Array.isArray(acquired.boundary.sourceIds) && acquired.boundary.sourceIds.length));
 
+// ---- (14) Phase 2G #21: the full failure matrix (deterministic states) ------
+// Every frontier-21 failure case must reduce to ONE deterministic reason.
+// wrong-year, wrong-qual, component, tier, course, html-as-pdf, conflicting,
+// ambiguous are proven above; this block closes the remaining ones: wrong-month
+// (WRONG_SERIES), off-domain redirect (WRONG_DOCUMENT via HOST_UNVERIFIED),
+// parser uncertainty (PARSER_FAILED), archive-incomplete (DISCOVERY_INCOMPLETE),
+// network failure (FETCH_FAILED), dead 404 (SOURCE_NOT_FOUND) and 429
+// (RATE_LIMITED).
+
+// wrong month: the parsed document declares NOV-2022, the request wanted JUN-2022
+const wrongSeriesParse = async (bytes, { qual } = {}) => {
+  const rowsN = [higher22].map((r) => normalizeParsedRow(r, { month: "NOV", year: 2022, label: "November 2022" }, "pearson", qual));
+  const validated = rowsN.map((r) => ({ row: r, v: validateParsedBoundary(r, { series: series2022 }) }));
+  const problems = validated.flatMap(({ v }) => (v.ok ? [] : v.problems));
+  const final = validated.map(({ row: r, v }, i) => ({
+    ...r,
+    _validation: v,
+    courseKey: courseKeyFromRow("pearson", qual, r),
+    boundaryId: `${r.courseKey}|NOV-2022`,
+    provenance: provenanceOf({ kind: "official", parsedAt: Date.now(), verification: VERIFY.FAILED })
+  }));
+  return { ok: true, rows: final, problems, reason: "parsed" };
+};
+await resetStores();
+const wrongSeries = await acquirePearson(req22, {
+  fetchImpl: fetchFrom({ [C2022]: { contentType: "application/pdf", body: PDF_BYTES } }),
+  parse: wrongSeriesParse
+});
+eq("matrix: month mismatch -> WRONG_SERIES", wrongSeries.reason, UNKNOWN_REASONS.WRONG_SERIES);
+snap = await loadSnapshot();
+check("matrix: nothing persisted on WRONG_SERIES", !snap.examBoundaries.some((b) => b.id === bidH));
+
+// off-domain redirect: the final url is NOT on pearson.com -> HOST_UNVERIFIED
+await resetStores();
+const offHost = await acquirePearson(req22, {
+  fetchImpl: async (url) => url === C2022
+    ? fakeRes("https://evil-pearson.example/steal.pdf", { status: 200, contentType: "application/pdf", body: PDF_BYTES })
+    : fakeRes(url, { status: 404, contentType: "text/html", body: "nope" }),
+  parse: makeParse([higher22])
+});
+eq("matrix: off-domain redirect -> WRONG_DOCUMENT (HOST_UNVERIFIED)", offHost.reason, UNKNOWN_REASONS.WRONG_DOCUMENT);
+eq("matrix: WRONG_DOCUMENT carries fetchReason", offHost.fetchReason, "HOST_UNVERIFIED");
+snap = await loadSnapshot();
+check("matrix: nothing persisted on off-domain redirect", !snap.examBoundaries.some((b) => b.id === bidH));
+
+// parser uncertainty: the parse seam reports it could not extract a table
+await resetStores();
+const parserUncertain = await acquirePearson(req22, {
+  fetchImpl: fetchFrom({ [C2022]: { contentType: "application/pdf", body: PDF_BYTES } }),
+  parse: async () => ({ ok: false, reason: "PARSE_FAILED", error: "layout extraction failed", rows: [], problems: [] })
+});
+eq("matrix: parser failure -> PARSER_FAILED", parserUncertain.reason, UNKNOWN_REASONS.PARSER_FAILED);
+eq("matrix: PARSER_FAILED at parse stage", parserUncertain.stage, "parse");
+
+// archive incomplete: the walker caps before scanning the series -> the engine
+// reports DISCOVERY_INCOMPLETE (never NO_EXACT_SOURCE)
+await resetStores();
+const capHtml = `
+<a href="https://qualifications.pearson.com/en/support/support-topics/results-certification/grade-boundaries-2022.html">Grade boundaries June 2022</a>
+<a href="https://qualifications.pearson.com/en/support/support-topics/results-certification/grade-boundaries-2021.html">Grade boundaries June 2021</a>
+<a href="https://qualifications.pearson.com/en/support/support-topics/results-certification/grade-boundaries-2020.html">Grade boundaries June 2020</a>`;
+const cappedWalk = await acquirePearson(req22, {
+  includeCatalogue: false,
+  maxPages: 1,
+  fetchImpl: fetchFrom({ [PEARSON_ARCHIVE]: { contentType: "text/html", body: capHtml } }),
+  parse: makeParse([higher22])
+});
+eq("matrix: archive walk capped -> DISCOVERY_INCOMPLETE", cappedWalk.reason, UNKNOWN_REASONS.DISCOVERY_INCOMPLETE);
+check("matrix: DISCOVERY_INCOMPLETE at discover stage", cappedWalk.stage === "discover");
+
+// network failure: the fetch throws (connection drop)
+await resetStores();
+const network = await acquirePearson(req22, {
+  fetchImpl: async (url) => {
+    if (url === C2022) throw new Error("ECONNRESET");
+    return fakeRes(url, { status: 404, contentType: "text/html", body: "nope" });
+  },
+  parse: makeParse([higher22])
+});
+eq("matrix: network failure -> FETCH_FAILED", network.reason, UNKNOWN_REASONS.FETCH_FAILED);
+check("matrix: FETCH_FAILED lists the network reason", network.reasons && network.reasons.includes("NETWORK"));
+
+// dead official URL: catalogued source returns 404 -> SOURCE_NOT_FOUND (a
+// structural absence, scheduled as a permanent failure, not endlessly retried)
+await resetStores();
+const gone = await acquirePearson(req22, {
+  fetchImpl: fetchFrom({ [C2022]: { status: 404, contentType: "text/html", body: "gone" } }),
+  parse: makeParse([higher22])
+});
+eq("matrix: dead official URL (404) -> SOURCE_NOT_FOUND", gone.reason, UNKNOWN_REASONS.SOURCE_NOT_FOUND);
+eq("matrix: SOURCE_NOT_FOUND is permanent (scheduler)", outcomeToState(UNKNOWN_REASONS.SOURCE_NOT_FOUND), JOB_STATES.PERMANENT_FAILURE);
+
+// throttled: catalogued source returns 429 -> RATE_LIMITED (transient, retryable)
+await resetStores();
+const throttled = await acquirePearson(req22, {
+  fetchImpl: fetchFrom({ [C2022]: { status: 429, contentType: "text/html", body: "slow down" } }),
+  parse: makeParse([higher22])
+});
+eq("matrix: rate limited (429) -> RATE_LIMITED", throttled.reason, UNKNOWN_REASONS.RATE_LIMITED);
+eq("matrix: RATE_LIMITED is retryable (scheduler)", outcomeToState(UNKNOWN_REASONS.RATE_LIMITED), JOB_STATES.RETRYABLE);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

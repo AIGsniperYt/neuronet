@@ -16,7 +16,21 @@ import {
   monthFromWord,
   seriesId,
   courseKey,
-  parseCourseKey
+  parseCourseKey,
+  ensureForSitting,
+  IDENTITY_CONFLICT,
+  getForSitting,
+  openExamRepository,
+  provenanceOf,
+  VERIFY,
+  sourceRecordId,
+  loadSnapshot,
+  clearAllStores,
+  clearSnapshotCache,
+  putCourse,
+  putBoundary,
+  putSeries,
+  putSource
 } from "../src/tools/examData/index.js";
 import {
   resolveBoundaryDecision
@@ -126,6 +140,85 @@ const engLang = demo.nodes.find((n) => n.type === "subject" && n.subject === "En
 eq("English Lang stored course null", Boolean(engLang.officialCourse) || engLang.officialCourse === null, true);
 const engKey = courseKey(engLang.officialCourse);
 check("English Lang -> null canonical key", engKey === null || engKey === undefined, `key=${engKey}`);
+
+// ---- 5. Frontier #19: real export — persisted Foundation vs requested Higher --
+// The exported Maths subject is registered as "Mathematics (Foundation)" while
+// the user's stored boundary numbers are the HIGHER tables (2022 scalar=194,
+// 2023 scalar=203, 2024 snapshot top 9=197, 2025 snapshot top 9=217). The engine
+// must NEVER silently mutate the persisted Foundation course into the Higher
+// identity — it surfaces an identity conflict and requires explicit confirmation.
+const mathsSubject = demo.nodes.find((n) => n.type === "subject" && n.subject === "Maths");
+eq("demo: persisted Maths course keys as Foundation", courseKey(mathsSubject.officialCourse), "pearson:gcse:1MA1:F");
+
+await clearSnapshotCache();
+await clearAllStores();
+await putCourse({ id: "pearson:gcse:1MA1:F", board: "pearson", qual: "gcse", code: "1MA1", tier: "F", title: "Mathematics (Foundation)" });
+
+// 5a. requested Higher over persisted Foundation -> identity conflict, and the
+// engine writes NOTHING and mutates nothing.
+const want = await ensureForSitting({
+  board: "pearson", qual: "gcse", code: "1MA1", tier: "H",
+  year: 2022, seriesWord: "June"
+});
+eq("demo: Higher-request over Foundation-persisted -> IDENTITY_CONFLICT", want.reason, IDENTITY_CONFLICT);
+eq("demo: conflict asks for confirmation", want.confirmationRequired, true);
+eq("demo: conflict requested key", want.conflict && want.conflict.requested, "pearson:gcse:1MA1:H");
+eq("demo: conflict persisted key", want.conflict && want.conflict.persisted, "pearson:gcse:1MA1:F");
+let snapDemo = await loadSnapshot();
+check("demo: conflict persisted NOTHING (only the Foundation course remains)",
+  snapDemo.examBoundaries.length === 0 && snapDemo.examSeries.length === 0 && snapDemo.examCourses.length === 1 && snapDemo.examCourses[0].id === "pearson:gcse:1MA1:F");
+check("demo: conflict decision is unknown (official Higher numbers NOT presented)", Boolean(want.decision) && want.decision.kind === "unknown", `kind=${want.decision && want.decision.kind}`);
+
+// 5b. explicit confirmation adopts the REQUESTED identity as a NEW course; the
+// persisted Foundation record is never rewritten.
+const confirmed = await ensureForSitting({
+  board: "pearson", qual: "gcse", code: "1MA1", tier: "H",
+  year: 2022, seriesWord: "June", confirm: true
+});
+eq("demo: confirmation adopts Higher course (boundary still missing -> partial)", confirmed.status, "partial");
+check("demo: confirmation queues a P0 boundary job for the Higher course",
+  confirmed.queue.length === 1 && confirmed.queue[0].courseKey === "pearson:gcse:1MA1:H");
+snapDemo = await loadSnapshot();
+check("demo: persisted Foundation course untouched by confirmation", snapDemo.examCourses.some((c) => c.id === "pearson:gcse:1MA1:F" && c.tier === "F"));
+check("demo: Higher course added as a NEW identity (not a rewrite)", snapDemo.examCourses.some((c) => c.id === "pearson:gcse:1MA1:H"));
+
+// 5c. populate the official Higher tables for the four years and prove each
+// series resolves INDEPENDENTLY (frontier #19: June 2022/2023/2024/2025).
+const srcIdDemo = sourceRecordId("https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/verified-series.pdf");
+await putSource({ id: srcIdDemo, url: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/verified-series.pdf", contentHash: "cafe", publisher: "Pearson Edexcel", accessedAt: Date.now(), verifiedAt: Date.now() });
+const H_TABLES = {
+  2022: { marks: [194, 165, 137, 104, 71, 38, 21], top: 194 },
+  2023: { marks: [203, 174, 145, 112, 79, 47, 31], top: 203 },
+  2024: { marks: [197, 167, 137, 105, 73, 42, 26], top: 197 },
+  2025: { marks: [217, 186, 156, 121, 87, 53, 36], top: 217 }
+};
+const hOrder = ["9", "8", "7", "6", "5", "4", "3", "U"];
+for (const [y, { marks }] of Object.entries(H_TABLES)) {
+  const grades = Object.fromEntries(hOrder.map((g, i) => [g, marks[i]]));
+  await putSeries({ id: `JUN-${y}`, month: "JUN", year: Number(y), label: `June ${y}`, qual: "gcse", board: "pearson" });
+  await putBoundary({
+    id: `pearson:gcse:1MA1:H|JUN-${y}`,
+    courseKey: "pearson:gcse:1MA1:H",
+    seriesId: `JUN-${y}`,
+    series: { month: "JUN", year: Number(y), label: `June ${y}` },
+    grades, gradesInOrder: hOrder, maxMark: 240, tier: "H",
+    sourceIds: [srcIdDemo],
+    provenance: provenanceOf({ kind: "official", url: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/verified-series.pdf", verification: VERIFY.VERIFIED, parsedAt: Date.now() })
+  });
+}
+const snapDemoFinal = await loadSnapshot();
+const repoDemo = openExamRepository({
+  courses: new Map(snapDemoFinal.examCourses.map((c) => [c.id, { ...c }])),
+  series: new Map(snapDemoFinal.examSeries.map((s) => [s.id, { ...s }])),
+  boundaries: new Map(snapDemoFinal.examBoundaries.map((b) => [b.id, { ...b }]))
+});
+for (const [y, { top }] of Object.entries(H_TABLES)) {
+  const d = await getForSitting(repoDemo, { board: "pearson", qual: "gcse", code: "1MA1", tier: "H" }, String(y), "June", {});
+  eq(`demo: June ${y} resolves official independently`, d.kind, "official");
+  eq(`demo: June ${y} exact top = ${top}`, d.top, top);
+}
+const demoRepoCourses = [...repoDemo.index.courses.values()];
+check("demo: repository still carries both identities (F untouched, H added)", demoRepoCourses.some((c) => c.id === "pearson:gcse:1MA1:F") && demoRepoCourses.some((c) => c.id === "pearson:gcse:1MA1:H"));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

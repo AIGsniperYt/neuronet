@@ -96,7 +96,7 @@ export function createJob(requirement, { priority = JOB_PRIORITIES.P1_SITTING, n
 // Transient/network-ish reasons retry; deterministic rejections are permanent
 // (the data does not exist as requested); anything else is uncertain.
 const RETRYABLE_REASONS = new Set([
-  "FETCH_FAILED", "DISCOVERY_INCOMPLETE", "NO_EXACT_SOURCE", "UNKNOWN_METADATA"
+  "FETCH_FAILED", "RATE_LIMITED", "DISCOVERY_INCOMPLETE", "NO_EXACT_SOURCE", "UNKNOWN_METADATA"
 ]);
 export function outcomeToState(reason) {
   return RETRYABLE_REASONS.has(reason)
