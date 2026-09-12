@@ -173,4 +173,39 @@ export async function sha256Hex(bytes) {
   return `faux-${(h >>> 0).toString(16).padStart(8, "0")}`;
 }
 
+// ---- incremental record API (frontier #13) ----------------------------------
+// Individual puts — the caller never clears a store to add one record. `put*`
+// upserts a single record into its own store (IndexedDB single-store put, or
+// the in-memory mirror), adding only to that store. This is the storage shape
+// ExamData now writes through; saveSnapshot/clearAllStores remain for
+// migration/seeding compatibility only.
+async function putRecord(storeName, item) {
+  if (!item || !item.id) return false;
+  memInit();
+  const list = memStore[storeName] || (memStore[storeName] = []);
+  const idx = list.findIndex((i) => i && i.id === item.id);
+  const copy = { ...item };
+  if (idx >= 0) list[idx] = copy; else list.push(copy);
+  try {
+    const db = await getIdb();
+    if (db) {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, "readwrite");
+        tx.objectStore(storeName).put(copy);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error || new Error("put tx error"));
+      });
+    }
+  } catch { /* memory mirror already updated */ }
+  latestSnapshot = null;
+  return true;
+}
+
+export function putCourse(course) { return putRecord("examCourses", course); }
+export function putSeries(series) { return putRecord("examSeries", series); }
+export function putPaper(paper) { return putRecord("examPapers", paper); }
+export function putBoundary(boundary) { return putRecord("examBoundaries", boundary); }
+export function putSource(source) { return putRecord("examSources", source); }
+export function putJob(job) { return putRecord("examJobs", job); }
+
 export { STORES };

@@ -52,7 +52,7 @@ import {
 import { resolveUrl, extractLinks, verifyOfficialHost, classifyCandidate, rankCandidates, crawlOfficialIndex } from "../src/tools/examData/sources/officialEngine.js";
 import { buildExamIndex } from "../src/tools/examData/migrate.js";
 import { openExamRepository, deriveBoundaryDecision } from "../src/tools/examData/repository.js";
-import { loadSnapshot, saveSnapshot, clearAllStores, clearSnapshotCache } from "../src/tools/examData/storage.js";
+import { loadSnapshot, saveSnapshot, clearAllStores, clearSnapshotCache, putCourse, putSeries, putPaper, putBoundary, putSource, putJob } from "../src/tools/examData/storage.js";
 import { parsePearsonBoundaries } from "../src/tools/examData/sources/PearsonSectionParser.js";
 
 let passed = 0;
@@ -637,6 +637,43 @@ eq("repo: courseFor ambiguous -> null", rawRepo.courseFor({ board: "pearson", qu
 const dAmb = deriveBoundaryDecision(rawRepo, { board: "pearson", qual: "gcse", code: "1MA1" }, "2022", "June", {});
 eq("repo: ambiguous course -> unknown decision", dAmb.kind, "unknown");
 eq("repo: unresolved course -> unknown decision", deriveBoundaryDecision(rawRepo, { board: "pearson", qual: "gcse", code: "9MA0" }, "2022", "June", {}).kind, "unknown");
+
+// ---- (10) Phase 2D: incremental storage + source relationships (#13/#14) ----
+await resetStores();
+await putSeries({ id: "JUN-2020", month: "JUN", year: 2020, label: "June 2020", qual: "gcse", board: "pearson" });
+const sidSrc = sourceRecordId(C2022);
+await putSource({ id: sidSrc, url: C2022, contentHash: "abc123", publisher: "Pearson Edexcel", accessedAt: Date.now(), verifiedAt: Date.now() });
+await putCourse({ id: "pearson:gcse:1MA1:H", board: "pearson", qual: "gcse", code: "1MA1", tier: "H" });
+await putBoundary({
+  id: "pearson:gcse:1MA1:H|JUN-2020",
+  courseKey: "pearson:gcse:1MA1:H",
+  seriesId: "JUN-2020",
+  series: { month: "JUN", year: 2020, label: "June 2020" },
+  grades: { 9: 200, U: 0 }, gradesInOrder: ["9", "U"], maxMark: 240, tier: "H",
+  sourceIds: [sidSrc],
+  provenance: provenanceOf({ kind: "official", url: C2022, verification: VERIFY.VERIFIED, parsedAt: Date.now() })
+});
+const snap2d = await loadSnapshot();
+check("storage: put adds to one store without clearing the others", snap2d.examSeries.some((s) => s.id === "JUN-2020") && snap2d.examCourses.some((c) => c.id === "pearson:gcse:1MA1:H") && snap2d.examSources.some((s) => s.id === sidSrc));
+check("storage: incremented boundary present", snap2d.examBoundaries.some((b) => b.id === "pearson:gcse:1MA1:H|JUN-2020"));
+eq("storage: first source record written identically", snap2d.examSources.find((s) => s.id === sidSrc).url, C2022);
+const b2d = snap2d.examBoundaries.find((b) => b.id === "pearson:gcse:1MA1:H|JUN-2020");
+eq("storage: boundary sourceIds link to canonical source", b2d.sourceIds, [sidSrc]);
+check("storage: sourceIds resolves to the stored source record", snap2d.examSources.some((s) => s.id === b2d.sourceIds[0]));
+// incremental overwrite is an upsert, not a duplicate
+await putBoundary({ ...b2d, maxMark: 241 });
+const snap2d2 = await loadSnapshot();
+eq("storage: upsert replaces (no duplicate)", snap2d2.examBoundaries.filter((b) => b.id === b2d.id).length, 1);
+eq("storage: upsert applied the update", snap2d2.examBoundaries.find((b) => b.id === b2d.id).maxMark, 241);
+
+// ---- (11) Phase 2D: freshness is a signal, never a validity gate (#15) ------
+const indexStale = buildExamIndex(cache2025);
+const staleB = indexStale.boundaries.get("pearson:gcse:1MA1:H|JUN-2025");
+staleB.provenance.parsedAt = Date.now() - 200 * 24 * 60 * 60 * 1000;
+const dStale = await getForSitting(openExamRepository(indexStale), { code: "1MA1", tier: "H" }, "2025", "June", {});
+eq("freshness: 200-day-old boundary still renders official", dStale.kind, "official");
+check("freshness: stale boundary surfaces fresh:false as a signal only", dStale.table && dStale.table.fresh === false);
+eq("freshness: old official top still 217", dStale.top, 217);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

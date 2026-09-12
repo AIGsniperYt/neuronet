@@ -132,12 +132,14 @@ function tablesMatch(rowsA, rowsB) {
 }
 
 // ---- persist parsed rows into the snapshot ---------------------------------
+// Incremental (frontier #13): every record is upserted into its own store via
+// put*, never by clearing stores. Source becomes the canonical provenance
+// entity (frontier #14): a boundary carries `sourceIds[]` (and a paper inherits
+// the same ids); the source record holds the url/content-hash/title. Provenance
+// stays on the boundary for display compatibility, but the id link is the
+// graph relationship.
 async function persistRows(rows, request, sources) {
   const now = Date.now();
-  const snapshot = await storage.loadSnapshot();
-  const boundariesMap = new Map((snapshot.examBoundaries || []).map((r) => [r.id, { ...r }]));
-  const papersMap = new Map((snapshot.examPapers || []).map((r) => [r.id, { ...r }]));
-  const sourcesMap = new Map((snapshot.examSources || []).map((r) => [r.id, { ...r }]));
   const seriesRecord = {
     id: seriesId(request.series) || null,
     month: request.series.month,
@@ -146,11 +148,16 @@ async function persistRows(rows, request, sources) {
     qual: qualId(request.qual),
     board: (request.board || "pearson").toLowerCase()
   };
+  await storage.putSeries(seriesRecord);
 
+  const sourceIds = [];
   for (const source of sources) {
     const sid = sourceRecordId(source.url);
-    if (!sourcesMap.has(sid)) sourcesMap.set(sid, {
-      id: sid, url: source.url, contentHash: source.contentHash,
+    if (!sourceIds.includes(sid)) sourceIds.push(sid);
+    await storage.putSource({
+      id: sid,
+      url: source.url,
+      contentHash: source.contentHash,
       status: source.status || null,
       title: source.title || null,
       publisher: source.publisher || "Pearson Edexcel",
@@ -163,10 +170,9 @@ async function persistRows(rows, request, sources) {
     const ck = row.courseKey;
     if (!ck) continue;
     const sid = seriesRecord.id;
-    const bid = `${ck}|${sid}`;
     const src = sources[0] && sources[0].url ? sources[0] : null;
     const boundary = {
-      id: bid,
+      id: `${ck}|${sid}`,
       courseKey: ck,
       seriesId: sid,
       series: { month: seriesRecord.month, year: seriesRecord.year, label: seriesRecord.label },
@@ -174,6 +180,7 @@ async function persistRows(rows, request, sources) {
       gradesInOrder: row.gradesInOrder,
       maxMark: row.maxMark,
       tier: row.tier,
+      sourceIds: sourceIds.slice(),
       provenance: provenanceOf({
         kind: "official",
         url: src && src.url || null,
@@ -186,30 +193,16 @@ async function persistRows(rows, request, sources) {
         parserVersion: row.provenance && row.provenance.parserVersion || null
       })
     };
-    boundariesMap.set(bid, boundary);
+    await storage.putBoundary(boundary);
     if (Array.isArray(row.papers)) {
       for (const p of row.papers) {
-        const paper = { id: paperRecordId(ck, sid, p), courseKey: ck, seriesId: sid, ...p };
-        if (!papersMap.has(paper.id)) papersMap.set(paper.id, paper);
+        const paper = { id: paperRecordId(ck, sid, p), courseKey: ck, seriesId: sid, ...p, sourceIds: sourceIds.slice() };
+        await storage.putPaper(paper);
       }
     }
-  }
-  const coursesMap = new Map((snapshot.examCourses || []).map((r) => [r.id, { ...r }]));
-  for (const row of rows) {
-    const ck = row.courseKey;
-    if (!ck || coursesMap.has(ck)) continue;
     const p = parseCourseKey(ck);
-    if (p) coursesMap.set(ck, { id: ck, board: p.board, qual: p.qual, code: p.code, tier: p.tier });
+    if (p) await storage.putCourse({ id: ck, board: p.board, qual: p.qual, code: p.code, tier: p.tier });
   }
-
-  await storage.saveSnapshot({
-    examCourses: [...coursesMap.values()],
-    examSeries: [...(snapshot.examSeries || []).filter((s) => s.id !== seriesRecord.id), seriesRecord].filter(Boolean),
-    examBoundaries: [...boundariesMap.values()],
-    examPapers: [...papersMap.values()],
-    examSources: [...sourcesMap.values()],
-    examJobs: [...(snapshot.examJobs || [])]
-  });
 }
 
 // ---- main pipeline entry (Pearson-specific for now) ------------------------
