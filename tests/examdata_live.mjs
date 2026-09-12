@@ -85,6 +85,43 @@ eq("live: persisted 9=194", bH && bH.grades["9"], 194);
 check("live: persisted provenance carries parser version", Boolean(bH && bH.provenance.parserVersion));
 check("live: persisted provenance presentable official", Boolean(bH && isPresentableOfficial(bH.provenance)));
 
+// ---- Phase 2A: discovery proven from the traversal, catalogue EXCLUDED -------
+// includeCatalogue:false must resolve Jun-2022 from the official archive graph
+// (the /content/dam/grade-boundaries.json index), never from the cache.
+const noCat = await discover({ request: jun2022Req, includeCatalogue: false });
+check("live: includeCatalogue:false finds Jun-2022 via archive traversal", noCat.resources.some((r) => r.year === 2022 && r.month === "JUN" && r.qual === "gcse" && r.source === "archive"));
+check("live: includeCatalogue:false returns no catalogue entries", !noCat.resources.some((r) => r.source === "catalogue"));
+check("live: archive index scanned during traversal", noCat.archiveScanned === true);
+check("live: traversal complete (no safety cap)", noCat.incomplete === false, `incomplete=${noCat.incomplete} capped=${noCat.graph && noCat.graph.capped}`);
+
+// ---- Phase 2A: out-of-catalogue historical year (Nov 2019, archive-only) -----
+// June 2020/2021 GCSE exams were cancelled (COVID), and November 2019 is not in
+// VERIFIED_CATALOGUE — the archive index is its ONLY official source. This is
+// the "arbitrary historical years" proof, from traversal to a persisted table.
+const nov2019Req = { qual: "gcse", series: { month: "NOV", year: 2019 } };
+clearSnapshotCache();
+await clearAllStores();
+const a2019 = await acquirePearson({ board: "pearson", qual: "gcse", series: nov2019Req.series, expectedCourse: { code: "1MA1", tier: "H" } }, { includeCatalogue: false });
+eq("live: out-of-catalogue Nov-2019 acquired from archive", a2019.kind, "official");
+eq("live: Nov-2019 1MA1 H top = 197", a2019.top, 197);
+check("live: Nov-2019 source title recorded from traversal", a2019.sources.length > 0 && /Grade Boundaries/.test(a2019.sources[0].title || ""), JSON.stringify(a2019.sources.map((s) => s.url)));
+const snap2019 = await loadSnapshot();
+check("live: Nov-2019 boundary persisted", snap2019.examBoundaries.some((b) => b.id === "pearson:gcse:1MA1:H|NOV-2019"));
+
+// ---- Phase 2A: recent year not in the curated catalogue (June 2026) ----------
+const jun2026Req = { qual: "gcse", series: { month: "JUN", year: 2026 } };
+const d2026 = await discover({ request: jun2026Req, includeCatalogue: false });
+const jun2026 = d2026.resources.find((r) => r.year === 2026 && r.month === "JUN" && r.qual === "gcse");
+check("live: out-of-catalogue Jun-2026 discovered", Boolean(jun2026));
+if (jun2026) {
+  const f26 = await fetchSource(jun2026);
+  check("live: Jun-2026 source fetched", f26.ok, `reason=${f26.reason}`);
+  const p26 = await parseSource(f26.bytes, { qual: "gcse", series: jun2026Req.series });
+  const h26 = p26.rows && p26.rows.find((r) => r.code === "1MA1" && r.tier === "H");
+  check("live: Jun-2026 1MA1 H present+valid", Boolean(h26) && h26._validation.ok && h26.maxMark === 240);
+  eq("live: Jun-2026 1MA1 H top = 208", h26 && h26.grades["9"], 208);
+}
+
 // ---- getForSitting over the real snapshot -----------------------------------
 const repo = openExamRepository({
   courses: new Map((snap.examCourses || []).map((r) => [r.id, { ...r }])),

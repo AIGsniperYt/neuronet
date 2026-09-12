@@ -25,11 +25,14 @@ import {
 import { provenanceOf, VERIFY } from "./provenance.js";
 import * as storage from "./storage.js";
 import * as PearsonSource from "./sources/PearsonSource.js";
+import { DISCOVERY_INCOMPLETE, UNKNOWN_METADATA } from "./sources/officialEngine.js";
 
 export const UNKNOWN_REASONS = Object.freeze({
   COURSE_UNRESOLVED: "COURSE_UNRESOLVED",
   AMBIGUOUS: "AMBIGUOUS",
   NO_EXACT_SOURCE: "NO_EXACT_SOURCE",
+  DISCOVERY_INCOMPLETE,
+  UNKNOWN_METADATA,
   TIER_MISMATCH: "TIER_MISMATCH",
   CONFLICTING_SOURCES: "CONFLICTING_SOURCES",
   PARSER_FAILED: "PARSER_FAILED",
@@ -208,7 +211,7 @@ async function persistRows(rows, request, sources) {
 }
 
 // ---- main pipeline entry (Pearson-specific for now) ------------------------
-export async function acquirePearson(request, { fetchImpl, proxyFn, onProgress, parse } = {}) {
+export async function acquirePearson(request, { fetchImpl, proxyFn, onProgress, parse, includeCatalogue = true, maxPages, maxResources } = {}) {
   const parseFn = parse || ((bytes, opts) => PearsonSource.parseSource(bytes, opts));
   const qid = qualId(request && request.qual);
   const month = String((request.series && request.series.month) || "").toUpperCase();
@@ -223,9 +226,29 @@ export async function acquirePearson(request, { fetchImpl, proxyFn, onProgress, 
   }
 
   if (onProgress) onProgress({ stage: "discover", message: `Discovering Pearson ${fmtSeriesLabel(request.series)} ${qid.toUpperCase()}...` });
-  const { resources } = await PearsonSource.discover({ request, fetchImpl, proxyFn, onProgress });
-  const matching = selectMatching(resources, request);
-  if (!matching.length) return unknown(UNKNOWN_REASONS.NO_EXACT_SOURCE, { stage: "discover", message: `No official resource found for Pearson ${fmtSeriesLabel(request.series)} ${qid.toUpperCase()}.` });
+  const discovered = await PearsonSource.discover({ request, fetchImpl, proxyFn, onProgress, includeCatalogue, maxPages, maxResources });
+  const matching = selectMatching(discovered.resources, request);
+  if (!matching.length) {
+    // A safety-limited crawl cut history short: a matching source may exist but
+    // was never fully scanned — that is DISCOVERY_INCOMPLETE, not NO_EXACT_SOURCE.
+    if (discovered.incomplete) {
+      return unknown(UNKNOWN_REASONS.DISCOVERY_INCOMPLETE, {
+        stage: "discover",
+        message: `History crawl hit a safety limit for Pearson ${fmtSeriesLabel(request.series)} ${qid.toUpperCase()}; a matching official source may exist but was not fully scanned.`,
+        pages: discovered.graph && discovered.graph.pages
+      });
+    }
+    // Candidates exist but none carries a verifiable series identity in its
+    // title — report the evidence, never pretend the archive is empty.
+    if (discovered.metadataUnknown > 0 || (discovered.resources || []).some((r) => r.unknownMetadata)) {
+      return unknown(UNKNOWN_REASONS.UNKNOWN_METADATA, {
+        stage: "discover",
+        message: `Pearson candidates exist for ${qid.toUpperCase()} but none carries a verifiable series identity in its title; nothing was assumed.`,
+        candidates: discovered.metadataUnknown
+      });
+    }
+    return unknown(UNKNOWN_REASONS.NO_EXACT_SOURCE, { stage: "discover", message: `No official resource found for Pearson ${fmtSeriesLabel(request.series)} ${qid.toUpperCase()}.` });
+  }
 
   const fetchResults = [];
   for (const resource of matching) {

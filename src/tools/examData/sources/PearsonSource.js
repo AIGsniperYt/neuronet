@@ -6,15 +6,26 @@
 //   (the pipeline lives in ../ingest.js; this module owns the source-specific
 //   discovery, content validation and parsing).
 //
-// Discovery NEVER guesses filenames. It walks BOTH of these, in order:
-//   1. the official grade-boundaries landing/archive pages (live resource
-//      links; the only source that can mint a NEW series), and
-//   2. a curated VERIFIED_CATALOGUE — every URL in it has been downloaded,
-//      confirmed to be a real %PDF with the matching content-type, and its
-//      sha-256 recorded. New series are discovered, never inferred by naming
-//      convention: 2406-gcse-9-1-subject-grade-boundaries.pdf returns HTTP 200
-//      but is an HTML error page, which is exactly what content validation
-//      rejects.
+// Discovery runs on the reusable official-source ENGINE (officialEngine.js) and
+// NEVER guesses filenames. Candidate discovery is mechanically separate from
+// classification (frontier Phase 2A #1/#2):
+//   1. every official link is first a CANDIDATE — evidence that is never
+//      dropped because a title is unhelpful;
+//   2. classification reads cheap series metadata from the TITLE (never a
+//      filename), and a candidate whose title carries no series identity is
+//      surfaced as metaKnown:false → the pipeline reports UNKNOWN_METADATA
+//      instead of pretending the archive is empty;
+//   3. the official archive graph is walked for real: the landing page, the
+//      grade-boundaries archive HTML pages, and the /content/dam/
+//      grade-boundaries.json index that powers the live "find all grade
+//      boundaries" widget (722 records, 2009–2026). Safety limits exist to
+//      protect the browser, but hitting one reports DISCOVERY_INCOMPLETE,
+//      never NO_EXACT_SOURCE;
+//   4. a curated VERIFIED_CATALOGUE joins discovery as the known-source cache
+//      (includeCatalogue:true default) — every URL in it was downloaded,
+//      confirmed a real %PDF, and its sha-256 recorded. Discovery tests prove
+//      themselves with includeCatalogue:false: a series must resolve from the
+//      traversal, not from the catalogue.
 //
 // The request (`{ qual, series, board, expectedCourse }`) propagates unchanged
 // through the pipeline; the adapter never silently repairs it.
@@ -33,10 +44,16 @@ import {
 import { extractPdfLayoutLinesFromBuffer } from "../../pdfBoundaries.js";
 import { provenanceOf, VERIFY } from "../provenance.js";
 import { normalizeParsedRow, validateParsedBoundary } from "../validation.js";
+import { crawlOfficialIndex, classifyCandidate as engineClassifyCandidate, extractLinks, rankCandidates } from "./officialEngine.js";
 
 export const PEARSON_HOST = "https://qualifications.pearson.com";
 export const PEARSON_LANDING = `${PEARSON_HOST}/en/support/support-topics/results-certification/grade-boundaries.html`;
 export const PEARSON_ARCHIVE = `${PEARSON_HOST}/en/support/support-topics/results-certification/grade-boundaries-archive.html`;
+// The JSON archive index that powers the live landing page's "Find all grade
+// boundaries" widget: 722 records back to 2009, each { title, url, category }.
+// The legacy grade-boundaries-archive.html page itself is gone from the live
+// site, so this index IS the official history graph.
+export const PEARSON_ARCHIVE_INDEX = `${PEARSON_HOST}/content/dam/grade-boundaries.json`;
 export const PEARSON_DAM = `${PEARSON_HOST}/content/dam/pdf/Support/Grade-boundaries`;
 export const PEARSON_PARSER_VERSION = "1.1";
 
@@ -111,154 +128,142 @@ export function catalogueForRequest(request) {
 }
 
 // ---- discovery -------------------------------------------------------------
-// Walk the official landing page for live resource links (new/seasonal series
-// published by Pearson live here first), then walk the grade-boundaries
-// ARCHIVE (genuine history traversal — not a reserved stub), then normalise
-// links and merge with the verified catalogue. Returns resources in a stable
-// order. Landing/archive HTML is fetched through the caller's proxyFn so
-// browsers can actually read it.
-export async function discover({ proxyFn, fetchImpl, request, onProgress } = {}) {
-  const resources = [...catalogueForRequest(request)];
-  const seen = new Set(resources.map((r) => r.url));
+// Candidate discovery is mechanically separate from classification. Every
+// official link is first a candidate; classification reads cheap series
+// metadata from the TITLE (never a filename); a candidate that carries no
+// series identity in its title is never discarded — it is surfaced as
+// metaKnown:false so the pipeline can report UNKNOWN_METADATA.
 
-  const doFetch = fetchImpl || fetchBoundaryResourceWithProxy;
-  const add = (url, title, source) => {
-    const abs = url.startsWith("http")
-      ? url
-      : `${PEARSON_HOST}${url.startsWith("/") ? "" : "/"}${url}`;
-    if (!PEARSON_HOST_RE.test(abs)) return false; // only the official host feeds discovery
-    if (seen.has(abs)) return false;
-    const meta = classifyResource(abs, title);
-    if (!meta) return false;
-    seen.add(abs);
-    resources.push({ ...meta, url: abs, source });
-    return true;
-  };
-
-  const landingScanned = Boolean(
-    await fetchPageResources({
-      doFetch,
-      proxyFn,
-      url: PEARSON_LANDING,
-      add,
-      source: "landing"
-    })
-  );
-
-  // Historical series live on the archive index (and its linked year pages);
-  // walk it as a crawl, never a reserved placeholder.
-  await archiveWalk({ doFetch, proxyFn, add, onProgress });
-
-  if (onProgress) onProgress(`Pearson discovery: ${resources.length} candidate resource(s)`);
-  return { resources, requestCatalogueOnly: resources.every((r) => r.source === "catalogue"), landingScanned };
-}
-
-// Fetch one page and harvest its (title, url) resource links. Returns the raw
-// HTML on success (landing scan detects it), null otherwise. Best-effort: an
-// unreachable page is not an error — the catalogue still answers.
-async function fetchPageResources({ doFetch, proxyFn, url, add, source }) {
-  let html = null;
-  try {
-    const res = await doFetch(proxyFn ? proxyFn(url) : url);
-    if (res && res.ok) html = await res.text();
-  } catch {
-    html = null; // best-effort discovery
-  }
-  if (!html) return null;
-  const titles = [...html.matchAll(/class= *"hiddenAssetTitle">\s*([^<]+?)\s*<\/span>/g)].map((m) => m[1]);
-  const urls = [...html.matchAll(/class= *"hiddenAssetUrl">\s*([^<]+?)\s*<\/span>/g)].map((m) => m[1].trim());
-  for (let i = 0; i < Math.min(titles.length, urls.length, 200); i++) {
-    if (!/\.pdf$/i.test(urls[i])) continue;
-    add(urls[i], titles[i], source);
-  }
-  return html;
-}
-
-// Genuine traversal of the Pearson grade-boundaries archive. The archive index
-// lists per-season resource links (hiddenAsset spans) and further archive
-// sub-pages (anchors to other grade-boundaries pages). We crawl a bounded
-// frontier of those pages, harvesting every classified resource. Discovery
-// stays best-effort end to end: a dead or partial archive never fails the
-// request, but when it answers we actually capture its history.
-const ARCHIVE_MAX_PAGES = 8;
-const ARCHIVE_MAX_RESOURCES = 400;
-
-async function archiveWalk({ doFetch, proxyFn, add, onProgress }) {
-  const visited = new Set();
-  const queue = [
-    proxyFn ? proxyFn(PEARSON_ARCHIVE) : PEARSON_ARCHIVE
-  ];
-  let harvested = 0;
-
-  while (queue.length && visited.size < ARCHIVE_MAX_PAGES && harvested < ARCHIVE_MAX_RESOURCES) {
-    const url = queue.shift();
-    if (visited.has(url)) continue;
-    visited.add(url);
-
-    let html = null;
+// Harvest the links an official payload carries. The archive index endpoint is
+// a JSON record list; the HTML pages are parsed for anchors + hiddenAsset
+// pairs. Extraction is generic; relevance filtering happens downstream.
+function harvestPearsonLinks(text, url) {
+  if (!text) return [];
+  const trimmed = String(text).trim();
+  if (/^\s*[\[{]/.test(trimmed)) {
     try {
-      const res = await doFetch(url);
-      if (res && res.ok) html = await res.text();
+      const j = JSON.parse(trimmed);
+      const records = (j && j.searchResults && j.searchResults.algoliaRecords) || (Array.isArray(j) ? j : []);
+      return records.filter((r) => r && r.url).map((r) => ({ url: r.url, text: r.title || r.url }));
     } catch {
-      html = null;
+      return [];
     }
-    if (!html) continue;
-
-    // 1) harvest resource links exactly like the landing page does
-    const titles = [...html.matchAll(/class= *"hiddenAssetTitle">\s*([^<]+?)\s*<\/span>/g)].map((m) => m[1]);
-    const urls = [...html.matchAll(/class= *"hiddenAssetUrl">\s*([^<]+?)\s*<\/span>/g)].map((m) => m[1].trim());
-    const before = harvested;
-    for (let i = 0; i < Math.min(titles.length, urls.length, 200); i++) {
-      if (!/\.pdf$/i.test(urls[i])) continue;
-      if (harvested >= ARCHIVE_MAX_RESOURCES) break;
-      if (add(urls[i], titles[i], "archive")) harvested += 1;
-    }
-    // 2) anchors: some archive pages use plain <a> lists for older series
-    if (harvested < ARCHIVE_MAX_RESOURCES) {
-      const anchors = [...html.matchAll(/href="([^"]+\.pdf)"[^>]*>\s*([^<]*)</gi)];
-      for (const [, href, text] of anchors) {
-        if (harvested >= ARCHIVE_MAX_RESOURCES) break;
-        if (add(href, (text || "").trim() || href, "archive")) harvested += 1;
-      }
-    }
-    // 3) follow links to further archive sub-pages on the same official host
-    for (const [, href] of html.matchAll(/href="([^"]+)"/g)) {
-      if (visited.size >= ARCHIVE_MAX_PAGES) break;
-      let abs = href.startsWith("http") ? href : `${PEARSON_HOST}${href.startsWith("/") ? "" : "/"}${href}`;
-      abs = abs.split("#")[0];
-      if (!/\.pdf$/i.test(abs)) {
-        const norm = abs.replace(/\/+$/, "");
-        if (/grade-boundaries/i.test(norm) && /pearson\.com([:\/]|$)/i.test(norm) && !visited.has(norm) && !queue.includes(norm)) {
-          queue.push(norm);
-        }
-      }
-    }
-    if (harvested > before && onProgress) onProgress(`Pearson archive walk: ${harvested} resource(s) harvested`);
   }
+  return extractLinks(text, { base: url, hostRe: PEARSON_HOST_RE });
 }
 
-// Classify a discovered URL+title into { month, year, qual, title } or null.
-// Series identity comes from the TITLE (jan 2022, november 2024, ...), never
-// from the filename. Qualification from title words (GCSE (9-1) / GCE / AS).
-function classifyResource(url, title) {
-  const t = String(title || "");
-  let year = null;
-  let month = null;
-  const mSeries = t.match(/(January|February|March|April|May|June|July|August|September|October|November|December)[a-z]*? (\d{4})/i);
-  if (mSeries) {
-    month = monthFromWord(mSeries[1]);
-    year = Number(mSeries[2]);
-  } else {
-    return null; // no series identity in the title -> cannot safely bind
+// One crawl of a Pearson history entry point (landing, HTML archive, JSON
+// index). Returns CONFIRMED candidates: classified resources (series identity
+// known) plus metaKnown:false candidates (title carries no series identity —
+// UNKNOWN_METADATA evidence, never discarded). Integers GC/A-level/iGCSE are
+// classified, not unknown; Notional Component and International documents are
+// out of home-qualification scope and excluded from subject-level resources.
+async function crawlSeries({ doFetch, startUrls, source, onProgress, maxPages, maxResources }) {
+  const crawl = await crawlOfficialIndex({
+    doFetch,
+    hostRe: PEARSON_HOST_RE,
+    startUrls,
+    harvest: harvestPearsonLinks,
+    isResourceUrl: (abs) => /\.pdf$/i.test(abs),
+    isRelevantPage: (abs) => /grade-boundaries/i.test(abs) && !/\.pdf$/i.test(abs),
+    classify: (abs, title) => engineClassifyCandidate(abs, title),
+    maxPages,
+    maxResources,
+    onProgress
+  });
+  const resources = [];
+  let metadataUnknown = 0;
+  for (const c of crawl.resources) {
+    const meta = c.meta;
+    if (meta && meta.month && meta.year) {
+      if (meta.international || meta.documentType === "notional-component") continue;
+      resources.push({
+        month: meta.month,
+        year: meta.year,
+        qual: meta.qual || null,
+        title: c.title,
+        url: c.url,
+        source,
+        metaKnown: true,
+        documentType: meta.documentType || "grade-boundaries"
+      });
+    } else {
+      metadataUnknown += 1;
+      resources.push({
+        month: null, year: null, qual: null,
+        title: c.title, url: c.url, source,
+        metaKnown: false, unknownMetadata: true
+      });
+    }
   }
-  let qual = null;
-  const norm = t.toLowerCase();
-  if (/gcse/.test(norm) && !/international|grade-boundaries-archive/i.test(norm)) qual = "gcse";
-  else if (/a-level|gce\b|as\s+and/.test(norm) && !/international/i.test(norm)) qual = "alevel";
-  else if (/^as\b/.test(norm)) qual = "as";
-  if (!qual) return null;
-  const aLevel = qual === "alevel";
-  return { month, year, qual, title: t, baseUrl: aLevel ? `${PEARSON_DAM}/A-level` : `${PEARSON_DAM}/GCSE` };
+  return { resources, metadataUnknown, incomplete: crawl.incomplete, pages: crawl.visited, capped: crawl.capped };
+}
+
+// Genuine archive-graph traversal (frontier must-fix #1). Walks the landing
+// page, the grade-boundaries archive HTML pages and the JSON archive index as a
+// real crawl; follows every relevant same-host archive link; harvests every
+// candidate. Safety limits (maxPages/maxResources) exist to protect the
+// browser — hitting one sets `incomplete: true` (DISCOVERY_INCOMPLETE), it is
+// NOT the definition of a complete archive. The catalogue is NOT consulted
+// here: this is discovery only.
+export async function discoverSeries({ skipLanding = false, proxyFn, fetchImpl, onProgress, maxPages, maxResources } = {}) {
+  const doFetch = fetchImpl || fetchBoundaryResourceWithProxy;
+  const landingStart = skipLanding ? [] : [proxyFn ? proxyFn(PEARSON_LANDING) : PEARSON_LANDING];
+  const archiveStart = [
+    proxyFn ? proxyFn(PEARSON_ARCHIVE) : PEARSON_ARCHIVE,
+    proxyFn ? proxyFn(PEARSON_ARCHIVE_INDEX) : PEARSON_ARCHIVE_INDEX
+  ];
+  const [landing, archive] = await Promise.all([
+    crawlSeries({ doFetch, startUrls: landingStart, source: "landing", onProgress, maxPages, maxResources }),
+    crawlSeries({ doFetch, startUrls: archiveStart, source: "archive", onProgress, maxPages, maxResources })
+  ]);
+  const seen = new Set();
+  const resources = [];
+  for (const r of [...landing.resources, ...archive.resources]) {
+    if (seen.has(r.url)) continue;
+    seen.add(r.url);
+    resources.push(r);
+  }
+  return {
+    resources,
+    metadataUnknown: landing.metadataUnknown + archive.metadataUnknown,
+    incomplete: landing.incomplete || archive.incomplete,
+    landingScanned: resources.some((r) => r.source === "landing"),
+    archiveScanned: resources.some((r) => r.source === "archive"),
+    graph: { pages: [...landing.pages, ...archive.pages], capped: landing.capped || archive.capped }
+  };
+}
+
+// Full discovery envelope: series traversal + optional curated catalogue merge,
+// then evidence-scored ordering (order only — discovery never picks on its
+// own). `includeCatalogue:false` proves a series resolves from the traversal;
+// with the default true, the verified catalogue answers for known series.
+export async function discoverResources({ skipLanding, proxyFn, fetchImpl, request, onProgress, includeCatalogue = true, maxPages, maxResources } = {}) {
+  const series = await discoverSeries({ skipLanding, proxyFn, fetchImpl, onProgress, maxPages, maxResources });
+  const seen = new Set(series.resources.map((r) => r.url));
+  const resources = [...series.resources];
+  if (includeCatalogue) {
+    for (const r of catalogueForRequest(request)) {
+      if (seen.has(r.url)) continue;
+      seen.add(r.url);
+      resources.push({ ...r, source: "catalogue" });
+    }
+  }
+  const ranked = rankCandidates(resources, request);
+  if (onProgress) onProgress(`Pearson discovery: ${ranked.length} candidate resource(s)`);
+  return {
+    resources: ranked,
+    requestCatalogueOnly: resources.every((r) => r.source === "catalogue"),
+    landingScanned: series.landingScanned,
+    archiveScanned: series.archiveScanned,
+    incomplete: series.incomplete,
+    metadataUnknown: series.metadataUnknown,
+    graph: series.graph
+  };
+}
+
+export async function discover(opts = {}) {
+  return discoverResources(opts);
 }
 
 // ---- content-validated fetch ----------------------------------------------

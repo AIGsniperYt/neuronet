@@ -40,8 +40,13 @@ import {
   acquirePearson,
   getForSitting,
   extractDocumentSeries,
-  PEARSON_ARCHIVE
+  PEARSON_ARCHIVE,
+  PEARSON_ARCHIVE_INDEX,
+  PEARSON_HOST_RE,
+  DISCOVERY_INCOMPLETE,
+  UNKNOWN_METADATA
 } from "../src/tools/examData/index.js";
+import { resolveUrl, extractLinks, verifyOfficialHost, classifyCandidate, rankCandidates, crawlOfficialIndex } from "../src/tools/examData/sources/officialEngine.js";
 import { buildExamIndex } from "../src/tools/examData/migrate.js";
 import { openExamRepository } from "../src/tools/examData/repository.js";
 import { loadSnapshot, saveSnapshot, clearAllStores, clearSnapshotCache } from "../src/tools/examData/storage.js";
@@ -138,6 +143,108 @@ const archiveWalked = await discover({
 check("archive: followed sub-page harvests JAN-2020", archiveWalked.resources.some((r) => r.url === ARCH_JAN2020 && r.month === "JAN" && r.year === 2020));
 check("archive: same-page June 2019 harvested from index", archiveWalked.resources.some((r) => r.year === 2019));
 check("archive: off-host link rejected", !archiveWalked.resources.some((r) => /evil-pearson/.test(r.url)));
+
+// ---- (2c) Phase 2A: reusable official-source engine primitives ---------------
+eq("engine: resolveUrl absolute kept", resolveUrl("https://q.pearson.com/a.pdf", LANDING), "https://q.pearson.com/a.pdf");
+eq("engine: resolveUrl relative against base", resolveUrl("/content/dam/x.pdf", LANDING), "https://qualifications.pearson.com/content/dam/x.pdf");
+eq("engine: resolveUrl protocol-relative", resolveUrl("//qualifications.pearson.com/x.pdf", LANDING), "https://qualifications.pearson.com/x.pdf");
+check("engine: resolveUrl strips hash", resolveUrl("https://q.pearson.com/x.pdf#frag", LANDING) === "https://q.pearson.com/x.pdf");
+check("engine: resolveUrl rejects non-http link", resolveUrl("mailto:a@b.c") === null);
+check("engine: verifyOfficialHost accepts official host", verifyOfficialHost("https://qualifications.pearson.com/x", PEARSON_HOST_RE));
+check("engine: verifyOfficialHost anchors host (no lookalike)", !verifyOfficialHost("https://pearson.com.evil.example/x", PEARSON_HOST_RE));
+const engineLinks = extractLinks(`
+  <a href="/maths-june-2022.pdf">GCSE (9-1) Mathematics June 2022</a>
+  <span class="hiddenAssetTitle">GCSE (9-1) grade boundaries January 2020</span>
+  <span class="hiddenAssetUrl">https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/jan-2020.pdf</span>
+  <a href="https://evil.example/official.pdf">off host</a>
+`, { base: LANDING, hostRe: PEARSON_HOST_RE });
+check("engine: extractLinks anchors + hiddenAsset pairs, off-host filtered", engineLinks.length === 2, JSON.stringify(engineLinks));
+check("engine: extractLinks resolves + filters off-host", engineLinks.every((l) => l.url.startsWith("https://qualifications.pearson.com/")));
+eq("engine: classifyCandidate reads series from title", classifyCandidate("x.pdf", "GCSE (9-1) grade boundaries June 2022"), { month: "JUN", year: 2022, qual: "gcse", documentType: "grade-boundaries", international: false });
+check("engine: classifyCandidate undated title -> null (kept as UNKNOWN_METADATA)", classifyCandidate("x.pdf", "GCSE (9-1) grade boundaries") === null);
+check("engine: classifyCandidate notional flagged", classifyCandidate("x.pdf", "Notional Component GCSE (9-1) grade boundaries June 2021").documentType === "notional-component");
+check("engine: classifyCandidate international flagged", classifyCandidate("x.pdf", "International GCSE (9-1) grade boundaries June 2023").international === true);
+const engineRanked = rankCandidates([
+  { url: "a.pdf", month: "DEC", year: 2024, qual: "gcse" },
+  { url: "b.pdf", month: "JUN", year: 2022, qual: "gcse" },
+  { url: "c.pdf", month: null, year: null, qual: null, unknownMetadata: true }
+], { qual: "gcse", series: { month: "JUN", year: 2022 } });
+check("engine: rankCandidates orders best first and sinks unknown", engineRanked[0].url === "b.pdf" && engineRanked[2].url === "c.pdf", JSON.stringify(engineRanked.map((r) => r.url)));
+const incompleteCrawl = await crawlOfficialIndex({
+  doFetch: fetchFrom({ [PEARSON_ARCHIVE]: { contentType: "text/html", body: archiveHtml }, [ARCH_SUB]: { contentType: "text/html", body: archiveSubHtml } }),
+  startUrls: [PEARSON_ARCHIVE],
+  hostRe: PEARSON_HOST_RE,
+  isRelevantPage: () => true,
+  maxPages: 1
+});
+check("engine: crawl safety cap -> incomplete (DISCOVERY_INCOMPLETE not NO_EXACT_SOURCE)", incompleteCrawl.incomplete === true && incompleteCrawl.capped === "pages");
+
+// ---- (2d) Phase 2A: JSON archive index is the official archive graph ---------
+// The live landing widget loads /content/dam/grade-boundaries.json (722 records,
+// 2009-2026). Discovery must treat it as the history graph and prove resolution
+// with the catalogue EXCLUDED (includeCatalogue:false).
+const INDEX_JSON = JSON.stringify({
+  searchResults: {
+    algoliaRecords: [
+      { title: "Grade Boundaries - June 2022 - GCSE (9-1)", url: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/2206-gcse-9-1-subject-grade-boundaries.pdf", category: "Pearson-UK:Qualification-Family/GCSE" },
+      { title: "Grade Boundaries - November 2020 - GCSE (9-1)", url: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/grade-boundaries-november-2020-gcse-9-1.pdf" },
+      { title: "Grade Boundaries - June 2019 - Edexcel GCSE (9-1)", url: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/1906-gcse-9-1-subject-grade-boundaries.pdf" },
+      { title: "Notional Component Grade Boundaries - June 2022 - GCSE (9-1)", url: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/2206-gcse-9-1-notional-component-grade-boundaries.pdf" },
+      { title: "International GCSE (9-1) grade boundaries June 2023", url: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/iGCSE-june-2023.pdf" },
+      { title: "GCSE (9-1) grade boundaries", url: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/undated-grade-boundaries.pdf" }
+    ]
+  }
+});
+const fromIndex = await discover({
+  request: { qual: "gcse", series: { month: "JUN", year: 2022 } },
+  includeCatalogue: false,
+  fetchImpl: fetchFrom({ [PEARSON_ARCHIVE_INDEX]: { contentType: "application/json", body: INDEX_JSON } })
+});
+const fromIndexJun22 = fromIndex.resources.find((r) => r.year === 2022 && r.month === "JUN" && r.qual === "gcse");
+check("archive: JSON index yields Jun-2022 gcse", Boolean(fromIndexJun22));
+check("archive: Jun-2022 source is archive (traversal, not catalogue)", fromIndexJun22 && fromIndexJun22.source === "archive");
+check("archive: JSON index scanned flag", fromIndex.archiveScanned === true);
+check("archive: historical Nov-2020 from index", Boolean(fromIndex.resources.find((r) => r.year === 2020 && r.month === "NOV")));
+check("archive: notional components excluded from resources", !fromIndex.resources.some((r) => /notional/i.test(r.title)));
+check("archive: international excluded from resources", !fromIndex.resources.some((r) => /international|iglobal/i.test(r.title)));
+check("archive: undated candidate kept as metaKnown:false", fromIndex.resources.some((r) => r.metaKnown === false && r.unknownMetadata === true));
+check("archive: undated candidate counted as UNKNOWN_METADATA", fromIndex.metadataUnknown === 1);
+check("archive: includeCatalogue:false leaks no catalogue entries", !fromIndex.resources.some((r) => r.source === "catalogue") && fromIndex.requestCatalogueOnly === false);
+const withCat = await discover({
+  request: { qual: "gcse", series: { month: "JUN", year: 2022 } },
+  fetchImpl: fetchFrom({})
+});
+check("archive: includeCatalogue:true (default) still resolves from verified catalogue", Boolean(withCat.resources.find((r) => r.year === 2022 && r.month === "JUN")));
+const noTraversal = await discover({ request: { qual: "gcse", series: { month: "JUN", year: 2022 } }, includeCatalogue: false, fetchImpl: fetchFrom({}) });
+check("archive: includeCatalogue:false with no traversal finds nothing", noTraversal.resources.length === 0);
+
+// ---- (2e) Phase 2A: candidate≠evidence yield the new unknown reasons ---------
+// No fetch/parse is ever reached in this block (no matching resource), so the
+// parse seam is an unreachable stub.
+const neverParse = async () => ({ ok: false, rows: [], problems: [] });
+const undatedHtml = `<span class="hiddenAssetTitle">GCSE (9-1) grade boundaries</span><span class="hiddenAssetUrl">https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/undated-grade-boundaries.pdf</span>`;
+const undisclosed = await acquirePearson({ board: "pearson", qual: "gcse", series: { month: "JUN", year: 2023 }, expectedCourse: { code: "1MA1", tier: "H" } }, {
+  includeCatalogue: false,
+  fetchImpl: fetchFrom({ [LANDING]: { contentType: "text/html", body: undatedHtml } }),
+  parse: neverParse
+});
+eq("acquire: candidates without series identity -> UNKNOWN_METADATA", undisclosed.reason, UNKNOWN_REASONS.UNKNOWN_METADATA);
+clearSnapshotCache();
+await clearAllStores();
+const limited = await acquirePearson({ board: "pearson", qual: "gcse", series: { month: "JUN", year: 2022 }, expectedCourse: { code: "1MA1", tier: "H" } }, {
+  includeCatalogue: false,
+  maxPages: 1,
+  fetchImpl: fetchFrom({
+    [LANDING]: { contentType: "text/html", body: "" },
+    [PEARSON_ARCHIVE]: { contentType: "text/html", body: archiveHtml },
+    [ARCH_SUB]: { contentType: "text/html", body: archiveSubHtml },
+    [PEARSON_ARCHIVE_INDEX]: { contentType: "application/json", body: INDEX_JSON }
+  }),
+  parse: neverParse
+});
+eq("acquire: safety-limited crawl -> DISCOVERY_INCOMPLETE", limited.reason, UNKNOWN_REASONS.DISCOVERY_INCOMPLETE);
+eq("acquire: DISCOVERY_INCOMPLETE also in REASONS surface", UNKNOWN_REASONS.DISCOVERY_INCOMPLETE, DISCOVERY_INCOMPLETE);
+eq("acquire: UNKNOWN_METADATA also in REASONS surface", UNKNOWN_REASONS.UNKNOWN_METADATA, UNKNOWN_METADATA);
 
 // ---- (3) content validation is authoritative -------------------------------
 check("magic: %PDF- accepted", isPdfBuffer(new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31])));
