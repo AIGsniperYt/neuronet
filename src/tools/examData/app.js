@@ -70,9 +70,38 @@ function emptySnap() {
   return { examCourses: [], examSeries: [], examBoundaries: [], examPapers: [], examSources: [], examJobs: [], updatedAt: 0 };
 }
 
+export function discoverCourseCatalogue() {
+  return [
+    // Pearson GCSE
+    { id: "pearson:gcse:1MA1:H", board: "pearson", qual: "gcse", code: "1MA1", tier: "H", title: "Mathematics Tier H" },
+    { id: "pearson:gcse:1MA1:F", board: "pearson", qual: "gcse", code: "1MA1", tier: "F", title: "Mathematics Tier F" },
+    { id: "pearson:gcse:1GB0", board: "pearson", qual: "gcse", code: "1GB0", tier: "", title: "Geography B" },
+    { id: "pearson:gcse:1CP2", board: "pearson", qual: "gcse", code: "1CP2", tier: "", title: "Computer Science" },
+    { id: "pearson:gcse:1BI0:H", board: "pearson", qual: "gcse", code: "1BI0", tier: "H", title: "Biology Tier H" },
+    { id: "pearson:gcse:1BI0:F", board: "pearson", qual: "gcse", code: "1BI0", tier: "F", title: "Biology Tier F" },
+    // AQA GCSE
+    { id: "aqa:gcse:8461:H", board: "aqa", qual: "gcse", code: "8461", tier: "H", title: "Biology Tier H" },
+    { id: "aqa:gcse:8461:F", board: "aqa", qual: "gcse", code: "8461", tier: "F", title: "Biology Tier F" },
+    { id: "aqa:gcse:8462:H", board: "aqa", qual: "gcse", code: "8462", tier: "H", title: "Chemistry Tier H" },
+    { id: "aqa:gcse:8462:F", board: "aqa", qual: "gcse", code: "8462", tier: "F", title: "Chemistry Tier F" },
+    { id: "aqa:gcse:8300:H", board: "aqa", qual: "gcse", code: "8300", tier: "H", title: "Mathematics Tier H" },
+    { id: "aqa:gcse:8300:F", board: "aqa", qual: "gcse", code: "8300", tier: "F", title: "Mathematics Tier F" },
+    { id: "aqa:gcse:8464", board: "aqa", qual: "gcse", code: "8464", tier: "", title: "Combined Science: Trilogy" },
+    { id: "aqa:gcse:8525", board: "aqa", qual: "gcse", code: "8525", tier: "", title: "Computer Science" },
+    { id: "aqa:gcse:8035", board: "aqa", qual: "gcse", code: "8035", tier: "", title: "Geography" },
+    // OCR GCSE
+    { id: "ocr:gcse:J560:H", board: "ocr", qual: "gcse", code: "J560", tier: "H", title: "Mathematics Tier H" },
+    { id: "ocr:gcse:J560:F", board: "ocr", qual: "gcse", code: "J560", tier: "F", title: "Mathematics Tier F" },
+    { id: "ocr:gcse:J277", board: "ocr", qual: "gcse", code: "J277", tier: "", title: "Computer Science" }
+  ];
+}
+
 export function mergedIndex(snap) {
   const legacy = buildExamIndex(readLegacyCache());
   const courses = new Map();
+  for (const c of discoverCourseCatalogue()) {
+    if (c && c.id) courses.set(c.id, { ...c });
+  }
   for (const [k, c] of legacy.courses) courses.set(k, { ...c });
   for (const c of (snap && snap.examCourses) || []) {
     if (c && c.id && !courses.has(c.id)) courses.set(c.id, { ...c });
@@ -754,6 +783,90 @@ function numberEq(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+export function getBoundaryDisplayModel(options = {}) {
+  const {
+    courseId,
+    seriesId,
+    sitting,
+    board,
+    qual,
+    code,
+    tier,
+    title,
+    year,
+    seriesWord,
+    selectedGrades
+  } = options;
+
+  const repo = repoNow();
+  const enrollment = { board, qual, code, tier, title };
+  let course = options.course || null;
+
+  if (!course && courseId) {
+    course = repo.courses().find((c) => schema.courseKey(c) === courseId) || null;
+  }
+  if (!course && sitting && sitting.subject) {
+    const res = scoreCourseCandidates({ title: sitting.subject });
+    course = res.find((x) => x.exact)?.c || (res[0] ? res[0].c : null);
+  }
+  if (!course) {
+    course = repo.courseFor(enrollment);
+  }
+
+  const exactYear = year != null && year !== "" ? year : (sitting ? sitting.year : null);
+  const exactSeriesWord = seriesWord != null && seriesWord !== "" ? seriesWord : (sitting ? sitting.series : null);
+
+  if (!course || exactYear == null || exactYear === "" || !exactSeriesWord) {
+    return {
+      state: "unknown",
+      reason: !course ? "COURSE_UNRESOLVED" : "UNMAPPED_SERIES",
+      courseId: course ? schema.courseKey(course) : courseId || null,
+      seriesId: seriesId || null,
+      table: null,
+      source: null,
+      provenance: null,
+      selectedGrades: Array.isArray(selectedGrades) ? selectedGrades : [],
+      defaultGrade: null
+    };
+  }
+
+  const cId = courseId || schema.courseKey(course);
+  const monthAbbr = schema.monthFromWord(exactSeriesWord);
+  const sId = seriesId || schema.seriesId({ month: monthAbbr, year: Number(exactYear) });
+
+  const decision = decisionFor(course, exactYear, exactSeriesWord, sitting || {});
+
+  if (decision && (decision.kind === "official" || decision.kind === "projected") && decision.hasTable && decision.table) {
+    const table = normalizeTable(decision.table);
+    const defaultGrade = table.gradesInOrder && table.gradesInOrder.length ? table.gradesInOrder[0] : null;
+    return {
+      state: "official",
+      table,
+      source: decision.sourceLabel || "official",
+      provenance: decision.provenance || { kind: "official" },
+      selectedGrades: Array.isArray(selectedGrades) ? selectedGrades : [],
+      defaultGrade,
+      courseId: cId,
+      seriesId: sId
+    };
+  }
+
+  const rawReason = decision && decision.reason;
+  const reason = (!rawReason || rawReason === "series-not-fetched" || rawReason === "no-data") ? "NO_EXACT_SOURCE" : rawReason;
+
+  return {
+    state: "unknown",
+    reason,
+    courseId: cId,
+    seriesId: sId,
+    table: null,
+    source: null,
+    provenance: null,
+    selectedGrades: Array.isArray(selectedGrades) ? selectedGrades : [],
+    defaultGrade: null
+  };
+}
+
 export function onStatus(fn) {
   statusListeners.add(fn);
   try { fn(status()); } catch { /* ignore */ }
@@ -775,6 +888,8 @@ export const Exam = Object.freeze({
   getForSittingFor,
   ensureForSitting,
   ensureRequirement,
+  getBoundaryDisplayModel,
+  discoverCourseCatalogue,
 
   courseList,
   resolveCourse,
