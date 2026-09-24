@@ -390,29 +390,37 @@ export async function acquirePearson(request, { fetchImpl, proxyFn, onProgress, 
 // (never presented). Whether a "verified"/"uncertain" official envelope is
 // *presentable as official* is governed separately by isPresentableOfficial
 // (provenance.js) — uncertain must not render its numbers as official.
-export async function getForSitting(repo, enrollment, year, seriesWord, sitting = {}, { extraKnown = [], allowInferred = false } = {}) {
-  // Import here to avoid circular dependency with repository.js
-  const { deriveBoundaryDecision, markForDecisionGrade } = await import("./repository.js");
-  const decision = deriveBoundaryDecision(repo, enrollment, year, seriesWord, sitting);
+
+// Synchronous gate reused by getForSitting and the browser-facing app facade
+// (frontier #18): a decision that resolves to an official/projected table
+// whose boundary record carries a FAILED/CONFLICTING verification must never
+// be presented — it flips to a structured unknown with the verification tag.
+export function gateDecisionForVerification(repo, enrollment, year, seriesWord, decision) {
   const hit = decision.kind === "official" || decision.kind === "projected";
-  if (hit && decision.table && decision.table.fresh !== undefined) {
-    const boundary = (() => {
-      const course = repo && repo.courseFor(enrollment);
-      const ck = course && courseKey(course);
-      const sid = seriesId({ month: monthFromWord(seriesWord), year: Number(year) });
-      if (!ck || !sid) return null;
-      const key = `${ck}|${sid}`;
-      return (repo && repo.index && repo.index.boundaries && repo.index.boundaries.get(key)) || null;
-    })();
-    const verification = boundary && boundary.provenance && boundary.provenance.verification;
-    if (verification === VERIFY.FAILED) {
-      return { ...decision, kind: "unknown", reason: UNKNOWN_REASONS.WRONG_DOCUMENT, verification };
-    }
-    if (verification === VERIFY.CONFLICTING) {
-      return { ...decision, kind: "unknown", reason: UNKNOWN_REASONS.CONFLICTING_SOURCES, verification };
-    }
+  if (!hit || !decision.table || decision.table.fresh === undefined) return decision;
+  const boundary = (() => {
+    const course = repo && repo.courseFor(enrollment);
+    const ck = course && courseKey(course);
+    const sid = seriesId({ month: monthFromWord(seriesWord), year: Number(year) });
+    if (!ck || !sid) return null;
+    const key = `${ck}|${sid}`;
+    return (repo && repo.index && repo.index.boundaries && repo.index.boundaries.get(key)) || null;
+  })();
+  const verification = boundary && boundary.provenance && boundary.provenance.verification;
+  if (verification === VERIFY.FAILED) {
+    return { ...decision, kind: "unknown", reason: UNKNOWN_REASONS.WRONG_DOCUMENT, verification };
+  }
+  if (verification === VERIFY.CONFLICTING) {
+    return { ...decision, kind: "unknown", reason: UNKNOWN_REASONS.CONFLICTING_SOURCES, verification };
   }
   return decision;
+}
+
+export async function getForSitting(repo, enrollment, year, seriesWord, sitting = {}, { extraKnown = [], allowInferred = false } = {}) {
+  // Import here to avoid circular dependency with repository.js
+  const { deriveBoundaryDecision } = await import("./repository.js");
+  const decision = deriveBoundaryDecision(repo, enrollment, year, seriesWord, sitting);
+  return gateDecisionForVerification(repo, enrollment, year, seriesWord, decision);
 }
 
 export { UNKNOWN_REASONS as REASONS };

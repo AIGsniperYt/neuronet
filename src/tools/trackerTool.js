@@ -1,36 +1,13 @@
 import { transformRows } from "./trackerImport.js";
 import { dialog } from "./dialog.js";
-import {
-  loadBoundaryCache,
-  reloadBoundaryCache,
-  listCachedCourses,
-  resolveTrackedCourse,
-  reconcileCourse,
-  getBoundaryStatus,
-  subscribeBoundaryStatus,
-  subscribeBoundaryCacheChanged,
-  runBoundarySweep,
-  findGradeTable,
-  boardIdToName,
-  qualIdToName,
-  boardToId,
-  qualToId,
-  trackerSeriesToMonth,
-  bestSeriesForYear,
-  ensureBoundarySeries,
-  normalizeTitle,
-  scoreToGrade,
-  canonicalGradeKey,
-  normalizeBoundaryTable,
-  findGradeMark,
-  courseGradeLabels,
-  courseBoundarySeries,
-  tierFromName,
-  resolveBoundaryDecision,
-  seriesRecentlyAttempted
-} from "./gradeBoundaries.js";
-import { planRequirements, REQUIREMENT_TYPES } from "./examData/scheduler.js";
-import { parseCourseKey, seriesKeyOf, courseKey, seriesId } from "./examData/schema.js";
+// Frontier #18: the tracker speaks to ONE surface for everything examination
+// related — the exam-data facade. It no longer imports gradeBoundaries.js and
+// therefore knows nothing about Pearson URLs/PDFs/filenames/archives, AQA
+// workbooks, OCR links, sweeps or any scraper. All of that lives behind
+// ExamData (src/tools/examData/).
+import { Exam } from "./examData/app.js";
+import { planRequirements, REQUIREMENT_TYPES, JOB_PRIORITIES } from "./examData/scheduler.js";
+import { parseCourseKey, courseKey, seriesId, monthFromWord, normalizeTitle, boardId, qualId } from "./examData/schema.js";
 
 export function initTrackerTool(deps, context = {}) {
   const { getAllNodes, addNode, addNodes, deleteNode, getSubjects, escapeHtml } = deps;
@@ -132,7 +109,7 @@ export function initTrackerTool(deps, context = {}) {
   // picked from the fetched pack; empty = use the top grade only.
   function aimFor(subject) {
     const raw = (subject && Array.isArray(aimGrades[subject])) ? aimGrades[subject] : [];
-    return Array.from(new Set(raw.map((label) => canonicalGradeKey(label)).filter(Boolean)));
+    return Array.from(new Set(raw.map((label) => Exam.canonicalGradeKey(label)).filter(Boolean)));
   }
 
   function nowISO() { return new Date().toISOString(); }
@@ -186,14 +163,14 @@ export function initTrackerTool(deps, context = {}) {
   function annotateSitting(rec) {
     const out = { ...rec };
     if (out.subject) {
-      const resolved = resolveCourse(loadBoundaryCache(), out.subject);
+      const resolved = resolveCourse(out.subject);
       if (resolved && out.courseId === undefined) out.courseId = courseKey(resolved) || null;
       if (out.courseId === undefined) out.courseId = null;
     }
     if (out.courseId === undefined) out.courseId = null;
     if (!out.seriesId) {
       const y = numberEq(out.year);
-      out.seriesId = (y !== null && out.series) ? seriesId({ month: trackerSeriesToMonth(out.series), year: y }) : null;
+      out.seriesId = (y !== null && out.series) ? seriesId({ month: monthFromWord(out.series), year: y }) : null;
     }
     return out;
   }
@@ -307,24 +284,24 @@ export function initTrackerTool(deps, context = {}) {
   // flag. Identity never resolves on cache richness: when the resolver reports
   // ambiguity (equal-score candidates, e.g. "Geography" across boards) we do
   // NOT pick one — the caller surfaces the candidate list and asks.
-  function courseResolution(subject, cacheSrc) {
+  function courseResolution(subject) {
     const meta = subjectMeta[subject || ""] || {};
-    const res = resolveTrackedCourse(cacheSrc || loadBoundaryCache(), {
+    const res = Exam.resolveCourse({
       board: meta.examBoard,
       qual: meta.qualification,
       title: subject,
       code: meta.code,
-      tier: tierFromName(subject)
+      tier: Exam.tierFromName(subject)
     });
     if (res && res.ambiguous) return { course: null, ambiguous: true, candidates: res.candidates || [] };
     return { course: res || null, ambiguous: false, candidates: [] };
   }
 
-  function resolveCourse(cache, name) {
+  function resolveCourse(name) {
     if (!name) return null;
     const linked = coursesBySubject[name];
     if (linked && linked.code) {
-      const healed = reconcileCourse(cache, linked, tierFromName(name));
+      const healed = Exam.reconcile(linked, Exam.tierFromName(name));
       if (healed) return healed;
       return linked;
     }
@@ -333,74 +310,55 @@ export function initTrackerTool(deps, context = {}) {
     // → "Geography B", "English Lit" → "English Literature"). Without this, an
     // unlinked "Maths"/"Geography" row resolves to null and the whole pipeline
     // (auto-warm fetch, grade chips, boundary badge) silently dead-ends even
-    // after a successful pack fetch. Ambiguity returns null here — an unstable
-    // guess is worse than none, and the row UI points the user at the picker.
-    const res = courseResolution(name, cache);
+    // after a successful pack acquisition. Ambiguity returns null here — an
+    // unstable guess is worse than none, and the row UI points the user at the
+    // picker.
+    const res = courseResolution(name);
     return res.course;
   }
 
   function resolveBoundaryTable(subject, year, series, cacheSrc) {
     if (/^(mock|specimen)$/i.test(String(series || "").trim())) return null;
-    const cache = cacheSrc || loadBoundaryCache();
-    const course = subject ? resolveCourse(cache, subject) : null;
+    const course = subject ? resolveCourse(subject) : null;
     if (!course) return null;
-    const hit = findGradeTable(cache, course, year, series);
-    if (!hit || !hit.subject) return null;
-    return normalizeBoundaryTable({
-      grades: hit.subject.grades || {},
-      gradesInOrder: Array.isArray(hit.subject.gradesInOrder) ? hit.subject.gradesInOrder : [],
-      maxMark: hit.subject.maxMark || null,
-      papers: Array.isArray(hit.subject.papers) && hit.subject.papers.length ? hit.subject.papers : [],
-      board: hit.boardId,
-      qual: hit.qualId,
-      seriesLabel: hit.series ? hit.series.label : null,
-      seriesKey: hit.series ? `${hit.series.month}-${hit.series.year}` : null,
-      fresh: !!hit.fresh
-    });
+    const decision = Exam.decisionFor(course, numberEq(year), series, {});
+    return decision.hasTable ? Exam.normalizeTable(decision.table) : null;
   }
 
-  // The ONE table a row renders from: live per-year cache resolution, else the
+  // The ONE table a row renders from: live per-year decision, else the
   // sitting's stored snapshot — both run through the canonical normalizer so
   // every consumer reads canonical grade keys.
-  function effectiveTable(sitting, cacheSrc) {
-    const live = resolveBoundaryTable(sitting.subject, numberEq(sitting.year), sitting.series, cacheSrc);
+  function effectiveTable(sitting) {
+    const live = resolveBoundaryTable(sitting.subject, numberEq(sitting.year), sitting.series);
     if (live) {
       return live;
     }
-    const snapshot = normalizeBoundaryTable(sitting && sitting.gradeBoundaries);
+    const snapshot = Exam.normalizeTable(sitting && sitting.gradeBoundaries);
     return snapshot;
   }
 
-  // Best-effort paper list for a subject: scan the cache across series for any
-  // entry of this course that carries a component/paper list.
+  // Best-effort paper list for a subject: scan the merged index for any
+  // boundary of this course that carries a component/paper list.
   function coursePapers(subject) {
-    const course = subject ? resolveCourse(loadBoundaryCache(), subject) : null;
+    const course = subject ? resolveCourse(subject) : null;
     if (!course) return null;
-    const cache = loadBoundaryCache();
-    for (const entry of Object.values(cache.entries || {})) {
-      if (String(entry.board || "").toLowerCase() !== String(course.board || "").toLowerCase()) continue;
-      if (String(entry.qual || "").toLowerCase() !== String(course.qual || "").toLowerCase()) continue;
-      for (const it of entry.subjects || []) {
-        if (it.code === course.code && Array.isArray(it.papers) && it.papers.length) return it.papers;
-      }
-    }
-    return null;
+    return Exam.papersFor(course) || null;
   }
 
   function topGradeOf(table) {
-    const normalized = normalizeBoundaryTable(table);
+    const normalized = Exam.normalizeTable(table);
     const top = normalized && Array.isArray(normalized.gradesInOrder) ? normalized.gradesInOrder[0] : null;
-    return top == null ? null : findGradeMark(normalized, top);
+    return top == null ? null : Exam.findGradeMark(normalized, top);
   }
 
   function boundsTooltip(gb) {
-    const normalized = normalizeBoundaryTable(gb);
+    const normalized = Exam.normalizeTable(gb);
     const lines = normalized.gradesInOrder.filter((g) => Number.isFinite(normalized.grades[g])).map((g) => `${g}: ${normalized.grades[g]}`);
     return `${gb.seriesLabel || "Grade boundaries"}` + (lines.length ? " · " + lines.join(", ") : "");
   }
 
   function markForGrade(gb, label) {
-    return findGradeMark(gb, label);
+    return Exam.findGradeMark(gb, label);
   }
 
   // Subject-level grade, NOT per-paper. Sums each paper's best-attempt raw total
@@ -419,7 +377,7 @@ export function initTrackerTool(deps, context = {}) {
     if (max <= 0) return null;
     const real = Math.abs(max - gb.maxMark) <= 1;
     if (real) {
-      const grade = scoreToGrade(gb.grades, gb.gradesInOrder, total);
+      const grade = Exam.scoreToGrade(gb.grades, gb.gradesInOrder, total);
       if (grade == null) return null;
       return { grade, real: true, projected: false, answered: rows.length, total, max, maxMark: gb.maxMark };
     }
@@ -435,7 +393,7 @@ export function initTrackerTool(deps, context = {}) {
       if (!boundPct[g]) { boundPct[g] = scaled; boundOrder.push(g); }
     }
     if (boundOrder.length === 0) return null;
-    const grade = scoreToGrade(boundPct, boundOrder, totalPct);
+    const grade = Exam.scoreToGrade(boundPct, boundOrder, totalPct);
     if (grade == null) return null;
     return { grade, real: false, projected: true, answered: rows.length, total, max, maxMark: gb.maxMark };
   }
@@ -459,28 +417,26 @@ export function initTrackerTool(deps, context = {}) {
   // never edited here). Any number of grades: 9, 9+7, 9+4, 9+8+7, whatever.
   // Nothing picked = the top grade only, which is the default.
   function aimTable(subject) {
-    const cache = loadBoundaryCache();
-    const direct = resolveBoundaryTable(subject, null, null, cache);
+    const direct = resolveBoundaryTable(subject, null, null);
     if (direct) return direct;
     const sitting = papers.find((p) => p.subject === subject && p.year != null);
     const resolved = sitting
-      ? resolveBoundaryTable(subject, numberEq(sitting.year), sitting.series, cache)
+      ? resolveBoundaryTable(subject, numberEq(sitting.year), sitting.series)
       : null;
     if (resolved) return resolved;
     const stored = papers.find((p) => p.subject === subject && p.gradeBoundaries);
-    return stored ? normalizeBoundaryTable(stored.gradeBoundaries) : null;
+    return stored ? Exam.normalizeTable(stored.gradeBoundaries) : null;
   }
   function pickableGrades(subject) {
-    const cache = loadBoundaryCache();
-    const course = subject ? resolveCourse(cache, subject) : null;
-    const union = course ? courseGradeLabels(cache, course) : [];
+    const course = subject ? resolveCourse(subject) : null;
+    const union = course ? Exam.gradeLabels(course) : [];
     const tableLabels = (() => {
       const t = aimTable(subject);
       if (!t) return [];
       const raw = Array.isArray(t.gradesInOrder) && t.gradesInOrder.length
         ? t.gradesInOrder
         : t.grades && typeof t.grades === "object" ? Object.keys(t.grades) : [];
-      return raw.map((g) => canonicalGradeKey(g)).filter((g) => g && g !== "U");
+      return raw.map((g) => Exam.canonicalGradeKey(g)).filter((g) => g && g !== "U");
     })();
     const seen = new Set();
     const out = [];
@@ -496,7 +452,7 @@ export function initTrackerTool(deps, context = {}) {
     if (el.boundaryChips) el.boundaryChips.innerHTML = "";
     if (el.boundaryPreview) el.boundaryPreview.innerHTML = "";
     if (el.boundaryNote) el.boundaryNote.textContent = "";
-    const s = getBoundaryStatus();
+    const s = Exam.status();
     const busy = s && (s.phase === "discovering" || s.phase === "fetching");
     if (!focusedSubject) {
       if (el.boundaryChips) el.boundaryChips.innerHTML = `<div class="tracker-cus-empty">Scope to one subject (sidebar) to pick the grades it aims for.</div>`;
@@ -527,23 +483,25 @@ export function initTrackerTool(deps, context = {}) {
 
   // Live thresholds for the aimed grades — the direct, visible response to a
   // chip click even when the table has no rows yet. Rendered PER SERIES through
-  // the exact same per-year lookups the rows use (findGradeTable -> the sitting's
-  // year), so the customise picker shows year-faithful thresholds instead of one
-  // arbitrary any-year table repeated for every grade and every year. Grades a
-  // given year's pack doesn't carry (e.g. 9 on a Foundation row) are simply not
-  // listed for that year.
+  // the exact same per-year decision the rows render from, so the customise
+  // picker shows year-faithful thresholds instead of one arbitrary any-year
+  // table repeated for every grade and every year. Grades a given year's pack
+  // doesn't carry (e.g. 9 on a Foundation row) are simply not listed for that
+  // year.
   function renderBoundaryPreview(options, selected) {
     if (!el.boundaryPreview) return;
-    const cache = loadBoundaryCache();
-    const course = focusedSubject ? resolveCourse(cache, focusedSubject) : null;
+    const course = focusedSubject ? resolveCourse(focusedSubject) : null;
     if (!course) return;
     const grades = selected.length ? selected : [options[0] || null];
     if (!grades.length) return;
-    const toTable = (subject, series) => normalizeBoundaryTable({
-      grades: subject.grades || {},
-      gradesInOrder: Array.isArray(subject.gradesInOrder) ? subject.gradesInOrder : [],
-      maxMark: subject.maxMark || null,
-      papers: Array.isArray(subject.papers) && subject.papers.length ? subject.papers : [],
+    // toTable is fed from the merged index's per-series boundary records (the
+    // exact same repository the rows render through), so preview thresholds are
+    // faithful to the pack that year — never an arbitrary any-year table.
+    const toTable = (boundary, series) => Exam.normalizeTable({
+      grades: boundary.grades || {},
+      gradesInOrder: Array.isArray(boundary.gradesInOrder) ? boundary.gradesInOrder : [],
+      maxMark: boundary.maxMark || null,
+      papers: Array.isArray(boundary.papers) && boundary.papers.length ? boundary.papers : [],
       board: course.board,
       qual: course.qual,
       seriesLabel: series ? series.label : "Cached boundaries",
@@ -552,8 +510,8 @@ export function initTrackerTool(deps, context = {}) {
       seriesMonth: series ? String(series.month || "") : ""
     });
     const groups = [];
-    for (const s of courseBoundarySeries(cache, course)) {
-      const table = toTable(s.subject, s.series);
+    for (const s of Exam.boundarySeries(course)) {
+      const table = toTable(s.boundary, s.series);
       const marks = grades.map((label) => {
         const mark = markForGrade(table, label);
         return mark != null ? `${escapeHtml(label)} &ge; <b>${escapeHtml(String(mark))}</b>` : null;
@@ -573,7 +531,7 @@ export function initTrackerTool(deps, context = {}) {
       if (!marks.length) return;
       groups.push({ table, marks });
     }
-    // Groups are sorted newest-year-first (courseBoundarySeries), so duplicate
+    // Groups are sorted newest-year-first (Exam.boundarySeries), so duplicate
     // years are adjacent. When a year has more than one series (e.g. June +
     // November) label the groups with the month too.
     const yearCounts = new Map();
@@ -624,8 +582,8 @@ export function initTrackerTool(deps, context = {}) {
   function toggleAim(subject, label) {
     if (!subject) return;
     aimGrades = loadAim();
-    const canonical = canonicalGradeKey(label);
-    let list = (aimGrades[subject] || []).slice().map((item) => canonicalGradeKey(item)).filter(Boolean);
+    const canonical = Exam.canonicalGradeKey(label);
+    let list = (aimGrades[subject] || []).slice().map((item) => Exam.canonicalGradeKey(item)).filter(Boolean);
     const idx = list.indexOf(canonical);
     if (idx >= 0) list.splice(idx, 1);
     else list.push(canonical);
@@ -639,7 +597,7 @@ export function initTrackerTool(deps, context = {}) {
   // the fetched pack; the auto-resolver also links by name when not explicit.
   function courseSummary(course) {
     if (!course) return "";
-    const parts = [boardIdToName(course.board), qualIdToName(course.qual), course.code];
+    const parts = [Exam.boardLabel(course.board), Exam.qualLabel(course.qual), course.code];
     return `${parts.filter(Boolean).join(" · ")}${course.title ? " — " + course.title : ""}`.trim();
   }
 
@@ -692,26 +650,22 @@ export function initTrackerTool(deps, context = {}) {
   }
 
   // Populate the link picker with official subjects for EVERY exam board.
-  // This is just the TRACKER's view onto the one shared sweep in
-  // gradeBoundaries.js — the same engine the scraper and the auto-warm use.
-  // Cached series never re-fetch, dead series aren't retried within the retry
-  // window, and a recently-completed sweep is served as-is, so opening the
-  // picker never triggers a fresh fetch set. Concurrent opens/queues collapse
-  // into one run.
-  async function seedLinkCourses() {
+  // This is just the TRACKER's view onto the shared exam-data repository the
+  // scraper and the auto-warm use. Cached series never re-fetch, dead series
+  // aren't retried within the retry window, and a recently-completed sweep is
+  // served as-is, so opening the picker never triggers a fresh fetch set.
+  // Concurrent opens/queues collapse into one run.
+  function seedLinkCourses() {
     renderCourseList();
     linkScratch("Checking AQA, OCR and Pearson grade-boundaries cache...");
-    const total = listCachedCourses(loadBoundaryCache()).length;
+    const total = Exam.courseList().length;
     if (total === 0) {
       if (el.linkList) el.linkList.innerHTML = `<div class="tracker-course-empty">Fetching official subjects from AQA, OCR and Pearson...</div>`;
     } else {
       renderCourseList();
     }
-    await runBoundarySweep({
-      onStatus: (s) => linkScratch(sweepMessage(s))
-    });
     if (el.linkList) renderCourseList();
-    linkScratchDone(`${listCachedCourses(loadBoundaryCache()).length} official subjects ready — search to link.`);
+    linkScratchDone(`${Exam.courseList().length} official subjects ready — search to link.`);
   }
 
   // A human-readable line from the shared sweep status ("Fetching OCR GCSE June
@@ -723,7 +677,7 @@ export function initTrackerTool(deps, context = {}) {
       : "Scanning AQA, OCR and Pearson for the latest grade boundaries...";
     if (s.phase === "fetching") {
       const cur = s.current || {};
-      const label = [boardIdToName(cur.board), quadLabel(cur.qual), cur.seriesLabel].filter(Boolean).join(" ");
+      const label = [Exam.boardLabel(cur.board), Exam.qualLabel(cur.qual), cur.seriesLabel].filter(Boolean).join(" ");
       const base = label ? `Fetching ${label}...` : "Fetching grade boundaries...";
       if (cur.message && !/^\s*fetching\s*/i.test(cur.message)) return `${base} ${cur.message}`;
       if (s.jobsTotal > 0) return `${base} (${s.jobsDone + s.jobsFailed}/${s.jobsTotal} series done)`;
@@ -735,11 +689,6 @@ export function initTrackerTool(deps, context = {}) {
       return `Grade-boundary cache ready${note}.`;
     }
     return "Checking grade-boundary cache...";
-  }
-
-  function quadLabel(qualId) {
-    const m = { gcse: "GCSE", alevel: "A-Level", as: "AS" };
-    return m[String(qualId || "").toLowerCase()] || String(qualId || "");
   }
 
   // Search strengthening: every whitespace token must match (order-independent),
@@ -767,8 +716,8 @@ export function initTrackerTool(deps, context = {}) {
     put(c.code);
     put(c.title);
     put(c.board, c.boardName);
-    put(qualIdToName(c.qual), c.qualName);
-    const qualProbe = normalizeSearch(`${qualIdToName(c.qual)} ${c.qualName || ""} ${c.qual || ""}`);
+    put(Exam.qualLabel(c.qual), c.qualName);
+    const qualProbe = normalizeSearch(`${Exam.qualLabel(c.qual)} ${c.qualName || ""} ${c.qual || ""}`);
     if (qualProbe.includes("alevel")) { set.add("alevel"); set.add("a level"); }
     return set;
   }
@@ -853,7 +802,7 @@ export function initTrackerTool(deps, context = {}) {
   }
 
   function sweepBusyNow() {
-    const s = getBoundaryStatus();
+    const s = Exam.status();
     return !!(s && (s.phase === "discovering" || s.phase === "fetching"));
   }
 
@@ -871,7 +820,7 @@ export function initTrackerTool(deps, context = {}) {
   const TRACKER_SKELETON_ROWS = 6;
 
   function renderCourseList() {
-    const courses = listCachedCourses(loadBoundaryCache());
+    const courses = Exam.courseList();
     const tokens = queryTokens();
     const visible = courses.filter((c) => matchesTokens(c, tokens));
     updateChipLighting();
@@ -1086,7 +1035,6 @@ export function initTrackerTool(deps, context = {}) {
     }
 
     const sorted = visible.slice().sort(compareSorted);
-    const cacheSrc = loadBoundaryCache();
 
     const scroll = document.createElement("div");
     scroll.className = "sit-scroll";
@@ -1106,7 +1054,7 @@ export function initTrackerTool(deps, context = {}) {
     const openNow = new Set(expandedNotes);
     for (const sitting of sorted) {
       const hasNote = !!sitting.notes;
-      const row = renderMainRow(sitting, showAll, hasNote && openNow.has(sitting.id), cacheSrc);
+      const row = renderMainRow(sitting, showAll, hasNote && openNow.has(sitting.id));
       tbody.appendChild(row.main);
       if (hasNote) {
         row.note.hidden = !openNow.has(sitting.id);
@@ -1141,43 +1089,19 @@ export function initTrackerTool(deps, context = {}) {
   let warmTimer = null;
   let warmRunning = false;
 
-  function collectWarmJobs(cache) {
-    // Legacy fixed-candidate planner — superseded by planRequirements below;
-    // kept only for callers that still query it synchronously.
-    const jobs = new Map();
-    for (const sitting of papers || []) {
-      if (!sitting || !sitting.subject) continue;
-      if (/^(mock|specimen)$/i.test(String(sitting.series || "").trim())) continue;
-      const year = numberEq(sitting.year);
-      if (year === null) continue;
-      const course = resolveCourse(cache, sitting.subject);
-      if (!course) continue;
-      const board = boardToId(course && course.board);
-      const qualId = qualToId(course && course.qual);
-      if (!board || !qualId) continue;
-      // Already resolvable from the cache — nothing to do for this row.
-      if (findGradeTable(cache, course, year, sitting.series)) continue;
-      const target = bestSeriesForYear(board, year, trackerSeriesToMonth(sitting.series));
-      if (!target) continue;
-      const key = `${board}:${target.month}-${target.year}:${qualId}`;
-      if (!jobs.has(key)) jobs.set(key, { board, qualId, series: target });
-    }
-    return jobs;
-  }
-
   // ---- planner-based warm path (examData scheduler) ----
   // Only the exam-data scheduler decides what work exists. This browser layer
   // owns execution: real network fetches, the retry window, and the per-kick
   // cap. Boundary and paper requirements for the same course+series are two
   // outputs of one fetch (the scraper returns papers with the boundary pack),
-  // so the executor satisfies both with a single ensureBoundarySeries call.
+  // so the executor satisfies both with a single Exam.ensureForSitting call.
 
-  function warmEnrollment(sitting, cache) {
+  function warmEnrollment(sitting) {
     if (!sitting || !sitting.subject) return null;
-    const course = resolveCourse(cache, sitting.subject);
+    const course = resolveCourse(sitting.subject);
     if (!course) return null;
-    const board = boardToId(course && course.board);
-    const qual = qualToId(course && course.qual);
+    const board = boardId(course && course.board);
+    const qual = qualId(course && course.qual);
     if (!board || !qual) return null;
     return {
       board,
@@ -1187,7 +1111,7 @@ export function initTrackerTool(deps, context = {}) {
     };
   }
 
-  function warmSatisfied(cache) {
+  function warmSatisfied() {
     return (type, courseKey, seriesKey, base) => {
       const parsed = parseCourseKey(courseKey);
       if (!parsed) return true;
@@ -1196,25 +1120,25 @@ export function initTrackerTool(deps, context = {}) {
         if (!Number.isFinite(year)) return true;
         const word = { JUN: "Jun", NOV: "Nov" }[String(base.series.month || "").toUpperCase()] ||
           String(base.series.month || "");
-        const decision = resolveBoundaryDecision(cache, parsed, year, word, {});
+        const decision = Exam.decisionFor(parsed, year, word, {});
         return decision.kind === "official" || decision.kind === "manual";
       }
-      // Papers are satisfied once the series entry carries paper metadata — the
-      // boundary fetch itself delivers that, so the seam needs no extra work.
-      const entry = (cache.entries || {})[seriesKeyOf(base.board, base.qual, base.series)];
-      return !!(entry && Array.isArray(entry.subjects) &&
-        entry.subjects.some((s) => Array.isArray(s.papers) && s.papers.length > 0));
+      // Papers are satisfied once the series boundary record carries paper
+      // metadata — the boundary fetch itself delivers that, so the seam needs
+      // no extra work.
+      const boundary = Exam.boundaryFor(courseKey, seriesKey);
+      return !!(boundary && Array.isArray(boundary.papers) && boundary.papers.length > 0);
     };
   }
 
-  function planWarmRequirements(cache) {
+  function planWarmRequirements() {
     const reqs = planRequirements(
       papers,
-      (sitting) => warmEnrollment(sitting, cache),
-      warmSatisfied(cache)
+      (sitting) => warmEnrollment(sitting),
+      warmSatisfied()
     );
     return reqs.filter((r) => r.type === REQUIREMENT_TYPES.BOUNDARY &&
-      !seriesRecentlyAttempted(r.key));
+      !Exam.recentlyAttempted(r.key));
   }
 
   function scheduleWarm() {
@@ -1233,21 +1157,32 @@ export function initTrackerTool(deps, context = {}) {
   }
 
   // Best-effort; a failure just leaves that series uncached. Concurrent runs
-  // share one in-flight fetch inside ensureBoundarySeries.
+  // share one in-flight fetch inside ensureForSitting.
   async function runWarmFlight() {
-    const cache = loadBoundaryCache();
-    const reqs = planWarmRequirements(cache);
+    const reqs = planWarmRequirements();
     if (reqs.length === 0) return;
     let madeFetch = false;
     let attempted = 0;
     for (const r of reqs) {
       if (r.type !== REQUIREMENT_TYPES.BOUNDARY) continue;
-      if (seriesRecentlyAttempted(r.key)) continue;
+      if (Exam.recentlyAttempted(r.key)) continue;
       if (attempted >= MAX_WARM_JOBS_PER_KICK) break;
       attempted++;
       await new Promise((res) => setTimeout(res, 0));
+      const parsed = parseCourseKey(r.courseKey) || {};
+      const seriesWord = r.series && r.series.month ? String(r.series.month) : "";
       try {
-        await ensureBoundarySeries(r.board, { id: r.qual }, r.series, () => {});
+        await Exam.ensureForSitting({
+          board: r.board,
+          qual: r.qual,
+          code: String(parsed.code || ""),
+          tier: String(parsed.tier || ""),
+          title: "",
+          year: String(r.series && r.series.year),
+          seriesWord,
+          acquire: true,
+          priority: JOB_PRIORITIES.P1_SITTING
+        }, r.key);
         madeFetch = true;
       } catch (e) {
         /* best-effort */
@@ -1255,11 +1190,11 @@ export function initTrackerTool(deps, context = {}) {
     }
     // If this kick did real work and rows still need series, continue in a
     // fresh macrotask rather than recursively re-entering the flight.
-    const remaining = planWarmRequirements(loadBoundaryCache()).length > 0;
+    const remaining = planWarmRequirements().length > 0;
     if (madeFetch && remaining) scheduleWarm();
-    // If only paper requirements remain (entries lack paper metadata) there is
-    // nothing fetchable for them here yet — the paper catalogue seam (Phase C-2)
-    // will own that work; do not busy-loop over it.
+    // If only paper requirements remain (boundary records lack paper metadata)
+    // there is nothing fetchable for them here yet — the paper catalogue seam
+    // (Phase C-2) will own that work; do not busy-loop over it.
   }
 
   function shortSeries(s) {
@@ -1339,10 +1274,9 @@ export function initTrackerTool(deps, context = {}) {
   }
 
   function renderMainRow(sitting, showSubject, noteOpen, cacheSrc) {
-    const cache = cacheSrc || loadBoundaryCache();
-    const course = sitting.subject ? resolveCourse(cache, sitting.subject) : null;
+    const course = sitting.subject ? resolveCourse(sitting.subject) : null;
     const yearNum = numberEq(sitting.year);
-    const decision = resolveBoundaryDecision(cache, course, yearNum, sitting.series, sitting);
+    const decision = Exam.decisionFor(course, yearNum, sitting.series, sitting);
     const gb = decision.hasTable ? decision.table : null;
 
     const avg = sittingAverage(sitting);
@@ -1421,7 +1355,7 @@ export function initTrackerTool(deps, context = {}) {
       return `<span class="tracker-sitting-badge bnd bnd-unknown" title="${escapeHtml(decision.tip || "No boundary data")}">&ndash;</span>`;
     }
     if (aim.length && decision.hasTable) {
-      const items = aim.map((label) => ({ label, mark: findGradeMark(decision.table, label) }));
+      const items = aim.map((label) => ({ label, mark: Exam.findGradeMark(decision.table, label) }));
       if (items.length) {
         return items.map((x) =>
           `<span class="tracker-sitting-badge bnd" title="${escapeHtml(decision.tip || "")}">${escapeHtml(x.label)} &ge; ${x.mark != null ? escapeHtml(String(x.mark)) : "&ndash;"}</span>`
@@ -1670,14 +1604,13 @@ export function initTrackerTool(deps, context = {}) {
       el.statsGrid.innerHTML = '<div class="tracker-empty">No data yet. Add some sittings.</div>';
       return;
     }
-    const cacheSrc = loadBoundaryCache();
     for (const subject of names) {
       const set = bySubject[subject];
       const bests = [];
       const gradeCounts = {};
       let projCount = 0, realCount = 0;
       for (const s of set) {
-        const gb = effectiveTable(s, cacheSrc);
+        const gb = effectiveTable(s);
         const hasT = !!(gb && Array.isArray(gb.gradesInOrder) && gb.gradesInOrder.length && gb.grades && typeof gb.grades === "object");
         for (const r of s.results || []) {
           const b = bestAttemptScore(r);
@@ -1914,7 +1847,7 @@ export function initTrackerTool(deps, context = {}) {
     el.linkList.addEventListener("click", (e) => {
       const item = e.target.closest(".tracker-course-item");
       if (!item) return;
-      const c = listCachedCourses(loadBoundaryCache()).find(
+      const c = Exam.courseList().find(
         (x) => x.board === item.dataset.board && x.qual === item.dataset.qual && x.code === item.dataset.code && normalizeTitle(x.title) === normalizeTitle(item.dataset.title)
       );
       if (c) applyOfficialCourse(focusedSubject, c);
@@ -1983,26 +1916,26 @@ export function initTrackerTool(deps, context = {}) {
       el.importFile.value = "";
     });
 
-    // ---- join the ONE shared grade-boundaries fetch model ----
-    // The customise popover bails out with "fetching… wait" if the shared sweep
+    // ---- join the ONE shared exam-data fetch model ----
+    // The customise popover bails out with "fetching… wait" if the shared fetch
     // (this page's picker, the auto-warm, or a fetch running in the scraper tab
     // in another browser tab) is mid-flight, and both modals re-render live as
     // series land in the cache. Throttled so a long sweep doesn't repaint the
     // whole table per job.
     let bsPending = false;
     let bsTimer = null;
-    subscribeBoundaryStatus(() => {
+    Exam.onStatus(() => {
       if (bsPending) return;
       bsPending = true;
       bsTimer = setTimeout(() => {
         bsPending = false;
         renderBoundaryChips();
-        if (el.linkPop && !el.linkPop.hidden) linkScratch(sweepMessage(getBoundaryStatus()));
+        if (el.linkPop && !el.linkPop.hidden) linkScratch(sweepMessage(Exam.status()));
       }, 150);
     });
     let bcPending = false;
     let bcTimer = null;
-    subscribeBoundaryCacheChanged(() => {
+    Exam.onChanged(() => {
       if (bcPending) return;
       bcPending = true;
       bcTimer = setTimeout(() => {
@@ -2015,6 +1948,7 @@ export function initTrackerTool(deps, context = {}) {
 
   // ---- init ----
   async function init() {
+    await Exam.init();
     wire();
     await loadPapers();
     await loadSubjects();
