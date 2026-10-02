@@ -295,6 +295,52 @@ export async function init() {
   return init._p;
 }
 
+// ---- public: ingest diagnostics -------------------------------------------
+// Why a boundary resolved to nothing is otherwise invisible: buildExamIndex
+// drops every legacy key it cannot parse, and a blank UI looks identical to a
+// failed acquisition. This reports the counts that distinguish the two.
+export function ingestDiagnostics() {
+  const cache = readLegacyCache();
+  const entries = (cache && cache.entries) || {};
+  const keys = Object.keys(entries);
+  const parsed = [];
+  const rejected = [];
+  for (const key of keys) {
+    if (entryKeyParts(key)) parsed.push(key);
+    else rejected.push(key);
+  }
+  const legacy = buildExamIndex(cache);
+  const snap = currentSnap || emptySnap();
+  return {
+    legacyCachePresent: keys.length > 0,
+    legacyEntryCount: keys.length,
+    legacyParsedCount: parsed.length,
+    legacyRejectedCount: rejected.length,
+    legacyRejectedSample: rejected.slice(0, 12),
+    legacyParsedSample: parsed.slice(0, 12),
+    unkeyableRows: legacy.stats.unkeyableRows,
+    migratedCourseCount: legacy.courses.size,
+    migratedSeriesCount: legacy.series.size,
+    migratedBoundaryCount: legacy.boundaries.size,
+    canonicalCourseCount: (snap.examCourses || []).length,
+    canonicalSeriesCount: (snap.examSeries || []).length,
+    canonicalBoundaryCount: (snap.examBoundaries || []).length,
+    canonicalPaperCount: (snap.examPapers || []).length,
+    migrationFlagSet: (() => {
+      try { return localStorage.getItem(MIGRATED_KEY) === "1"; } catch { return null; }
+    })(),
+    // The decisive signal: a populated legacy blob that parsed to zero
+    // boundaries is a key-format problem, not a board/fetch problem.
+    verdict: keys.length > 0 && legacy.boundaries.size === 0
+      ? "LEGACY_KEYS_UNPARSED"
+      : legacy.boundaries.size > 0 && (snap.examBoundaries || []).length === 0
+        ? "MIGRATION_NOT_PERSISTED"
+        : (snap.examBoundaries || []).length > 0
+          ? "CANONICAL_POPULATED"
+          : "NO_DATA_YET"
+  };
+}
+
 // ---- public: resolution ----
 export function decisionFor(enrollment, year, seriesWord, sitting = {}) {
   const repo = repoNow();

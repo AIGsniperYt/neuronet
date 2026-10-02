@@ -12,7 +12,7 @@
 
 import * as storage from "./storage.js";
 import { openExamRepository } from "./repository.js";
-import { acquirePearson, getForSitting, UNKNOWN_REASONS } from "./ingest.js";
+import { acquireExamData, getForSitting, UNKNOWN_REASONS } from "./ingest.js";
 import { createJob, REQUIREMENT_TYPES, JOB_PRIORITIES } from "./scheduler.js";
 import { courseKey, parseCourseKey, seriesId, monthFromWord, qualId, boardId, baseCode } from "./schema.js";
 
@@ -27,9 +27,15 @@ export const ENSURE_STATUS = Object.freeze({
 export const IDENTITY_CONFLICT = "IDENTITY_CONFLICT";
 export const UNMAPPED_SERIES = "UNMAPPED_SERIES";
 
+import { discoverCourseCatalogue } from "./app.js";
+
 function indexFromSnapshot(snap) {
+  const courses = new Map(discoverCourseCatalogue().map((c) => [c.id, { ...c }]));
+  for (const r of (snap && snap.examCourses) || []) {
+    if (r && r.id) courses.set(r.id, { ...r });
+  }
   return {
-    courses: new Map((snap.examCourses || []).map((r) => [r.id, { ...r }])),
+    courses,
     series: new Map((snap.examSeries || []).map((r) => [r.id, { ...r }])),
     boundaries: new Map((snap.examBoundaries || []).map((r) => [r.id, { ...r }])),
     papers: new Map((snap.examPapers || []).map((r) => [r.id, { ...r }])),
@@ -112,22 +118,26 @@ export async function ensureExamData({
   result.status = ENSURE_STATUS.PARTIAL;
 
   if (acquire) {
-    // Acquisition needs the series identity (month+year). When the series
-    // record itself is missing there is nothing to acquire yet — stay partial.
-    if (seriesRecord) {
-      const env = await acquirePearson({
-        board: board || course.board,
-        qual: qual || course.qual,
-        courseKey: courseId,
-        series: { month: seriesRecord.month, year: seriesRecord.year, label: seriesRecord.label }
-      }, { fetchImpl, proxyFn, onProgress, parse });
-      const snap2 = await storage.loadSnapshot();
-      const boundary2 = (snap2.examBoundaries || []).find((b) => b.id === boundaryKey) || null;
-      result.boundary = boundary2;
-      result.sourcesValid = sourcesValidFor(boundary2, snap2);
-      result.acquired = env;
-      if (boundary2 && result.sourcesValid) result.status = ENSURE_STATUS.COMPLETE;
-    }
+    const sInfo = seriesRecord
+      ? { month: seriesRecord.month, year: seriesRecord.year, label: seriesRecord.label }
+      : (() => {
+          const parts = String(seriesId || "").split("-");
+          const month = parts[0] || "JUN";
+          const year = Number(parts[1]) || 2025;
+          return { month, year, label: `${month} ${year}` };
+        })();
+    const env = await acquireExamData({
+      board: board || (course && course.board),
+      qual: qual || (course && course.qual),
+      courseKey: courseId,
+      series: sInfo
+    }, { fetchImpl, proxyFn, onProgress, parse });
+    const snap2 = await storage.loadSnapshot();
+    const boundary2 = (snap2.examBoundaries || []).find((b) => b.id === boundaryKey) || null;
+    result.boundary = boundary2;
+    result.sourcesValid = sourcesValidFor(boundary2, snap2);
+    result.acquired = env;
+    if (boundary2 && result.sourcesValid) result.status = ENSURE_STATUS.COMPLETE;
   } else {
     result.queue = [
       createJob({
@@ -225,7 +235,9 @@ export async function ensureForSitting({
     courseId: ck, seriesId: sid,
     board, qual, acquire, fetchImpl, proxyFn, onProgress, parse, priority
   });
-  const decision = await getForSitting(repo, enrollment, String(yearN), seriesWord, {});
+  const snapFinal = await storage.loadSnapshot();
+  const repoFinal = openExamRepository(indexFromSnapshot(snapFinal));
+  const decision = await getForSitting(repoFinal, enrollment, String(yearN), seriesWord, {});
   return { ...ensured, confirmationRequired: false, conflict: null, decision };
 }
 

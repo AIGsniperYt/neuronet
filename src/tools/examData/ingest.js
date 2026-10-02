@@ -15,6 +15,7 @@ import {
   courseKeyFromRow,
   seriesId,
   qualId,
+  boardId,
   parseCourseKey,
   singleCode,
   monthFromWord,
@@ -25,6 +26,7 @@ import {
 import { provenanceOf, VERIFY } from "./provenance.js";
 import * as storage from "./storage.js";
 import * as PearsonSource from "./sources/PearsonSource.js";
+import * as AqaSource from "./sources/AqaSource.js";
 import { DISCOVERY_INCOMPLETE, UNKNOWN_METADATA } from "./sources/officialEngine.js";
 
 export const UNKNOWN_REASONS = Object.freeze({
@@ -381,6 +383,94 @@ export async function acquirePearson(request, { fetchImpl, proxyFn, onProgress, 
     verification: VERIFY.VERIFIED,
     sources
   };
+}
+
+// ---- main pipeline entry for AQA -------------------------------------------
+export async function acquireAqa(request, { fetchImpl, proxyFn, onProgress, parse, includeCatalogue = true } = {}) {
+  const parseFn = parse || ((bytes, opts) => AqaSource.parseSource(bytes, opts));
+  const qid = qualId(request && request.qual) || "gcse";
+  const month = String((request.series && request.series.month) || "").toUpperCase();
+  const year = Number(request.series && request.series.year);
+  if (!qid || !month || !Number.isFinite(year)) return unknown(UNKNOWN_REASONS.NO_EXACT_SOURCE, { stage: "validate-request" });
+
+  if (onProgress) onProgress({ stage: "discover", message: `Discovering AQA ${fmtSeriesLabel(request.series)} ${qid.toUpperCase()}...` });
+  const discovered = await AqaSource.discover({ request, fetchImpl, proxyFn, onProgress, includeCatalogue });
+  const matching = selectMatching(discovered.resources, request);
+  if (!matching.length) {
+    return unknown(UNKNOWN_REASONS.NO_EXACT_SOURCE, { stage: "discover", message: `No official resource found for AQA ${fmtSeriesLabel(request.series)} ${qid.toUpperCase()}.` });
+  }
+
+  const resource = matching[0];
+  if (onProgress) onProgress({ stage: "fetch", message: `Fetching AQA ${resource.url}...` });
+  const fetchRes = await AqaSource.fetchSource(resource, { fetchImpl });
+  if (!fetchRes.ok) {
+    return unknown(UNKNOWN_REASONS.FETCH_FAILED, { stage: "fetch", url: resource.url });
+  }
+
+  if (onProgress) onProgress({ stage: "parse", message: `Parsing AQA ${resource.url}...` });
+  const parsed = await parseFn(fetchRes.bytes, { qual: qid, series: request.series, expected: request.courseKey });
+  if (!parsed.ok || !parsed.rows.length) {
+    return unknown(UNKNOWN_REASONS.PARSER_FAILED, { stage: "parse", url: resource.url });
+  }
+
+  for (const r of parsed.rows) r._sourceUrl = resource.url;
+
+  const validRows = parsed.rows.filter((r) => r._validation && r._validation.ok === true);
+  const targetCk = request.courseKey;
+  const target = targetCk ? validRows.find((r) => r.courseKey === targetCk) : validRows[0];
+
+  const sources = [{
+    url: resource.url,
+    contentHash: fetchRes.contentHash || "aqa-hash",
+    status: 200,
+    title: resource.title || "AQA Grade Boundaries",
+    publisher: "AQA",
+    accessedAt: Date.now()
+  }];
+
+  await persistRows(validRows, { ...request, board: "aqa" }, sources);
+
+  const tableLead = target || validRows[0];
+  const table = (() => {
+    if (!tableLead) return null;
+    return {
+      grades: tableLead.grades || {},
+      gradesInOrder: tableLead.gradesInOrder || [],
+      maxMark: tableLead.maxMark,
+      board: "aqa",
+      qual: qid,
+      seriesLabel: fmtSeriesLabel(request.series),
+      seriesKey: seriesId(request.series)
+    };
+  })();
+
+  const topVal = table && Array.isArray(table.gradesInOrder) && table.gradesInOrder.length ? Number(table.grades[table.gradesInOrder[0]]) : null;
+
+  return {
+    kind: "official",
+    reason: "acquired",
+    table,
+    top: Number.isFinite(topVal) ? topVal : null,
+    year,
+    seriesLabel: fmtSeriesLabel(request.series),
+    sourceLabel: resource.url,
+    hasTable: Boolean(table),
+    verification: VERIFY.VERIFIED,
+    sources
+  };
+}
+
+// ---- Board-agnostic acquisition dispatcher --------------------------------
+export async function acquireExamData(request, opts = {}) {
+  const reqBoard = (request && (request.board || (request.courseKey && parseCourseKey(request.courseKey)?.board))) || "pearson";
+  const bId = boardId(reqBoard);
+  if (bId === "aqa") {
+    return acquireAqa(request, opts);
+  }
+  if (bId === "pearson") {
+    return acquirePearson(request, opts);
+  }
+  return unknown(UNKNOWN_REASONS.NO_EXACT_SOURCE, { stage: "adapter", message: `Adapter for ${reqBoard} not implemented.` });
 }
 
 // ---- ExamData.getForSitting facade (execution-spec #39) --------------------

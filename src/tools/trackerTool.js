@@ -417,15 +417,10 @@ export function initTrackerTool(deps, context = {}) {
   // never edited here). Any number of grades: 9, 9+7, 9+4, 9+8+7, whatever.
   // Nothing picked = the top grade only, which is the default.
   function aimTable(subject) {
-    const direct = resolveBoundaryTable(subject, null, null);
-    if (direct) return direct;
     const sitting = papers.find((p) => p.subject === subject && p.year != null);
-    const resolved = sitting
-      ? resolveBoundaryTable(subject, numberEq(sitting.year), sitting.series)
-      : null;
-    if (resolved) return resolved;
-    const stored = papers.find((p) => p.subject === subject && p.gradeBoundaries);
-    return stored ? Exam.normalizeTable(stored.gradeBoundaries) : null;
+    if (!sitting) return null;
+    const model = Exam.getBoundaryDisplayModel({ sitting });
+    return model.table || null;
   }
   function pickableGrades(subject) {
     const course = subject ? resolveCourse(subject) : null;
@@ -1298,9 +1293,7 @@ export function initTrackerTool(deps, context = {}) {
       cells.push(td(`<span class="sit-session">${sessionTitle(sitting)}</span>`, "col-session"));
     }
     cells.push(td(`<div class="sit-papers">${scoreSummary(sitting)}${subjectGradeChip(sitting, gb)}</div>`, "col-papers"));
-    if (cols.boundary) {
-      cells.push(td(boundaryBadges(sitting.subject, decision), "col-boundary"));
-    }
+    cells.push(td(boundaryBadges(sitting.subject, decision, sitting), "col-boundary"));
     if (cols.avg) {
       cells.push(td(avgEl, "col-avg"));
     }
@@ -1336,37 +1329,26 @@ export function initTrackerTool(deps, context = {}) {
     return { main: tr, note };
   }
 
-  // Boundary column content. Default: the top grade's threshold from the
-  // sitting's OWN fetched year-pack — the source of truth, never fabricated.
-  // When the user picked aim grades for the subject, show those thresholds
-  // instead (still from this sitting's year-pack only). A dated sitting whose
-  // year-pack was never fetched renders an honest dash with an explanation —
-  // the tracker does NOT substitute another year's numbers. Only undated rows
-  // (a sitting in progress, no exam year yet) may fall back to the subject's
-  // best published table, since there is no official boundary to claim.
-  function boundaryBadges(subject, decision) {
+  function boundaryBadges(subject, decision, sitting) {
     const aim = aimFor(subject);
-    const topLabel = escapeHtml(highestGradeLabel(subject));
-    const badge = (mark, t, cls) => {
-      const title = t != null ? ` title="${escapeHtml(t)}"` : "";
-      return `<span class="tracker-sitting-badge bnd${cls ? ` ${cls}` : ""}"${title}>${topLabel}${mark != null ? ` &ge; ${escapeHtml(String(mark))}` : ""}</span>`;
-    };
-    if (decision.kind === "unknown") {
-      return `<span class="tracker-sitting-badge bnd bnd-unknown" title="${escapeHtml(decision.tip || "No boundary data")}">&ndash;</span>`;
+    const model = Exam.getBoundaryDisplayModel({ sitting, selectedGrades: aim });
+    if (model.state === "unknown") {
+      const reasonText = model.reason || (decision && decision.tip) || "No boundary data";
+      return `<span class="tracker-sitting-badge bnd bnd-unknown" title="${escapeHtml(reasonText)}">Boundary: &mdash;</span>`;
     }
-    if (aim.length && decision.hasTable) {
-      const items = aim.map((label) => ({ label, mark: Exam.findGradeMark(decision.table, label) }));
+    const table = model.table || (decision && decision.table);
+    if (aim.length && table) {
+      const items = aim.map((label) => ({ label, mark: Exam.findGradeMark(table, label) }));
       if (items.length) {
         return items.map((x) =>
-          `<span class="tracker-sitting-badge bnd" title="${escapeHtml(decision.tip || "")}">${escapeHtml(x.label)} &ge; ${x.mark != null ? escapeHtml(String(x.mark)) : "&ndash;"}</span>`
+          `<span class="tracker-sitting-badge bnd" title="${escapeHtml(model.source || "")}">${escapeHtml(x.label)} &ge; ${x.mark != null ? escapeHtml(String(x.mark)) : "&ndash;"}</span>`
         ).join("");
       }
     }
-    if (decision.top != null) {
-      const cls = decision.kind === "projected" ? " bnd-proj" : "";
-      return badge(decision.top, decision.tip, cls);
-    }
-    return `<span class="tracker-sitting-badge bnd bnd-unknown" title="${escapeHtml(decision.tip || "No boundary data")}">&ndash;</span>`;
+    const defaultGrade = model.defaultGrade || (table && table.gradesInOrder ? table.gradesInOrder[0] : null);
+    const mark = table && defaultGrade ? Exam.findGradeMark(table, defaultGrade) : (decision && decision.top);
+    const label = defaultGrade || highestGradeLabel(subject);
+    return `<span class="tracker-sitting-badge bnd" title="${escapeHtml(model.source || "")}">${escapeHtml(label)}${mark != null ? ` &ge; ${escapeHtml(String(mark))}` : ""}</span>`;
   }
 
   function td(html, cls) {

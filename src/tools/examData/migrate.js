@@ -24,7 +24,7 @@ import {
 import { provenanceOf } from "./provenance.js";
 
 // keys of a legacy cache entry (board:MONTH-YEAR:qual; month may be any case)
-function entryKeyParts(key) {
+export function entryKeyParts(key) {
   const m = /^([a-z]+):([a-z]+)-(\d{4}):(.*)$/i.exec(String(key || ""));
   if (!m) return null;
   const month = m[2].toUpperCase();
@@ -47,7 +47,10 @@ export function buildExamIndex(cache) {
   const entries = (cache && cache.entries) || {};
   for (const [key, entry] of Object.entries(entries)) {
     const parts = entryKeyParts(key);
-    if (!parts) continue;
+    if (!parts) {
+      unkeyableRows += 1;
+      continue;
+    }
     legacyEntries += 1;
     const qid = qualId(entry.qual || parts.qualRaw);
     const sid = seriesId(parts.series);

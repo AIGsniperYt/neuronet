@@ -8,6 +8,7 @@
 
 import { boardId, qualId, currentExamYear } from "./schema.js";
 import * as PearsonSource from "./sources/PearsonSource.js";
+import * as AqaSource from "./sources/AqaSource.js";
 
 export const EXAM_BOARDS = [
   {
@@ -65,12 +66,6 @@ export function defaultSeriesWindow(board, now = Date.now()) {
 }
 
 // ---- executable source adapters (execution-spec #54) -----------------------
-// `sourceFor(board)` returns an object implementing the adapter contract:
-//   { name, discover(opts), fetch?(resource, opts), parse?(bytes, opts), notes }
-// Pearson is fully implemented. AQA/OCR adapters exist as interface-only stubs
-// (marked `implemented:false`); requesting sync/async acquisition from a stub
-// resolves to the structured "NO_EXACT_SOURCE - adapter not yet implemented"
-// reason so the tracker surface fails closed, never invents.
 export function sourceFor(board) {
   const id = boardId(board);
   if (!id) return null;
@@ -86,10 +81,10 @@ export function sourceFor(board) {
   if (id === "aqa") {
     return {
       name: "AQASource",
-      implemented: false,
-      discover: async () => ({ resources: [] }),
-      parse: async () => ({ ok: false, reason: "NO_EXACT_SOURCE", rows: [] }),
-      notes: "interface-only — AQA archive/XLSX-first adapter is a future step"
+      implemented: true,
+      discover: (opts) => AqaSource.discover(opts),
+      parse: (bytes, opts) => AqaSource.parseSource(bytes, opts),
+      notes: "official AQA grade-boundary discovery + XLSX/PDF parsing"
     };
   }
   if (id === "ocr") {
@@ -105,5 +100,5 @@ export function sourceFor(board) {
 }
 
 export function adaptersImplemented() {
-  return { pearson: true, aqa: false, ocr: false };
+  return { pearson: true, aqa: true, ocr: false };
 }

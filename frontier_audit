@@ -1,0 +1,1445 @@
+Yes — and the agent's honesty note is important. I checked the **current `main` tree itself**, not the claimed test numbers. I can verify that the tree contains the Frontier #18 surface and the newer fixes, but GitHub's public history endpoint did not expose the full current HEAD SHA to me reliably, so I won't invent one. The code currently on `main` is definitely beyond `0a843d3`.
+
+The three browser bugs are real architectural symptoms, and they point to the next development phase very clearly.
+
+# Tell the agent this
+
+# NeuroNet — Frontier #22 execution specification
+
+## Mission
+
+Do not patch the three browser symptoms independently.
+
+Turn the existing ExamData architecture into the single authoritative examination-data brain, then make the tracker consume it correctly.
+
+Current live-browser failures:
+
+1. AQA GCSE Biology 2025 boundary does not resolve.
+2. Subject linker shows only one official subject/course.
+3. Maths mostly falls back to "Grade 9" and ignores the grade choices made in the customise picker.
+
+These are not three unrelated bugs.
+
+They expose three missing pieces:
+
+```text
+AQA acquisition is not actually wired
+course catalogue discovery is incomplete
+tracker boundary presentation is not one canonical model
+```
+
+Build/fix those foundations.
+
+---
+
+# 1. FIRST: ADD A REAL MINIMAL TEST HARNESS
+
+Do this first, but keep it tiny.
+
+No Playwright.
+No browser automation.
+No large framework.
+No dependency explosion.
+
+Use plain Node ESM tests.
+
+The harness must test pure ExamData seams and pure tracker-facing view-model functions.
+
+Create:
+
+```text
+tests/
+  examdata/
+    identity.mjs
+    boundaries.mjs
+    discovery.mjs
+    acquisition.mjs
+    courses.mjs
+    tracker-view-model.mjs
+  run.mjs
+```
+
+Run:
+
+```bash
+node tests/run.mjs
+```
+
+The harness must produce real assertion counts.
+
+Never report invented numbers.
+
+Minimum initial tests:
+
+```text
+Biology 8461 June 2025
+Maths 1MA1 Higher June 2024
+Maths 1MA1 Higher June 2025
+older Maths exact-series lookup
+AQA course discovery
+Pearson course discovery
+custom grade selection
+no exact source
+wrong tier
+wrong series
+legacy scalar boundary
+legacy full snapshot
+```
+
+---
+
+# 2. FIX THE FUNDAMENTAL BOARD DISPATCH BUG
+
+Current `ensure.js` imports:
+
+```js
+acquirePearson
+```
+
+and acquisition currently routes through Pearson regardless of board.
+
+That is why:
+
+```text
+AQA Biology 8461 June 2025
+```
+
+cannot be a genuine AQA acquisition request.
+
+This MUST become board-adapter dispatch.
+
+Implement:
+
+```js
+acquireExamData(request)
+```
+
+Internally:
+
+```text
+request.board
+   ↓
+adapterFor(board)
+   ↓
+adapter.acquire(...)
+```
+
+Do not hard-code Pearson inside the generic `ensureForSitting`.
+
+---
+
+# 3. REAL ADAPTER REGISTRY
+
+The adapter interface is now:
+
+```js
+discoverCourses()
+discoverSeries(course)
+discoverPapers(course, series)
+discoverBoundarySource(course, series)
+fetchSource(source)
+parseSource(source)
+```
+
+Actually implement that contract.
+
+Current `adapters.js` still describes AQA/OCR declaratively while saying real execution stays in the old system.
+
+That comment is now obsolete and the architecture must change.
+
+Target:
+
+```text
+ExamData
+  ├── PearsonSource
+  ├── AqaSource
+  └── OcrSource
+```
+
+Only the adapter knows board-specific URLs/files/parsers.
+
+---
+
+# 4. IMPLEMENT AQA 8461 PROPERLY NOW
+
+This is the first non-Pearson adapter acceptance target.
+
+Request:
+
+```text
+AQA
+GCSE
+8461
+Biology
+June 2025
+```
+
+must perform:
+
+```text
+discover exact AQA series
+        ↓
+discover exact official boundary resource
+        ↓
+prefer official XLSX
+        ↓
+PDF fallback
+        ↓
+parse
+        ↓
+validate
+        ↓
+persist
+```
+
+The result must contain the exact 8461 tier requested.
+
+Foundation:
+
+```text
+5
+4
+3
+2
+1
+```
+
+Higher:
+
+```text
+9
+8
+7
+6
+5
+4
+3
+```
+
+Do not inject 8464 Combined Science.
+
+Do not use AQA 2026 for 2025.
+
+Do not use Pearson for 2025.
+
+---
+
+# 5. AQA SOURCE DISCOVERY
+
+Use the official AQA grade-boundary archive/index as the discovery authority.
+
+Do not hard-code:
+
+```text
+8461 June 2025 = URL
+```
+
+as the acquisition mechanism.
+
+The adapter should discover:
+
+```text
+series
+→ official resource
+```
+
+from the official archive.
+
+Structured XLSX should be preferred where available.
+
+PDF remains fallback.
+
+---
+
+# 6. COURSE CATALOGUE IS A DIFFERENT CONCEPT FROM BOUNDARY ACQUISITION
+
+Current:
+
+```js
+Exam.courseList()
+```
+
+only exposes courses already present in the repository.
+
+And `seedLinkCourses()` only renders that list. It does not actually acquire a catalogue.
+
+Therefore the linker can only show whatever happens to already be cached.
+
+That directly explains:
+
+> only one subject loaded
+
+Do not patch the UI with hard-coded subject names.
+
+Create:
+
+```js
+discoverCourseCatalogue()
+```
+
+which returns canonical:
+
+```text
+Course[]
+```
+
+across the supported boards.
+
+---
+
+# 7. COURSE CATALOGUE DISCOVERY
+
+The catalogue must be built from official exam-data sources.
+
+Do NOT attempt to download every historical paper just to discover courses.
+
+Course discovery should be cheap.
+
+For example:
+
+```text
+official board course/index data
++
+recent official boundary tables
++
+known official course metadata
+```
+
+produce:
+
+```text
+Pearson:
+1MA1 Mathematics Higher
+1MA1 Mathematics Foundation
+1GB0 Geography B
+1CP2 Computer Science
+...
+
+AQA:
+8461 Biology Higher
+8461 Biology Foundation
+8462 Chemistry Higher
+8462 Chemistry Foundation
+...
+```
+
+Do not include a course merely because the title happens to resemble it.
+
+---
+
+# 8. STORE COURSE CATALOGUE SEPARATELY
+
+A course should exist independently of a boundary.
+
+This is important.
+
+Current model implicitly allows:
+
+```text
+boundary exists
+→ course exists
+```
+
+but the desired model is:
+
+```text
+course catalogue
+      ↓
+series catalogue
+      ↓
+papers/boundaries
+```
+
+Therefore:
+
+```text
+examCourses
+```
+
+must be populated by course discovery.
+
+A user should be able to open the linker even before any particular historical boundary has been downloaded.
+
+---
+
+# 9. LINKER BEHAVIOUR
+
+When opening the subject linker:
+
+```text
+load local canonical course catalogue
+        ↓
+show all known courses immediately
+        ↓
+start/revalidate catalogue discovery if necessary
+        ↓
+merge newly discovered courses
+        ↓
+rerender
+```
+
+Never show one cached subject and pretend that is the complete list.
+
+Never show:
+
+```text
+Fetching...
+```
+
+forever without actually starting acquisition.
+
+---
+
+# 10. SUBJECT AUTO-MATCHING
+
+The linker has two separate jobs:
+
+```text
+course catalogue
+```
+
+and:
+
+```text
+match this user's subject name to a course
+```
+
+Keep them separate.
+
+For:
+
+```text
+Maths
+```
+
+the resolver may produce:
+
+```text
+Pearson 1MA1 Higher
+Pearson 1MA1 Foundation
+AQA 8300 Higher
+AQA 8300 Foundation
+OCR J560
+```
+
+If evidence is insufficient:
+
+```text
+AMBIGUOUS
+```
+
+Do not silently choose one.
+
+For:
+
+```text
+Maths
+examBoard = Pearson
+qualification = GCSE
+code = 1MA1
+tier = Higher
+```
+
+return exactly:
+
+```text
+Pearson 1MA1 Higher
+```
+
+---
+
+# 11. DO NOT LET CACHE RICHNESS SELECT A COURSE
+
+Absolutely forbid:
+
+```text
+more cached boundaries
+→ higher ranking
+→ automatic identity
+```
+
+The identity engine may rank evidence but only deterministic evidence may resolve it.
+
+---
+
+# 12. FIX THE MATHS "GRADE 9" FALLBACK
+
+This must be treated as a serious correctness bug.
+
+There must be ONE tracker function that answers:
+
+```text
+What boundary information should I display for this exact sitting?
+```
+
+Create a pure function:
+
+```js
+getBoundaryDisplayModel(sitting, course, repository)
+```
+
+It returns something like:
+
+```js
+{
+  state: "official",
+  table,
+  source,
+  selectedGrades
+}
+```
+
+or:
+
+```js
+{
+  state: "unknown",
+  reason: "NO_EXACT_SOURCE"
+}
+```
+
+The renderer should consume this model.
+
+---
+
+# 13. REMOVE ALL OTHER BOUNDARY DECISION PATHS
+
+The tracker currently has several layers:
+
+```text
+resolveBoundaryTable
+effectiveTable
+aimTable
+stored snapshot
+legacy boundary fields
+```
+
+These must not independently decide the displayed number.
+
+Target:
+
+```text
+sitting
+ ↓
+ExamData decision
+ ↓
+BoundaryDisplayModel
+ ↓
+renderer
+```
+
+No renderer-side fallback logic.
+
+---
+
+# 14. CUSTOM PICKER STATE IS NOT EXAM DATA
+
+This distinction must remain absolute.
+
+ExamData owns:
+
+```text
+official boundary
+```
+
+Tracker preferences own:
+
+```text
+which grades the student wants displayed
+```
+
+The picker is therefore:
+
+```text
+aimGrades[subject] = ["7"]
+```
+
+not:
+
+```text
+boundary = 137
+```
+
+The picker must never modify the official source table.
+
+---
+
+# 15. CUSTOM PICKER TESTS
+
+Add these tests:
+
+```text
+select grade 7
+→ Boundary column uses grade 7 threshold
+
+select grades 9 + 7
+→ Boundary column shows both thresholds
+
+clear selection
+→ default is ONLY the top grade of that exact table
+
+```
+
+For 1MA1 Higher June 2024:
+
+```text
+9 = 197
+7 = 137
+```
+
+For June 2025:
+
+```text
+9 = 217
+7 = 156
+```
+
+The tests must prove the correct year is being used.
+
+---
+
+# 16. NO "GRADE 9" WHEN THE TABLE IS UNKNOWN
+
+This is crucial.
+
+Current bad behaviour:
+
+```text
+exact boundary missing
+→ display Grade 9
+```
+
+This must become:
+
+```text
+exact boundary missing
+→ Boundary: —
+```
+
+A displayed "Grade 9" is a claim that a Grade 9 threshold is known.
+
+Unknown must be visually unknown.
+
+---
+
+# 17. HISTORICAL LEGACY DATA RULE
+
+Existing scalar:
+
+```js
+gradeBoundary: 217
+```
+
+is NOT enough to construct a complete boundary table.
+
+Therefore:
+
+```text
+legacy scalar
+→ never use as complete official boundary table
+```
+
+A full stored snapshot may be used only when:
+
+```text
+series exactly matches sitting
++
+course exactly matches sitting
++
+snapshot provenance is known
+```
+
+Otherwise:
+
+```text
+UNKNOWN
+```
+
+---
+
+# 18. DO NOT FALL BACK FROM 2022 TO 2024
+
+For every sitting:
+
+```js
+getBoundaryDisplayModel({
+  year: 2022,
+  series: "June"
+})
+```
+
+must ask ExamData for:
+
+```text
+2022 June
+```
+
+only.
+
+No:
+
+```text
+nearest
+newest
+latest
+top cached
+```
+
+---
+
+# 19. MAKE SERIES IDENTITY PART OF THE DISPLAY MODEL
+
+The display model should contain:
+
+```js
+{
+  courseId,
+  seriesId,
+  table,
+  source
+}
+```
+
+Then a debugger can prove:
+
+```text
+Maths
+June 2022
+1MA1 Higher
+source = exact June 2022
+```
+
+rather than merely showing:
+
+```text
+137
+```
+
+---
+
+# 20. FIX `aimTable()`
+
+Current `aimTable(subject)` tries:
+
+```text
+resolveBoundaryTable(subject, null, null)
+```
+
+and then falls back to a sitting.
+
+That is too vague.
+
+The picker should derive available grades from:
+
+```text
+all known exact tables for the course
+```
+
+but the actual displayed threshold for a row must derive from:
+
+```text
+that row's exact series
+```
+
+Separate:
+
+```text
+picker option discovery
+```
+
+from:
+
+```text
+row display resolution
+```
+
+---
+
+# 21. PICKER GRADE OPTIONS
+
+Picker options should be:
+
+```text
+union of legal grades across available course tables
+```
+
+but never fabricate them.
+
+Example:
+
+```text
+AQA Biology Foundation
+→ 5..1
+
+AQA Biology Higher
+→ 9..3
+```
+
+If Higher is selected, do not show:
+
+```text
+2
+1
+```
+
+as valid Higher thresholds.
+
+---
+
+# 22. DEFAULT TOP GRADE MUST COME FROM THE TABLE
+
+Do not hard-code:
+
+```text
+9
+```
+
+as the universal default.
+
+Instead:
+
+```js
+defaultGrade = table.gradesInOrder[0]
+```
+
+Therefore:
+
+```text
+AQA Biology Foundation
+→ default 5
+
+AQA Biology Higher
+→ default 9
+```
+
+and qualifications with A* scales work correctly too.
+
+---
+
+# 23. FIX `effectiveTable()`
+
+It should return a structured decision, not merely `null/table`.
+
+Conceptually:
+
+```js
+{
+  state: "official",
+  table,
+  provenance
+}
+```
+
+or:
+
+```js
+{
+  state: "legacy",
+  table,
+  provenance
+}
+```
+
+or:
+
+```js
+{
+  state: "unknown",
+  reason
+}
+```
+
+This prevents the renderer from guessing.
+
+---
+
+# 24. ACQUISITION MUST BE BOARD-AGNOSTIC
+
+Generic:
+
+```js
+ensureExamData({
+  course,
+  series
+})
+```
+
+must never know:
+
+```text Pearson PDF
+AQA XLSX
+OCR PDF
+```
+
+Instead:
+
+```text
+course.board
+     ↓
+adapter
+```
+
+---
+
+# 25. PAPERS MUST NOW BECOME FIRST-CLASS
+
+The repository already has `examPapers`.
+
+Finish the migration.
+
+Store:
+
+```text
+course
+series
+paper
+```
+
+independently from the boundary.
+
+Do not keep requiring:
+
+```text
+boundary.papers[]
+```
+
+---
+
+# 26. PAPER DISCOVERY
+
+For every exact course+series:
+
+```text
+discoverPapers(course, series)
+```
+
+returns:
+
+```js
+[
+  {
+    paperNumber,
+    paperCode,
+    maxMark,
+    documents: {
+      questionPaper,
+      markScheme,
+      examinerReport
+    }
+  }
+]
+```
+
+The initial phase only has to discover/store the URLs.
+
+Do NOT implement question extraction yet.
+
+---
+
+# 27. `ensureExamData()` MUST ENSURE BOTH
+
+The exact series requirement is:
+
+```text
+course
++
+series
++
+papers
++
+boundary
+```
+
+Therefore:
+
+```text
+ensureExamData(course, series)
+```
+
+returns:
+
+```text
+complete
+partial
+unknown
+```
+
+with missing pieces:
+
+```text
+papers
+boundary
+source
+```
+
+Do not make papers dependent on boundary success.
+
+---
+
+# 28. SCHEDULER PRIORITY
+
+Keep:
+
+```text
+P0 exact user request
+P1 actual sitting
+P2 linked history
+P3 recent series
+P4 maintenance
+P5 archive
+```
+
+A P0 AQA Biology 2025 request must not wait behind a massive Pearson archive sweep.
+
+---
+
+# 29. DO NOT MAKE THE LINKER TRIGGER A GIANT HISTORICAL SWEEP
+
+Opening the linker should acquire:
+
+```text
+course catalogue
+```
+
+not:
+
+```text
+every paper
+every boundary
+every year
+```
+
+Course discovery and exam-data acquisition are separate jobs.
+
+---
+
+# 30. AQA BIOLOGY 2025 ACCEPTANCE TEST
+
+This becomes the first live browser-facing acceptance test.
+
+Input:
+
+```text
+Biology
+AQA
+GCSE
+8461
+Higher
+June 2025
+```
+
+Expected:
+
+```text
+exact AQA source
+        ↓
+verified
+        ↓
+boundary available
+        ↓
+correct grade labels
+        ↓
+correct threshold values
+        ↓
+stored in IndexedDB
+        ↓
+tracker displays it
+```
+
+If it fails anywhere, expose the actual structured reason:
+
+```text
+COURSE_UNRESOLVED
+SERIES_UNRESOLVED
+NO_EXACT_SOURCE
+FETCH_FAILED
+PARSER_FAILED
+VALIDATION_FAILED
+```
+
+Never just return `null`.
+
+---
+
+# 31. MATHS 2017–2025 ACCEPTANCE MATRIX
+
+Use the real `demo-data.json`.
+
+For every sitting:
+
+```text
+year
+series
+course
+```
+
+must resolve independently.
+
+Test specifically:
+
+```text
+2017
+2018
+2019
+2020
+2021
+2022
+2023
+2024
+2025
+```
+
+with the real series values from the export.
+
+For years where an exact official result cannot currently be obtained:
+
+```text
+UNKNOWN
+```
+
+is a passing result.
+
+A fabricated number is a failure.
+
+---
+
+# 32. ADD EXPLICIT UNKNOWN REASONS TO THE TRACKER
+
+The tracker should be able to render:
+
+```text
+Boundary: 217
+```
+
+or:
+
+```text
+Boundary: fetching…
+```
+
+or:
+
+```text
+Boundary: —
+Exact June 2022 boundary unavailable
+```
+
+or:
+
+```text
+Boundary: —
+Course identity ambiguous
+```
+
+This is much better than silently showing the wrong value.
+
+---
+
+# 33. ADD A DEBUG TRACE
+
+For every failed exact request, expose:
+
+```text
+request
+course resolution
+series resolution
+adapter selected
+discovery sources
+candidate resources
+selected resource
+fetch result
+document identity
+parser
+validation
+persistence
+final decision
+```
+
+For example:
+
+```text
+AQA / GCSE / 8461 / H / JUN / 2025
+→ AqaSource
+→ archive found
+→ XLSX found
+→ fetched 200
+→ parsed 8461 H
+→ validation verified
+→ persisted
+→ tracker official
+```
+
+This is the "brain trace".
+
+---
+
+# 34. SOURCE PROVENANCE MUST IDENTIFY THE ACTUAL SOURCE
+
+The final boundary needs:
+
+```text
+sourceId
+sourceUrl
+publisher
+sourceTitle
+contentHash
+accessedAt
+parserVersion
+verification
+```
+
+Do not merely say:
+
+```text
+PearsonSource
+```
+
+---
+
+# 35. CANONICAL SOURCE ENTITY
+
+A boundary should reference:
+
+```js
+sourceIds: [...]
+```
+
+and the source table contains:
+
+```js
+{
+  id,
+  url,
+  publisher,
+  title,
+  contentHash,
+  accessedAt,
+  publishedAt
+}
+```
+
+This enables future mark-scheme and paper documents to share the same provenance model.
+
+---
+
+# 36. STORAGE MUST BE INCREMENTAL
+
+Never clear all IndexedDB stores for a single acquisition.
+
+Use:
+
+```text
+putCourse
+putSeries
+putPaper
+putBoundary
+putSource
+putJob
+```
+
+individually.
+
+---
+
+# 37. LEGACY MIGRATION MUST BE NON-DESTRUCTIVE
+
+On first boot:
+
+```text
+legacy → canonical
+```
+
+Afterwards:
+
+```text
+canonical exact data wins
+```
+
+Do not allow a stale legacy localStorage snapshot to replace newer verified ExamData.
+
+Eventually legacy localStorage should become compatibility-only.
+
+---
+
+# 38. REMOVE DUPLICATE EXAM-DATA ENGINES
+
+After AQA dispatch works:
+
+search the whole repository for:
+
+```text
+gradeBoundaries
+fetch boundary
+Pearson fetch
+AQA fetch
+OCR fetch
+parse boundary
+```
+
+and identify every remaining acquisition path.
+
+There must be exactly one official ingestion path:
+
+```text
+ExamData → adapter → source
+```
+
+Legacy code may remain only as compatibility/migration wrappers.
+
+---
+
+# 39. TEST THE THREE LIVE BUGS AS REGRESSION TESTS
+
+### Bug A
+
+```text
+AQA 8461 June 2025
+→ official
+```
+
+### Bug B
+
+```text
+courseList after catalogue discovery
+→ all relevant courses, not one
+```
+
+### Bug C
+
+```text
+Maths June 2024
+selected = ["7"]
+→ Boundary = 137
+
+Maths June 2025
+selected = ["7"]
+→ Boundary = 156
+```
+
+Then:
+
+```text
+selected = []
+→ 2024 = 197
+→ 2025 = 217
+```
+
+Never:
+
+```text
+always 9
+```
+
+---
+
+# 40. IMPORTANT: TEST THE ACTUAL USER EXPERIENCE PATH
+
+Do not only test:
+
+```text
+ExamData.acquirePearson()
+```
+
+Also test:
+
+```text
+tracker subject
+ ↓
+subject metadata
+ ↓
+course resolution
+ ↓
+series resolution
+ ↓
+ensureExamData
+ ↓
+repository
+ ↓
+boundary display model
+ ↓
+custom grade selection
+ ↓
+render values
+```
+
+This is where the current bugs live.
+
+---
+
+# 41. DEFINITION OF DONE FOR THIS FRONTIER
+
+Do not declare success until all of these are true:
+
+```text
+AQA Biology 8461 June 2025 resolves
+```
+
+```text
+subject linker displays all discovered supported courses
+```
+
+```text
+Maths selected grade 7 displays the grade-7 threshold
+```
+
+```text
+Maths different years display their own exact thresholds
+```
+
+```text
+missing historical source shows —
+```
+
+```text
+no fallback year exists
+```
+
+```text
+course identity remains exact
+```
+
+```text
+AQA/Pearson/OCR dispatch through adapters
+```
+
+```text
+real Node test harness exists
+```
+
+```text
+no fabricated test counts
+```
+
+---
+
+# 42. AFTER THIS FRONTIER
+
+Once those are green, the next order is:
+
+```text
+Pearson historical completeness
+        ↓
+AQA historical completeness
+        ↓
+OCR adapter
+        ↓
+full paper catalogue
+        ↓
+mark-scheme discovery
+        ↓
+question extraction
+```
+
+Do NOT jump to flashcards or AI study intelligence yet.
+
+The current objective is to make ExamData trustworthy enough that everything built above it can safely believe its data.
+
+The key thing I found is that the agent **shouldn't choose between “bugs or harness”**. Do the tiny harness **first**, then fix the three bugs through the shared architecture. The AQA failure is especially clear: the current `ensure.js` still directly calls `acquirePearson`, while `adapters.js` remains partly descriptive rather than being the actual dispatch layer. 
+
+And the linker bug is equally clear: `seedLinkCourses()` renders `Exam.courseList()`, while `courseList()` is just the courses already present in the merged repository; opening the picker itself does not perform course-catalogue discovery. ([GitHub][1])
+
+For the Maths issue, the important architectural correction is to stop having the picker and table renderer independently infer boundaries. The existing tracker already has the separate `aimGrades` preference and the per-series boundary preview, but the actual displayed row needs one canonical **boundary display model** so a selected grade such as 7 can never get replaced by a renderer-side default 9. ([GitHub][1])
+
+This is a really good point in the project's evolution, actually: **the scraper foundation is becoming real enough that the remaining problems are now mostly integration semantics rather than “can we fetch a PDF?”** That's exactly where I'd want the agent next.
+
+[1]: https://github.com/AIGsniperYt/neuronet/blob/main/src/tools/trackerTool.js "neuronet/src/tools/trackerTool.js at main · AIGsniperYt/neuronet · GitHub"
