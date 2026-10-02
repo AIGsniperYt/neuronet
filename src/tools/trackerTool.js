@@ -8,6 +8,12 @@ import { dialog } from "./dialog.js";
 import { Exam } from "./examData/app.js";
 import { planRequirements, REQUIREMENT_TYPES, JOB_PRIORITIES } from "./examData/scheduler.js";
 import { parseCourseKey, courseKey, seriesId, monthFromWord, normalizeTitle, boardId, qualId } from "./examData/schema.js";
+// The verified boundary engine. `acquireBoundary` fetches one exact official
+// table and writes it into the canonical store, so the tracker keeps rendering
+// from the single decision surface while acquisition goes through the engine
+// that is proven against the boards' own PDFs.
+import { acquireBoundary } from "./examData/bridge.js";
+import { findSubjects, matchSubjects } from "./subjects.js";
 
 export function initTrackerTool(deps, context = {}) {
   const { getAllNodes, addNode, addNodes, deleteNode, getSubjects, escapeHtml } = deps;
@@ -297,6 +303,36 @@ export function initTrackerTool(deps, context = {}) {
     return { course: res || null, ambiguous: false, candidates: [] };
   }
 
+  // Informal subjects ("Maths", "Biology", "English Lang") often carry no stored
+  // officialCourse, and the facade's own catalogue only knows what it has
+  // already seen. So the live board catalogues are loaded once, up front, into
+  // a synchronous lookup. resolveCourse() is called from the render path and
+  // cannot become async without turning every row render into a promise.
+  //
+  // A tie is never resolved here: when two courses score equally the subject is
+  // treated as unresolved and the existing ambiguity UI asks the user.
+  let liveCatalogue = [];
+  async function preloadSubjectCatalogue() {
+    try {
+      const cat = await findSubjects({ board: "pearson" });
+      const aqa = await findSubjects({ board: "aqa" });
+      liveCatalogue = [...cat, ...aqa].filter(Boolean);
+    } catch (e) {
+      liveCatalogue = [];
+    }
+    return liveCatalogue.length;
+  }
+
+  function resolveFromLiveCatalogue(name) {
+    if (!name || !liveCatalogue.length) return null;
+    const ranked = matchSubjects(liveCatalogue, name, {});
+    if (!ranked.length) return null;
+    const top = ranked.filter((c) => c.score === ranked[0].score);
+    if (top.length !== 1) return null; // ambiguous — surfaced by the caller, never guessed
+    const hit = top[0];
+    return { board: hit.board, qual: hit.qual, code: hit.code, tier: hit.tier || null, title: hit.title };
+  }
+
   function resolveCourse(name) {
     if (!name) return null;
     const linked = coursesBySubject[name];
@@ -314,7 +350,11 @@ export function initTrackerTool(deps, context = {}) {
     // unstable guess is worse than none, and the row UI points the user at the
     // picker.
     const res = courseResolution(name);
-    return res.course;
+    if (res.course) return res.course;
+    // Last resort: the live board catalogues. This is what lets a bare
+    // "Maths" or "Biology" subject reach the boundary engine without anyone
+    // having to hand-link it first.
+    return resolveFromLiveCatalogue(name);
   }
 
   function resolveBoundaryTable(subject, year, series, cacheSrc) {
@@ -1167,18 +1207,35 @@ export function initTrackerTool(deps, context = {}) {
       const parsed = parseCourseKey(r.courseKey) || {};
       const seriesWord = r.series && r.series.month ? String(r.series.month) : "";
       try {
-        await Exam.ensureForSitting({
+        const res = await acquireBoundary({
           board: r.board,
           qual: r.qual,
           code: String(parsed.code || ""),
-          tier: String(parsed.tier || ""),
-          title: "",
-          year: String(r.series && r.series.year),
-          seriesWord,
-          acquire: true,
-          priority: JOB_PRIORITIES.P1_SITTING
-        }, r.key);
-        madeFetch = true;
+          tier: parsed.tier && parsed.tier !== "_" ? String(parsed.tier) : null,
+          year: r.series && r.series.year,
+          series: seriesWord
+        });
+        if (res.ok) {
+          madeFetch = true;
+          continue; // stored in canonical shape; the next read model sees it
+        }
+        // A refusal is a real answer (no official publication for that exact
+        // series), not an error. The legacy path is kept as a fallback so a
+        // series the engine cannot reach is still worth one attempt.
+        if (res.reason === "NO_EXACT_SOURCE") {
+          await Exam.ensureForSitting({
+            board: r.board,
+            qual: r.qual,
+            code: String(parsed.code || ""),
+            tier: String(parsed.tier || ""),
+            title: "",
+            year: String(r.series && r.series.year),
+            seriesWord,
+            acquire: true,
+            priority: JOB_PRIORITIES.P1_SITTING
+          }, r.key);
+          madeFetch = true;
+        }
       } catch (e) {
         /* best-effort */
       }
@@ -1936,6 +1993,11 @@ export function initTrackerTool(deps, context = {}) {
     await loadSubjects();
     await ensureQualifications();
     renderPapers();
+    // Load the live board catalogues before the warm flight plans its work, so
+    // an informal subject ("Maths", "Biology") can resolve to an official course
+    // and therefore have its boundaries fetched. Best-effort: with no catalogue
+    // the tracker still works for subjects that are already linked.
+    await preloadSubjectCatalogue();
     // Targeted auto-warm for the rows' own series. Single-flight, decoupled
     // from the render path (see runWarmFlight), so it can neither re-enter a
     // render nor loop. This is the ONLY background fetcher the tracker runs:
