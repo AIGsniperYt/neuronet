@@ -27,3 +27,6 @@ dist-ssr
 advice.md
 # keep sandbox/plan docs local, like advice.md
 docs/EXAMDATA.md
+
+# cached board PDFs used by the offline golden suite
+tests/.golden-pdfs/

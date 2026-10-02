@@ -1,0 +1,689 @@
+{
+  "schemaVersion": 1,
+  "dataset": "neuronet-gcse-golden-boundaries",
+  "scope": "User's eight actual GCSE qualifications; exact June 2025 overall subject boundaries, plus Pearson 1MA1 Higher historical regression fixtures.",
+  "userGCSEs": [
+    {
+      "subject": "Mathematics",
+      "board": "Pearson Edexcel",
+      "code": "1MA1",
+      "tier": "Higher",
+      "grade": 9
+    },
+    {
+      "subject": "Computer Science",
+      "board": "Pearson Edexcel",
+      "code": "1CP2",
+      "tier": null,
+      "grade": 9
+    },
+    {
+      "subject": "Geography B",
+      "board": "Pearson Edexcel",
+      "code": "1GB0",
+      "tier": null,
+      "grade": 9
+    },
+    {
+      "subject": "English Language",
+      "board": "AQA",
+      "code": "8700",
+      "tier": null,
+      "grade": 9
+    },
+    {
+      "subject": "English Literature",
+      "board": "AQA",
+      "code": "8702",
+      "tier": null,
+      "grade": 9
+    },
+    {
+      "subject": "Biology",
+      "board": "AQA",
+      "code": "8461",
+      "tier": "Higher",
+      "grade": 9
+    },
+    {
+      "subject": "Chemistry",
+      "board": "AQA",
+      "code": "8462",
+      "tier": "Higher",
+      "grade": 9
+    },
+    {
+      "subject": "Physics",
+      "board": "AQA",
+      "code": "8463",
+      "tier": "Higher",
+      "grade": 9
+    }
+  ],
+  "actualJune2025": [
+    {
+      "id": "pearson|gcse|1MA1|H|JUN|2025",
+      "board": "pearson",
+      "boardName": "Pearson Edexcel",
+      "qualification": "gcse",
+      "qualificationName": "GCSE",
+      "code": "1MA1",
+      "title": "Mathematics",
+      "tier": "H",
+      "tierName": "Higher",
+      "series": {
+        "month": "JUN",
+        "year": 2025
+      },
+      "maxMark": 240,
+      "grades": {
+        "9": 217,
+        "8": 186,
+        "7": 156,
+        "6": 121,
+        "5": 87,
+        "4": 53,
+        "3": 36,
+        "U": 0
+      },
+      "papers": [
+        "1H",
+        "2H",
+        "3H"
+      ],
+      "source": {
+        "publisher": "Pearson Edexcel",
+        "url": "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/grade-boundaries-june-2025-gcse.pdf",
+        "verifiedOn": "2026-10-02",
+        "scope": "overall subject grade boundaries"
+      }
+    },
+    {
+      "id": "pearson|gcse|1CP2|JUN|2025",
+      "board": "pearson",
+      "boardName": "Pearson Edexcel",
+      "qualification": "gcse",
+      "qualificationName": "GCSE",
+      "code": "1CP2",
+      "title": "Computer Science",
+      "tier": null,
+      "tierName": null,
+      "series": {
+        "month": "JUN",
+        "year": 2025
+      },
+      "maxMark": 150,
+      "grades": {
+        "9": 124,
+        "8": 109,
+        "7": 94,
+        "6": 79,
+        "5": 64,
+        "4": 49,
+        "3": 36,
+        "2": 23,
+        "1": 10,
+        "U": 0
+      },
+      "papers": [
+        "01",
+        "02"
+      ],
+      "source": {
+        "publisher": "Pearson Edexcel",
+        "url": "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/grade-boundaries-june-2025-gcse.pdf",
+        "verifiedOn": "2026-10-02",
+        "scope": "overall subject grade boundaries"
+      }
+    },
+    {
+      "id": "pearson|gcse|1GB0|JUN|2025",
+      "board": "pearson",
+      "boardName": "Pearson Edexcel",
+      "qualification": "gcse",
+      "qualificationName": "GCSE",
+      "code": "1GB0",
+      "title": "Geography B",
+      "tier": null,
+      "tierName": null,
+      "series": {
+        "month": "JUN",
+        "year": 2025
+      },
+      "maxMark": 256,
+      "grades": {
+        "9": 217,
+        "8": 201,
+        "7": 185,
+        "6": 164,
+        "5": 143,
+        "4": 122,
+        "3": 87,
+        "2": 53,
+        "1": 19,
+        "U": 0
+      },
+      "papers": [
+        "01",
+        "02",
+        "03"
+      ],
+      "source": {
+        "publisher": "Pearson Edexcel",
+        "url": "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/grade-boundaries-june-2025-gcse.pdf",
+        "verifiedOn": "2026-10-02",
+        "scope": "overall subject grade boundaries"
+      }
+    },
+    {
+      "id": "aqa|gcse|8461|H|JUN|2025",
+      "board": "aqa",
+      "boardName": "AQA",
+      "qualification": "gcse",
+      "qualificationName": "GCSE",
+      "code": "8461",
+      "title": "Biology",
+      "tier": "H",
+      "tierName": "Higher",
+      "series": {
+        "month": "JUN",
+        "year": 2025
+      },
+      "maxMark": 200,
+      "grades": {
+        "9": 141,
+        "8": 127,
+        "7": 113,
+        "6": 94,
+        "5": 75,
+        "4": 56,
+        "3": 46
+      },
+      "papers": [
+        "8461/1H",
+        "8461/2H"
+      ],
+      "source": {
+        "publisher": "AQA",
+        "url": "https://www.aqa.org.uk/files/276a73e7-66d8-46aa-8497-59bdb6d8d5a4/ae1e25e87bcd136c90d5db0577ff92ffce552c7b.pdf",
+        "verifiedOn": "2026-10-02",
+        "scope": "subject grade boundaries"
+      }
+    },
+    {
+      "id": "aqa|gcse|8462|H|JUN|2025",
+      "board": "aqa",
+      "boardName": "AQA",
+      "qualification": "gcse",
+      "qualificationName": "GCSE",
+      "code": "8462",
+      "title": "Chemistry",
+      "tier": "H",
+      "tierName": "Higher",
+      "series": {
+        "month": "JUN",
+        "year": 2025
+      },
+      "maxMark": 200,
+      "grades": {
+        "9": 150,
+        "8": 132,
+        "7": 115,
+        "6": 90,
+        "5": 66,
+        "4": 42,
+        "3": 30
+      },
+      "papers": [
+        "8462/1H",
+        "8462/2H"
+      ],
+      "source": {
+        "publisher": "AQA",
+        "url": "https://www.aqa.org.uk/files/276a73e7-66d8-46aa-8497-59bdb6d8d5a4/ae1e25e87bcd136c90d5db0577ff92ffce552c7b.pdf",
+        "verifiedOn": "2026-10-02",
+        "scope": "subject grade boundaries"
+      }
+    },
+    {
+      "id": "aqa|gcse|8463|H|JUN|2025",
+      "board": "aqa",
+      "boardName": "AQA",
+      "qualification": "gcse",
+      "qualificationName": "GCSE",
+      "code": "8463",
+      "title": "Physics",
+      "tier": "H",
+      "tierName": "Higher",
+      "series": {
+        "month": "JUN",
+        "year": 2025
+      },
+      "maxMark": 200,
+      "grades": {
+        "9": 152,
+        "8": 139,
+        "7": 126,
+        "6": 107,
+        "5": 88,
+        "4": 70,
+        "3": 61
+      },
+      "papers": [
+        "8463/1H",
+        "8463/2H"
+      ],
+      "source": {
+        "publisher": "AQA",
+        "url": "https://www.aqa.org.uk/files/276a73e7-66d8-46aa-8497-59bdb6d8d5a4/ae1e25e87bcd136c90d5db0577ff92ffce552c7b.pdf",
+        "verifiedOn": "2026-10-02",
+        "scope": "subject grade boundaries"
+      }
+    },
+    {
+      "id": "aqa|gcse|8700|JUN|2025",
+      "board": "aqa",
+      "boardName": "AQA",
+      "qualification": "gcse",
+      "qualificationName": "GCSE",
+      "code": "8700",
+      "title": "English Language",
+      "tier": null,
+      "tierName": null,
+      "series": {
+        "month": "JUN",
+        "year": 2025
+      },
+      "maxMark": 160,
+      "grades": {
+        "9": 119,
+        "8": 109,
+        "7": 100,
+        "6": 91,
+        "5": 82,
+        "4": 73,
+        "3": 54,
+        "2": 35,
+        "1": 16
+      },
+      "papers": [
+        "8700/1",
+        "8700/2"
+      ],
+      "source": {
+        "publisher": "AQA",
+        "url": "https://www.aqa.org.uk/files/276a73e7-66d8-46aa-8497-59bdb6d8d5a4/ae1e25e87bcd136c90d5db0577ff92ffce552c7b.pdf",
+        "verifiedOn": "2026-10-02",
+        "scope": "subject grade boundaries"
+      }
+    },
+    {
+      "id": "aqa|gcse|8702|JUN|2025",
+      "board": "aqa",
+      "boardName": "AQA",
+      "qualification": "gcse",
+      "qualificationName": "GCSE",
+      "code": "8702",
+      "title": "English Literature",
+      "tier": null,
+      "tierName": null,
+      "series": {
+        "month": "JUN",
+        "year": 2025
+      },
+      "maxMark": 160,
+      "grades": {
+        "9": 136,
+        "8": 122,
+        "7": 108,
+        "6": 92,
+        "5": 77,
+        "4": 62,
+        "3": 46,
+        "2": 30,
+        "1": 15
+      },
+      "papers": [
+        "8702/1",
+        "8702/2"
+      ],
+      "source": {
+        "publisher": "AQA",
+        "url": "https://www.aqa.org.uk/files/276a73e7-66d8-46aa-8497-59bdb6d8d5a4/ae1e25e87bcd136c90d5db0577ff92ffce552c7b.pdf",
+        "verifiedOn": "2026-10-02",
+        "scope": "subject grade boundaries"
+      }
+    }
+  ],
+  "historicalPearson1MA1Higher": [
+    {
+      "id": "pearson|gcse|1MA1|H|JUN|2022",
+      "board": "pearson",
+      "qualification": "gcse",
+      "code": "1MA1",
+      "title": "Mathematics",
+      "tier": "H",
+      "tierName": "Higher",
+      "series": {
+        "month": "JUN",
+        "year": 2022
+      },
+      "maxMark": 240,
+      "grades": {
+        "9": 194,
+        "8": 165,
+        "7": 137,
+        "6": 104,
+        "5": 71,
+        "4": 38,
+        "3": 21,
+        "U": 0
+      },
+      "papers": [
+        "1H",
+        "2H",
+        "3H"
+      ],
+      "source": {
+        "publisher": "Pearson Edexcel",
+        "url": "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/2206-gcse-9-1-subject-grade-boundaries.pdf",
+        "verifiedOn": "2026-10-02",
+        "scope": "overall subject grade boundaries"
+      },
+      "boardName": "Pearson Edexcel",
+      "qualificationName": "GCSE"
+    },
+    {
+      "id": "pearson|gcse|1MA1|H|NOV|2022",
+      "board": "pearson",
+      "qualification": "gcse",
+      "code": "1MA1",
+      "title": "Mathematics",
+      "tier": "H",
+      "tierName": "Higher",
+      "series": {
+        "month": "NOV",
+        "year": 2022
+      },
+      "maxMark": 240,
+      "grades": {
+        "9": 194,
+        "8": 165,
+        "7": 137,
+        "6": 104,
+        "5": 71,
+        "4": 38,
+        "3": 21,
+        "U": 0
+      },
+      "papers": [
+        "1H",
+        "2H",
+        "3H"
+      ],
+      "source": {
+        "publisher": "Pearson Edexcel",
+        "url": "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/2211-gcse-9-1-subject-grade-boundaries-v1.pdf",
+        "verifiedOn": "2026-10-02",
+        "scope": "overall subject grade boundaries"
+      },
+      "boardName": "Pearson Edexcel",
+      "qualificationName": "GCSE"
+    },
+    {
+      "id": "pearson|gcse|1MA1|H|JUN|2023",
+      "board": "pearson",
+      "qualification": "gcse",
+      "code": "1MA1",
+      "title": "Mathematics",
+      "tier": "H",
+      "tierName": "Higher",
+      "series": {
+        "month": "JUN",
+        "year": 2023
+      },
+      "maxMark": 240,
+      "grades": {
+        "9": 203,
+        "8": 174,
+        "7": 145,
+        "6": 112,
+        "5": 79,
+        "4": 47,
+        "3": 31,
+        "U": 0
+      },
+      "papers": [
+        "1H",
+        "2H",
+        "3H"
+      ],
+      "source": {
+        "publisher": "Pearson Edexcel",
+        "url": "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/2306-gcse-9-1-subject-grade-boundaries.pdf",
+        "verifiedOn": "2026-10-02",
+        "scope": "overall subject grade boundaries"
+      },
+      "boardName": "Pearson Edexcel",
+      "qualificationName": "GCSE"
+    },
+    {
+      "id": "pearson|gcse|1MA1|H|JUN|2024",
+      "board": "pearson",
+      "qualification": "gcse",
+      "code": "1MA1",
+      "title": "Mathematics",
+      "tier": "H",
+      "tierName": "Higher",
+      "series": {
+        "month": "JUN",
+        "year": 2024
+      },
+      "maxMark": 240,
+      "grades": {
+        "9": 197,
+        "8": 167,
+        "7": 137,
+        "6": 105,
+        "5": 73,
+        "4": 42,
+        "3": 26,
+        "U": 0
+      },
+      "papers": [
+        "1H",
+        "2H",
+        "3H"
+      ],
+      "source": {
+        "publisher": "Pearson Edexcel",
+        "url": "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/grade-boundaries-june-2024-gcse.pdf",
+        "verifiedOn": "2026-10-02",
+        "scope": "overall subject grade boundaries"
+      },
+      "boardName": "Pearson Edexcel",
+      "qualificationName": "GCSE"
+    }
+  ],
+  "tierRegression": [
+    {
+      "id": "pearson|gcse|1MA1|F|JUN|2024",
+      "board": "pearson",
+      "qualification": "gcse",
+      "code": "1MA1",
+      "title": "Mathematics",
+      "tier": "F",
+      "tierName": "Foundation",
+      "series": {
+        "month": "JUN",
+        "year": 2024
+      },
+      "maxMark": 240,
+      "grades": {
+        "5": 175,
+        "4": 142,
+        "3": 103,
+        "2": 65,
+        "1": 27,
+        "U": 0
+      },
+      "papers": [
+        "1F",
+        "2F",
+        "3F"
+      ],
+      "source": {
+        "publisher": "Pearson Edexcel",
+        "url": "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/grade-boundaries-june-2024-gcse.pdf",
+        "verifiedOn": "2026-10-02",
+        "scope": "overall subject grade boundaries"
+      },
+      "boardName": "Pearson Edexcel",
+      "qualificationName": "GCSE"
+    },
+    {
+      "id": "pearson|gcse|1MA1|F|JUN|2025",
+      "board": "pearson",
+      "qualification": "gcse",
+      "code": "1MA1",
+      "title": "Mathematics",
+      "tier": "F",
+      "tierName": "Foundation",
+      "series": {
+        "month": "JUN",
+        "year": 2025
+      },
+      "maxMark": 240,
+      "grades": {
+        "5": 175,
+        "4": 144,
+        "3": 105,
+        "2": 67,
+        "1": 29,
+        "U": 0
+      },
+      "papers": [
+        "1F",
+        "2F",
+        "3F"
+      ],
+      "source": {
+        "publisher": "Pearson Edexcel",
+        "url": "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/grade-boundaries-june-2025-gcse.pdf",
+        "verifiedOn": "2026-10-02",
+        "scope": "overall subject grade boundaries"
+      },
+      "boardName": "Pearson Edexcel",
+      "qualificationName": "GCSE"
+    },
+    {
+      "id": "aqa|gcse|8461|F|JUN|2025",
+      "board": "aqa",
+      "qualification": "gcse",
+      "code": "8461",
+      "title": "Biology",
+      "tier": "F",
+      "tierName": "Foundation",
+      "series": {
+        "month": "JUN",
+        "year": 2025
+      },
+      "maxMark": 200,
+      "grades": {
+        "5": 140,
+        "4": 121,
+        "3": 87,
+        "2": 53,
+        "1": 19
+      },
+      "papers": [
+        "8461/1F",
+        "8461/2F"
+      ],
+      "source": {
+        "publisher": "AQA",
+        "url": "https://www.aqa.org.uk/files/276a73e7-66d8-46aa-8497-59bdb6d8d5a4/ae1e25e87bcd136c90d5db0577ff92ffce552c7b.pdf",
+        "verifiedOn": "2026-10-02",
+        "scope": "subject grade boundaries"
+      },
+      "boardName": "AQA",
+      "qualificationName": "GCSE"
+    },
+    {
+      "id": "aqa|gcse|8462|F|JUN|2025",
+      "board": "aqa",
+      "qualification": "gcse",
+      "code": "8462",
+      "title": "Chemistry",
+      "tier": "F",
+      "tierName": "Foundation",
+      "series": {
+        "month": "JUN",
+        "year": 2025
+      },
+      "maxMark": 200,
+      "grades": {
+        "5": 132,
+        "4": 109,
+        "3": 80,
+        "2": 52,
+        "1": 24
+      },
+      "papers": [
+        "8462/1F",
+        "8462/2F"
+      ],
+      "source": {
+        "publisher": "AQA",
+        "url": "https://www.aqa.org.uk/files/276a73e7-66d8-46aa-8497-59bdb6d8d5a4/ae1e25e87bcd136c90d5db0577ff92ffce552c7b.pdf",
+        "verifiedOn": "2026-10-02",
+        "scope": "subject grade boundaries"
+      },
+      "boardName": "AQA",
+      "qualificationName": "GCSE"
+    },
+    {
+      "id": "aqa|gcse|8463|F|JUN|2025",
+      "board": "aqa",
+      "qualification": "gcse",
+      "code": "8463",
+      "title": "Physics",
+      "tier": "F",
+      "tierName": "Foundation",
+      "series": {
+        "month": "JUN",
+        "year": 2025
+      },
+      "maxMark": 200,
+      "grades": {
+        "5": 144,
+        "4": 131,
+        "3": 95,
+        "2": 59,
+        "1": 24
+      },
+      "papers": [
+        "8463/1F",
+        "8463/2F"
+      ],
+      "source": {
+        "publisher": "AQA",
+        "url": "https://www.aqa.org.uk/files/276a73e7-66d8-46aa-8497-59bdb6d8d5a4/ae1e25e87bcd136c90d5db0577ff92ffce552c7b.pdf",
+        "verifiedOn": "2026-10-02",
+        "scope": "subject grade boundaries"
+      },
+      "boardName": "AQA",
+      "qualificationName": "GCSE"
+    }
+  ],
+  "semanticTests": {
+    "unknownQualificationMustStayUnknown": true,
+    "blankSeriesMustNotBecomeJune": true,
+    "aMustNotBecomeAStar": true,
+    "exactMonthNoCrossMonthFallback": true,
+    "yearWithoutMonthAmbiguousWhenMultipleSeriesExist": true,
+    "explicitTierIsAuthoritative": true,
+    "historicalOfficialDataDoesNotExpire": true,
+    "legacyUnprovenNumbersAreNotOfficial": true
+  }
+}
