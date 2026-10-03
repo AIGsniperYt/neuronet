@@ -26,9 +26,11 @@ import { openExamRepository, deriveBoundaryDecision } from "./repository.js";
 import { gateDecisionForVerification, getForSitting } from "./ingest.js";
 import { ensureForSitting as ensureForSittingImpl } from "./ensure.js";
 import * as schema from "./schema.js";
+import { diag } from "../diag.js";
 
 // ---- legacy blob / channel keys (strings only — no import, no cycle) ----
 const LEGACY_CACHE_KEY = "neuronet:gradeBoundaries";
+const ENGINE_CACHE_KEY = "neuronet:boundaries";
 const LEGACY_STATUS_KEY = "neuronet:boundaryStatus";
 const LEGACY_CACHE_TICK = `${LEGACY_CACHE_KEY}_tick`;
 const STATUS_CHANNEL = "neuronet:boundaryStatus";
@@ -55,6 +57,14 @@ function readJson(key, fallback) {
 
 function readLegacyCache() {
   return readJson(LEGACY_CACHE_KEY, { version: 2, entries: {} });
+}
+
+// boundaries.js predates the IndexedDB exam-data repository and stores exact
+// parsed tables under pipe-delimited keys. Keep that cache in the same merged
+// read model; otherwise a successful fetch is invisible to the tracker until
+// another path happens to rewrite the table into IndexedDB.
+function readEngineCache() {
+  return readJson(ENGINE_CACHE_KEY, { version: 2, tables: {} });
 }
 
 function readLegacyStatus() {
@@ -103,10 +113,31 @@ export function mergedIndex(snap) {
     if (c && c.id) courses.set(c.id, { ...c });
   }
   for (const [k, c] of legacy.courses) courses.set(k, { ...c });
+  const boundaries = new Map();
+  const engineCache = readEngineCache();
+  for (const [key, table] of Object.entries((engineCache && engineCache.tables) || {})) {
+    const m = /^([^|]+)\|([^|]+)\|([^|]+)\|([^|]*)\|([^|]+)\|(\d{4})$/.exec(String(key));
+    if (!m || !table || !table.grades || !Array.isArray(table.marks)) continue;
+    const [, board, qual, code, tier, month, year] = m;
+    const ck = `${board}:${qual}:${code}:${tier || "_"}`;
+    const sid = `${month}-${year}`;
+    if (!courses.has(ck)) courses.set(ck, { board, qual, code, tier: tier || null, title: table.title || null });
+    const boundary = {
+      id: `${ck}|${sid}`,
+      courseKey: ck,
+      seriesId: sid,
+      series: { month, year: Number(year), label: table.seriesLabel || `${month} ${year}` },
+      grades: table.grades,
+      gradesInOrder: Array.isArray(table.gradesInOrder) ? table.gradesInOrder : Object.keys(table.grades),
+      maxMark: table.maxMark || null,
+      papers: Array.isArray(table.papers) ? table.papers : [],
+      provenance: { kind: "official", parsedAt: Number(table.fetchedAt) || Date.now(), verification: "verified", url: table.source && table.source.url || null }
+    };
+    if (!boundaries.has(boundary.id)) boundaries.set(boundary.id, boundary);
+  }
   for (const c of (snap && snap.examCourses) || []) {
     if (c && c.id && !courses.has(c.id)) courses.set(c.id, { ...c });
   }
-  const boundaries = new Map();
   for (const b of (snap && snap.examBoundaries) || []) {
     if (b && b.id) boundaries.set(b.id, { ...b });
   }
@@ -844,6 +875,7 @@ export function getBoundaryDisplayModel(options = {}) {
     selectedGrades
   } = options;
 
+  diag("R? ", "getBoundaryDisplayModel {courseIdParam: " + courseId + ", sittingCourseId: " + (sitting && sitting.courseId) + ", seriesId: " + seriesId + ", subject: " + (sitting && sitting.subject) + ", year: " + (sitting && sitting.year) + ", seriesWord: " + (sitting && sitting.series) + "}");
   const repo = repoNow();
   const enrollment = { board, qual, code, tier, title };
   let course = options.course || null;
@@ -851,9 +883,15 @@ export function getBoundaryDisplayModel(options = {}) {
   if (!course && courseId) {
     course = repo.courses().find((c) => schema.courseKey(c) === courseId) || null;
   }
+  if (!course && sitting && sitting.courseId) {
+    course = repo.courses().find((c) => schema.courseKey(c) === sitting.courseId) || null;
+  }
   if (!course && sitting && sitting.subject) {
-    const res = scoreCourseCandidates({ title: sitting.subject });
-    course = res.find((x) => x.exact)?.c || (res[0] ? res[0].c : null);
+    // A subject label is not an identity. Only use it when the resolver has
+    // one unambiguous winner; choosing the first cache/catalogue row can put
+    // another board's boundary number on the sitting.
+    const resolved = resolveCourse({ title: sitting.subject });
+    course = resolved && !resolved.ambiguous ? resolved : null;
   }
   if (!course) {
     course = repo.courseFor(enrollment);
@@ -862,12 +900,12 @@ export function getBoundaryDisplayModel(options = {}) {
   const exactYear = year != null && year !== "" ? year : (sitting ? sitting.year : null);
   const exactSeriesWord = seriesWord != null && seriesWord !== "" ? seriesWord : (sitting ? sitting.series : null);
 
-  if (!course || exactYear == null || exactYear === "" || !exactSeriesWord) {
+  if (!course) {
     return {
       state: "unknown",
-      reason: !course ? "COURSE_UNRESOLVED" : "UNMAPPED_SERIES",
-      courseId: course ? schema.courseKey(course) : courseId || null,
-      seriesId: seriesId || null,
+      reason: "COURSE_UNRESOLVED",
+      courseId: course ? schema.courseKey(course) : courseId || (sitting && sitting.courseId) || null,
+      seriesId: seriesId || (sitting && sitting.seriesId) || null,
       table: null,
       source: null,
       provenance: null,
@@ -876,9 +914,8 @@ export function getBoundaryDisplayModel(options = {}) {
     };
   }
 
-  const cId = courseId || schema.courseKey(course);
-  const monthAbbr = schema.monthFromWord(exactSeriesWord);
-  const sId = seriesId || schema.seriesId({ month: monthAbbr, year: Number(exactYear) });
+  const cId = courseId || (sitting && sitting.courseId) || schema.courseKey(course);
+  const monthAbbr = exactSeriesWord ? schema.monthFromWord(exactSeriesWord) : null;
 
   const decision = decisionFor(course, exactYear, exactSeriesWord, sitting || {});
 
@@ -890,10 +927,12 @@ export function getBoundaryDisplayModel(options = {}) {
       table,
       source: decision.sourceLabel || "official",
       provenance: decision.provenance || { kind: "official" },
+      projected: decision.kind === "projected",
       selectedGrades: Array.isArray(selectedGrades) ? selectedGrades : [],
       defaultGrade,
       courseId: cId,
-      seriesId: sId
+      seriesId: seriesId || (sitting && sitting.seriesId) || table.seriesKey ||
+        schema.seriesId({ month: monthAbbr, year: Number(exactYear) })
     };
   }
 
@@ -904,7 +943,8 @@ export function getBoundaryDisplayModel(options = {}) {
     state: "unknown",
     reason,
     courseId: cId,
-    seriesId: sId,
+    seriesId: seriesId || (sitting && sitting.seriesId) ||
+      schema.seriesId({ month: monthAbbr, year: Number(exactYear) }),
     table: null,
     source: null,
     provenance: null,
