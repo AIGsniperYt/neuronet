@@ -2153,11 +2153,10 @@ async function loadSubjectCatalogues() {
     await loadSubjects();
     await ensureQualifications();
     renderPapers();
-    // Load the live board catalogues before the warm flight plans its work, so
-    // an informal subject ("Maths", "Biology") can resolve to an official course
-    // and therefore have its boundaries fetched. Best-effort: with no catalogue
-    // the tracker still works for subjects that are already linked.
-    await loadSubjectCatalogues();
+    // Start catalogue discovery and boundary warming independently. Linked
+    // sittings already carry their canonical courseId, so they must not wait
+    // for a slow/unreachable board catalogue before their boundaries fetch.
+    const catalogueLoad = loadSubjectCatalogues();
     // Targeted auto-warm for the rows' own series. Single-flight, decoupled
     // from the render path (see runWarmFlight), so it can neither re-enter a
     // render nor loop. This is the ONLY background fetcher the tracker runs:
@@ -2165,6 +2164,10 @@ async function loadSubjectCatalogues() {
     // (loadLinkPickerCourses), never from init. Firing it here stormed the whole
     // AQA history (proxy + CORS fallback per series) plus OCR/Pearson PDF
     // parses on every scope, janking the main thread for a minute+.
+    scheduleWarm();
+    // Once catalogues arrive, make a second pass for informal/unlinked rows
+    // that could not be resolved during the first pass.
+    await catalogueLoad;
     scheduleWarm();
   }
 
