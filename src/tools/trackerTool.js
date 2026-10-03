@@ -290,7 +290,7 @@ export function initTrackerTool(deps, context = {}) {
   // flag. Identity never resolves on cache richness: when the resolver reports
   // ambiguity (equal-score candidates, e.g. "Geography" across boards) we do
   // NOT pick one — the caller surfaces the candidate list and asks.
-  function courseResolution(subject) {
+  function resolveSubjectMeta(subject) {
     const meta = subjectMeta[subject || ""] || {};
     const res = Exam.resolveCourse({
       board: meta.examBoard,
@@ -311,21 +311,36 @@ export function initTrackerTool(deps, context = {}) {
   //
   // A tie is never resolved here: when two courses score equally the subject is
   // treated as unresolved and the existing ambiguity UI asks the user.
-  let liveCatalogue = [];
-  async function preloadSubjectCatalogue() {
-    try {
-      const cat = await findSubjects({ board: "pearson" });
-      const aqa = await findSubjects({ board: "aqa" });
-      liveCatalogue = [...cat, ...aqa].filter(Boolean);
-    } catch (e) {
-      liveCatalogue = [];
-    }
-    return liveCatalogue.length;
-  }
+// Courses offered by the link picker and used to resolve informal subjects.
+// Loaded once at startup, one board at a time, so a failure or slow response
+// from one board never costs you the other's courses.
+let subjectCatalogue = [];
+async function loadSubjectCatalogues() {
+  const boards = ["pearson", "aqa", "ocr"];
+  const results = await Promise.allSettled(boards.map((b) => findSubjects({ board: b })));
+  const merged = [];
+  const failed = [];
+  results.forEach((r, i) => {
+    if (r.status === "fulfilled" && Array.isArray(r.value) && r.value.length) merged.push(...r.value);
+    else failed.push(boards[i]);
+  });
+  // De-duplicate by canonical id; different boards can expose the same code.
+  const seen = new Set();
+  subjectCatalogue = merged.filter((s) => {
+    if (!s || !s.code) return false;
+    const id = `${s.board}|${s.qual}|${s.code}|${s.tier || "_"}`;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+  if (failed.length) console.warn("[neuronet] subject catalogue unavailable for:", failed.join(", "));
+  console.info(`[neuronet] subject catalogue: ${subjectCatalogue.length} courses from ${boards.length - failed.length}/${boards.length} boards`);
+  return subjectCatalogue.length;
+}
 
-  function resolveFromLiveCatalogue(name) {
-    if (!name || !liveCatalogue.length) return null;
-    const ranked = matchSubjects(liveCatalogue, name, {});
+  function matchSubjectInCatalogue(name) {
+    if (!name || !subjectCatalogue.length) return null;
+    const ranked = matchSubjects(subjectCatalogue, name, {});
     if (!ranked.length) return null;
     const top = ranked.filter((c) => c.score === ranked[0].score);
     if (top.length !== 1) return null; // ambiguous — surfaced by the caller, never guessed
@@ -349,12 +364,12 @@ export function initTrackerTool(deps, context = {}) {
     // after a successful pack acquisition. Ambiguity returns null here — an
     // unstable guess is worse than none, and the row UI points the user at the
     // picker.
-    const res = courseResolution(name);
+    const res = resolveSubjectMeta(name);
     if (res.course) return res.course;
     // Last resort: the live board catalogues. This is what lets a bare
     // "Maths" or "Biology" subject reach the boundary engine without anyone
     // having to hand-link it first.
-    return resolveFromLiveCatalogue(name);
+    return matchSubjectInCatalogue(name);
   }
 
   function resolveBoundaryTable(subject, year, series, cacheSrc) {
@@ -644,7 +659,7 @@ export function initTrackerTool(deps, context = {}) {
     if (course) {
       el.linkPill.innerHTML = `<button type="button" class="tracker-link-pill linked" data-act="open" title="${escapeHtml(courseSummary(course))}"><i class="fa-solid fa-link"></i> ${escapeHtml(courseSummary(course))}</button>`;
     } else {
-      const res = subject && !coursesBySubject[subject] ? courseResolution(subject) : { course: null, ambiguous: false, candidates: [] };
+      const res = subject && !coursesBySubject[subject] ? resolveSubjectMeta(subject) : { course: null, ambiguous: false, candidates: [] };
       linkHint = res.ambiguous ? null : res.course;
       if (res.ambiguous) {
         const n = res.candidates.length;
@@ -673,15 +688,15 @@ export function initTrackerTool(deps, context = {}) {
     if (el.colsPop) el.colsPop.hidden = true;
     if (el.linkFilter) el.linkFilter.value = "";
     chipTokens.clear();
-    renderCourseList();
-    seedLinkCourses();
+    renderLinkPickerList();
+    loadLinkPickerCourses();
     if (el.unlinkBtn) el.unlinkBtn.hidden = !(subject && coursesBySubject[subject]);
     if (el.linkPop) el.linkPop.hidden = false;
   }
 
   function closeLinkPicker() {
     if (el.linkPop) el.linkPop.hidden = true;
-    clearLinkScratch();
+    clearLinkStatus();
   }
 
   // Populate the link picker with official subjects for EVERY exam board.
@@ -690,17 +705,24 @@ export function initTrackerTool(deps, context = {}) {
   // aren't retried within the retry window, and a recently-completed sweep is
   // served as-is, so opening the picker never triggers a fresh fetch set.
   // Concurrent opens/queues collapse into one run.
-  function seedLinkCourses() {
-    renderCourseList();
-    linkScratch("Checking AQA, OCR and Pearson grade-boundaries cache...");
-    const total = Exam.courseList().length;
-    if (total === 0) {
-      if (el.linkList) el.linkList.innerHTML = `<div class="tracker-course-empty">Fetching official subjects from AQA, OCR and Pearson...</div>`;
-    } else {
-      renderCourseList();
+  function loadLinkPickerCourses() {
+    renderLinkPickerList();
+    const already = availableCourses().length;
+    if (already === 0) {
+      showLinkStatus("Fetching official subjects from AQA and Pearson...");
+      if (el.linkList) el.linkList.innerHTML = `<div class="tracker-course-empty">Fetching official subjects from AQA and Pearson...</div>`;
     }
-    if (el.linkList) renderCourseList();
-    linkScratchDone(`${Exam.courseList().length} official subjects ready — search to link.`);
+    if (already > 0) {
+      showLinkStatusDone(`${already} official subjects ready — search to link.`);
+      return;
+    }
+    // Nothing cached yet: load it here and repaint as each board lands, so the
+    // list is never stuck on "fetching" if one board is slow or unreachable.
+    loadSubjectCatalogues().then((n) => {
+      if (el.linkList && !el.linkPop?.hidden) renderLinkPickerList();
+      if (n > 0) showLinkStatusDone(`${n} official subjects ready — search to link.`);
+      else showLinkStatusDone("Could not reach the exam boards — close and reopen to retry.");
+    });
   }
 
   // A human-readable line from the shared sweep status ("Fetching OCR GCSE June
@@ -789,47 +811,47 @@ export function initTrackerTool(deps, context = {}) {
     );
   }
 
-  // Scraper-style "scratch buffer": one overwriting log line that sweeps a
-  // green gradient while work is in progress, fills on completion, then
-  // breathes softly. It never accumulates history — the most recent message
-  // replaces the previous one.
-  let linkScratchLine = null;
-  let linkCompletionTimer = null;
+  // One overwriting status line for the link picker: a bright green peak sweeps
+  // across the text while work is in progress, fills on completion, then breathes
+  // softly. It never accumulates history — the most recent message replaces the
+  // previous one.
+  let linkStatusLine = null;
+  let linkStatusTimer = null;
 
-  function linkScratch(message, shimmer = true) {
+  function showLinkStatus(message, shimmer = true) {
     if (!el.linkStatus) return;
     el.linkStatus.hidden = false;
-    if (!linkScratchLine) {
-      linkScratchLine = document.createElement("div");
-      linkScratchLine.className = "tracker-log-line";
-      linkScratchLine.innerHTML = `<span class="tracker-log-text"></span>`;
-      el.linkStatus.appendChild(linkScratchLine);
+    if (!linkStatusLine) {
+      linkStatusLine = document.createElement("div");
+      linkStatusLine.className = "tracker-log-line";
+      linkStatusLine.innerHTML = `<span class="tracker-log-text"></span>`;
+      el.linkStatus.appendChild(linkStatusLine);
     }
-    const text = linkScratchLine.querySelector(".tracker-log-text");
+    const text = linkStatusLine.querySelector(".tracker-log-text");
     if (text) text.textContent = message;
-    if (linkCompletionTimer) clearTimeout(linkCompletionTimer);
-    linkCompletionTimer = null;
-    linkScratchLine.classList.remove("idle", "tracker-log-done", "tracker-log-glow");
-    linkScratchLine.classList.toggle("tracker-log-shimmer", !!shimmer);
+    if (linkStatusTimer) clearTimeout(linkStatusTimer);
+    linkStatusTimer = null;
+    linkStatusLine.classList.remove("idle", "tracker-log-done", "tracker-log-glow");
+    linkStatusLine.classList.toggle("tracker-log-shimmer", !!shimmer);
   }
 
-  function linkScratchDone(message) {
-    linkScratch(message, false);
-    if (!linkScratchLine) return;
-    if (linkCompletionTimer) clearTimeout(linkCompletionTimer);
-    linkScratchLine.classList.remove("tracker-log-shimmer", "tracker-log-done", "tracker-log-glow");
-    linkScratchLine.classList.add("tracker-log-done");
-    linkCompletionTimer = setTimeout(() => {
-      linkScratchLine.classList.remove("tracker-log-done");
-      linkScratchLine.classList.add("tracker-log-glow");
-      linkCompletionTimer = null;
+  function showLinkStatusDone(message) {
+    showLinkStatus(message, false);
+    if (!linkStatusLine) return;
+    if (linkStatusTimer) clearTimeout(linkStatusTimer);
+    linkStatusLine.classList.remove("tracker-log-shimmer", "tracker-log-done", "tracker-log-glow");
+    linkStatusLine.classList.add("tracker-log-done");
+    linkStatusTimer = setTimeout(() => {
+      linkStatusLine.classList.remove("tracker-log-done");
+      linkStatusLine.classList.add("tracker-log-glow");
+      linkStatusTimer = null;
     }, 2000);
   }
 
-  function clearLinkScratch() {
-    if (linkCompletionTimer) clearTimeout(linkCompletionTimer);
-    linkCompletionTimer = null;
-    linkScratchLine = null;
+  function clearLinkStatus() {
+    if (linkStatusTimer) clearTimeout(linkStatusTimer);
+    linkStatusTimer = null;
+    linkStatusLine = null;
     if (el.linkStatus) {
       el.linkStatus.innerHTML = "";
       el.linkStatus.hidden = true;
@@ -849,13 +871,24 @@ export function initTrackerTool(deps, context = {}) {
       return;
     }
     if (el.linkFilter) el.linkFilter.classList.add("tracker-input-skeleton");
-    if (!linkScratchLine) linkScratch("Fetching official subjects from AQA, OCR and Pearson...");
+    if (!linkStatusLine) showLinkStatus("Fetching official subjects from AQA, OCR and Pearson...");
   }
 
   const TRACKER_SKELETON_ROWS = 6;
 
-  function renderCourseList() {
-    const courses = Exam.courseList();
+  // Courses offered by the picker. The verified board catalogues come first:
+  // they are read out of the boards' own GCSE publications, so they contain
+  // only real GCSE courses and cannot suggest a specification from another
+  // level (which is how the sweep-only list offered A-level codes for a GCSE
+  // subject). The legacy list remains as a fallback so the picker still offers
+  // something before the catalogues finish loading.
+  function availableCourses() {
+    if (subjectCatalogue && subjectCatalogue.length) return subjectCatalogue;
+    return Exam.courseList();
+  }
+
+  function renderLinkPickerList() {
+    const courses = availableCourses();
     const tokens = queryTokens();
     const visible = courses.filter((c) => matchesTokens(c, tokens));
     updateChipLighting();
@@ -1861,7 +1894,7 @@ export function initTrackerTool(deps, context = {}) {
         openLinkPicker(focusedSubject);
       }
     });
-    el.linkFilter.addEventListener("input", () => renderCourseList());
+    el.linkFilter.addEventListener("input", () => renderLinkPickerList());
     el.linkFilters.addEventListener("click", (e) => {
       const ch = e.target.closest(".tracker-chip");
       if (!ch) return;
@@ -1881,7 +1914,7 @@ export function initTrackerTool(deps, context = {}) {
           chipTokens.add(f);
         }
       }
-      renderCourseList();
+      renderLinkPickerList();
     });
     el.linkList.addEventListener("click", (e) => {
       const item = e.target.closest(".tracker-course-item");
@@ -1969,7 +2002,7 @@ export function initTrackerTool(deps, context = {}) {
       bsTimer = setTimeout(() => {
         bsPending = false;
         renderBoundaryChips();
-        if (el.linkPop && !el.linkPop.hidden) linkScratch(sweepMessage(Exam.status()));
+        if (el.linkPop && !el.linkPop.hidden) showLinkStatus(sweepMessage(Exam.status()));
       }, 150);
     });
     let bcPending = false;
@@ -1979,7 +2012,7 @@ export function initTrackerTool(deps, context = {}) {
       bcPending = true;
       bcTimer = setTimeout(() => {
         bcPending = false;
-        renderCourseList();
+        renderLinkPickerList();
         renderPapers();
       }, 150);
     });
@@ -1997,12 +2030,12 @@ export function initTrackerTool(deps, context = {}) {
     // an informal subject ("Maths", "Biology") can resolve to an official course
     // and therefore have its boundaries fetched. Best-effort: with no catalogue
     // the tracker still works for subjects that are already linked.
-    await preloadSubjectCatalogue();
+    await loadSubjectCatalogues();
     // Targeted auto-warm for the rows' own series. Single-flight, decoupled
     // from the render path (see runWarmFlight), so it can neither re-enter a
     // render nor loop. This is the ONLY background fetcher the tracker runs:
     // the full board-wide sweep is triggered on demand by the link picker
-    // (seedLinkCourses), never from init. Firing it here stormed the whole
+    // (loadLinkPickerCourses), never from init. Firing it here stormed the whole
     // AQA history (proxy + CORS fallback per series) plus OCR/Pearson PDF
     // parses on every scope, janking the main thread for a minute+.
     scheduleWarm();

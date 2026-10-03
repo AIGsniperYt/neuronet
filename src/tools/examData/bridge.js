@@ -13,8 +13,9 @@
 // renamed, re-keyed or approximated in between.
 
 import * as boundaries from "../boundaries.js";
-import { findSubjects, resolveSubject, matchSubjects } from "../subjects.js";
+
 import * as storage from "./storage.js";
+import { sync } from "./app.js";
 import * as schema from "./schema.js";
 
 /**
@@ -94,55 +95,14 @@ export async function acquireBoundary({ board, qual, code, tier, year, series })
   } catch (err) {
     return { ok: false, reason: "PERSIST_FAILED", error: String((err && err.message) || err) };
   }
+  // Pull the new row into the in-memory read model. Without this the record is
+  // stored but the renderer keeps reading the pre-fetch snapshot and shows
+  // "Boundary: —" for a boundary it actually has.
+  try { await sync(); } catch (err) { /* non-fatal: next read re-syncs */ }
   return { ok: true, id: record.id };
 }
 
-/**
- * Acquire every series a student has actually sat for one course.
- * Only series the tracker knows about are requested, so this is exactly
- * "fill in what I did" rather than a sweep of everything that exists.
- *
- * @param {Array<{year:number, series:string}>} sittings
- */
-export async function acquireAllSittings({ board, qual, code, tier, sittings }) {
-  const results = [];
-  const seen = new Set();
-  for (const s of sittings || []) {
-    const year = Number(s && s.year);
-    const seriesWord = s && s.series;
-    if (!Number.isFinite(year)) continue;
-    // Mock and specimen papers have no official boundaries; asking for them
-    // would be a request that can only ever be refused.
-    if (/^(mock|specimen)$/i.test(String(seriesWord || "").trim())) continue;
-    const dedupe = `${year}|${String(seriesWord || "").trim().toLowerCase()}`;
-    if (seen.has(dedupe)) continue;
-    seen.add(dedupe);
-    results.push(await acquireBoundary({ board, qual, code, tier, year, series: seriesWord }));
-  }
-  return results;
-}
 
-/**
- * Resolve an informal tracker subject to official courses using the live
- * board catalogues. Ambiguity is returned, never resolved.
- */
-export async function candidatesFor(subjectName, opts = {}) {
-  const boards = opts.boards || ["pearson", "aqa", "ocr"];
-  const perBoard = await Promise.all(boards.map((b) => findSubjects({ board: b, year: opts.year })));
-  const catalogue = perBoard.flat().filter(Boolean);
-  if (!catalogue.length) return { candidates: [], ambiguous: false, catalogueEmpty: true };
-  return matchSubjects(catalogue, subjectName, opts);
-}
 
-/**
- * Link a tracker subject to a specific official course (user confirmed).
- * Only writes when the choice is unambiguous and exact.
- */
-export async function linkSubject({ subjectName, course }) {
-  if (!course || !course.board || !course.code) return { ok: false, reason: "NO_COURSE" };
-  const ck = schema.courseKey(course);
-  if (!ck) return { ok: false, reason: "UNKEYABLE_COURSE" };
-  return { ok: true, courseKey: ck, course };
-}
 
-export { boundaries, findSubjects, resolveSubject, matchSubjects };
+export { boundaries };

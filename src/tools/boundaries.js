@@ -30,11 +30,15 @@ export function boardId(board) {
 }
 
 export function qualId(qual) {
-  const s = String(qual || "").toLowerCase();
+  const s = String(qual || "").toLowerCase().trim();
   if (!s) return null;
-  if (s.includes("a level") || s === "alevel" || s === "a-level") return "alevel";
-  if (s.includes("as ")) return "as";
-  if (s.includes("gcse")) return "gcse";
+  // Order matters and the patterns are anchored: "as" must not be matched as a
+  // substring, or "was"/"has"/"class" would all read as an AS qualification.
+  if (/^(a[\s-]?level|alevel|a levels?)$/.test(s)) return "alevel";
+  if (/^(as|as level|a levels?)$/.test(s)) return "as";
+  if (/^(gcse|general certificate of secondary education)$/.test(s)) return "gcse";
+  // Fall back to a contains-check only for longer descriptive strings.
+  if (s.includes("a level") || s.includes("a-level")) return "alevel";
   if (s.includes("gcse")) return "gcse";
   return null;
 }
@@ -323,13 +327,9 @@ export function parseAqaGcseRow(lines, code, tier) {
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// fetch
-// ---------------------------------------------------------------------------
-
-async function fetchBytes(url) {
+async function fetchBytes(url, timeoutMs = FETCH_TIMEOUT_MS) {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(url, { signal: ctrl.signal, cache: "no-store" });
     if (!res.ok) return null;
@@ -339,6 +339,133 @@ async function fetchBytes(url) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+// ---------------------------------------------------------------------------
+// fetch + CORS
+// ---------------------------------------------------------------------------
+
+// Exam boards publish PDFs without CORS headers, so a direct browser fetch of
+// aqa.org.uk / qualifications.pearson.com can never succeed. The deployment
+// proxy answers those requests. Proxy-first is deliberate: a proxy that
+// ANSWERS is authoritative including its status, so firing a doomed direct
+// request afterwards only adds noise. Direct is still tried when the proxy
+// itself is unreachable (a cold deployment), which is the only case where a
+// board might allow cross-origin reads.
+export function proxyBase() {
+  const w = typeof window !== "undefined" ? window : null;
+  const meta = typeof document !== "undefined"
+    ? document.querySelector('meta[name="neuronet-proxy"]')?.getAttribute("content")
+    : null;
+  const base = (w && w.__NEURONET_PROXY_BASE) || meta || "https://neuronet-backend.onrender.com";
+  return String(base || "").replace(/\/+$/, "");
+}
+
+export function proxyUrl(real, base = proxyBase()) {
+  const sep = base.endsWith("/") ? "" : "/";
+  return `${base}${sep}api/proxy?url=${encodeURIComponent(real)}`;
+}
+
+// ---- fetch log: one line per network attempt, for the dev toast -------------
+
+const FETCH_LOG = [];
+const FETCH_LOG_MAX = 200;
+const fetchLogListeners = new Set();
+
+export function onFetchLog(fn) {
+  if (typeof fn === "function") fetchLogListeners.add(fn);
+  return () => fetchLogListeners.delete(fn);
+}
+
+function logFetch(entry) {
+  FETCH_LOG.push(entry);
+  if (FETCH_LOG.length > FETCH_LOG_MAX) FETCH_LOG.shift();
+  for (const fn of fetchLogListeners) { try { fn(entry); } catch { /* listener fault */ } }
+}
+
+export function fetchLog() { return FETCH_LOG.slice(); }
+
+export function clearFetchLog() { FETCH_LOG.length = 0; }
+
+const LABEL_BY_URL = [
+  [/qualifications\.pearson\.com/, "Pearson"],
+  [/\baqa\.org\.uk\b/, "AQA"],
+  [/\bocr\.org\.uk\b/, "OCR"],
+  [/neuronet-backend/, "proxy"]
+];
+
+function labelFor(url, via) {
+  for (const [re, name] of LABEL_BY_URL) if (re.test(url)) return `${name} (${via})`;
+  return `${via}`;
+}
+
+/**
+ * Fetch a resource, reporting every attempt on the fetch log.
+ * @returns {Promise<Uint8Array|null>} bytes, or null when unreachable.
+ */
+export async function fetchTracked(url, { timeoutMs = FETCH_TIMEOUT_MS } = {}) {
+  const via = url.includes("/api/proxy?") ? "proxy" : "direct";
+  const at = Date.now();
+  try {
+    const bytes = await fetchBytes(url, timeoutMs);
+    if (bytes) {
+      logFetch({ at, url, host: labelFor(url, via), ok: true, bytes: bytes.length, ms: Date.now() - at });
+      return bytes;
+    }
+    logFetch({ at, url, host: labelFor(url, via), ok: false, error: "HTTP error", ms: Date.now() - at });
+    return null;
+  } catch (err) {
+    logFetch({
+      at, url, host: labelFor(url, via), ok: false,
+      error: String((err && err.name) || err), ms: Date.now() - at
+    });
+    return null;
+  }
+}
+
+/**
+ * Fetch a board PDF. Proxy first, direct only as a fallback.
+ * @returns {Promise<Uint8Array|null>}
+ */
+export async function fetchBoardResource(url) {
+  const base = proxyBase();
+  if (base) {
+    const bytes = await fetchTracked(proxyUrl(url, base), { timeoutMs: FETCH_TIMEOUT_MS });
+    if (bytes) return bytes;
+  }
+  // The proxy was unreachable or refused. Only now is a direct attempt worth
+  // making, because a board occasionally does send CORS headers.
+  if (!url.includes("/api/proxy?")) return fetchTracked(url, { timeoutMs: FETCH_TIMEOUT_MS });
+  return null;
+}
+
+/** Plain text fetch through the same CORS path (used for catalogue pages). */
+export async function fetchTextResource(url) {
+  const base = proxyBase();
+  const tryOne = async (target) => {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+      const res = await fetch(target, { signal: ctrl.signal, cache: "no-store" });
+      clearTimeout(timer);
+      if (!res.ok) return null;
+      return await res.text();
+    } catch { return null; }
+  };
+  if (base) {
+    const text = await tryOne(proxyUrl(url, base));
+    if (text) {
+      logFetch({ at: Date.now(), url, host: labelFor(url, "proxy"), ok: true, bytes: text.length, kind: "text" });
+      return text;
+    }
+  }
+  if (url.includes("/api/proxy?")) return null;
+  const text = await tryOne(url);
+  logFetch({
+    at: Date.now(), url, host: labelFor(url, "direct"), ok: Boolean(text),
+    kind: "text", ...(text ? { bytes: text.length } : { error: "unreachable" })
+  });
+  return text;
 }
 
 // AQA's catalogue lists several PDFs per series. A genuine GCSE grade-boundary
@@ -409,7 +536,7 @@ export async function getBoundaries({ board, qual, code, tier, year, series } = 
 async function acquireSourceBytes(boardId_, year, month, code, tier) {
   if (boardId_ === "pearson") {
     const url = pearsonSeriesUrl(year, month);
-    return url ? fetchBytes(url) : null;
+    return url ? fetchBoardResource(url) : null;
   }
   if (boardId_ === "aqa") {
     // AQA's archive lists several PDFs per series (GCSE, Mathematical Studies,
@@ -417,7 +544,7 @@ async function acquireSourceBytes(boardId_, year, month, code, tier) {
     // is actually used is the one that yields the requested course. No
     // candidate is trusted on its filename or its card label.
     for (const url of await aqaSeriesUrls(year, month)) {
-      const bytes = await fetchBytes(url);
+      const bytes = await fetchBoardResource(url);
       if (!bytes) continue;
       let lines;
       try { lines = await pdfTextFromBytes(bytes); } catch { continue; }

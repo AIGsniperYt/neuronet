@@ -10,7 +10,7 @@
 // current and as complete as the board's own publication. A subject that stops
 // being offered stops being listed; a new specification appears on its own.
 
-import { pdfTextFromBytes, fetchBytes, boardId, qualId, registerAqaDiscovery, isGcseBoundaryDocument, parseAqaGcseRow } from "./boundaries.js";
+import { pdfTextFromBytes, fetchBoardResource, fetchTextResource, boardId, qualId, registerAqaDiscovery, isGcseBoundaryDocument, parseAqaGcseRow } from "./boundaries.js";
 
 // subjects.js owns AQA series discovery, so boundaries.js can resolve the same
 // PDF. Wiring it here keeps one discovery path rather than two.
@@ -122,13 +122,11 @@ export async function discoverAqaSeries({ year = 2025, series = "JUN" } = {}) {
   const seen = new Set();
 
   for (const page of AQA_BOUNDARIES_PAGES) {
-    let clean = "";
-    try {
-      const res = await fetch(page, { cache: "no-store" });
-      if (!res.ok) continue;
-      // Inline SVG carries no useful text and would drown the labels.
-      clean = (await res.text()).replace(/<svg[\s\S]*?<\/svg>/g, " ");
-    } catch { continue; }
+    // Through the CORS proxy, not direct: aqa.org.uk sends no CORS headers, so
+    // a direct browser fetch is guaranteed to fail and only logs a CORS error.
+    const html = await fetchTextResource(page);
+    if (!html) continue;
+    const clean = html.replace(/<svg[\s\S]*?<\/svg>/g, " ");
 
     // Tag every heading and every PDF card with its position, then walk the
     // document in order keeping the two most recent headings as context.
@@ -254,13 +252,13 @@ async function subjectsForBoard(board, { year = 2025, series = "JUN" } = {}) {
   let lines = null;
 
   if (board === "pearson") {
-    const bytes = await fetchBytes(PEARSON_GCSE_PDF);
+    const bytes = await fetchBoardResource(PEARSON_GCSE_PDF);
     if (bytes) lines = await pdfTextFromBytes(bytes);
   } else if (board === "aqa") {
     // A series lists several PDFs; use the one that is actually the GCSE
     // publication. Identified by its contents, never by its filename.
     for (const { url } of await discoverAqaSeries({ year, series })) {
-      const bytes = await fetchBytes(url);
+      const bytes = await fetchBoardResource(url);
       if (!bytes) continue;
       let doc;
       try { doc = await pdfTextFromBytes(bytes); } catch { continue; }

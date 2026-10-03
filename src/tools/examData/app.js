@@ -919,6 +919,20 @@ export function onStatus(fn) {
   return () => statusListeners.delete(fn);
 }
 
+// Re-read the canonical stores into the in-memory read model and notify
+// listeners. Anything that writes boundaries outside ensureForSitting — the
+// verified engine via examData/bridge.js, or another tab — must call this or
+// the renderer keeps reading a stale snapshot and shows null while the data is
+// sitting in storage. This is the single reason a fetch can "succeed" and still
+// render nothing.
+export async function sync() {
+  invalidateIndex();
+  await refreshIndex();
+  fireChanged();
+  fireStatus();
+  return repoNow();
+}
+
 export function onChanged(fn) {
   changeListeners.add(fn);
   return () => changeListeners.delete(fn);
