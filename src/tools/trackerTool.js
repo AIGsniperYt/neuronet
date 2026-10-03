@@ -388,6 +388,16 @@ async function loadSubjectCatalogues() {
     return sitting && sitting.subject ? resolveCourse(sitting.subject) : null;
   }
 
+  // Most stored GCSE sittings predate series metadata. The official/default
+  // GCSE session is June; use that same default for lookup and rendering when
+  // the row is genuinely missing a series. An explicit November/etc. value is
+  // always preserved.
+  function boundarySeriesFor(sitting, course) {
+    if (sitting && sitting.series) return sitting.series;
+    const qual = course && (course.qual || course.qualification);
+    return /gcse/i.test(String(qual || "")) ? "June" : null;
+  }
+
   function resolveBoundaryTable(subject, year, series, cacheSrc) {
     if (/^(mock|specimen)$/i.test(String(series || "").trim())) {
       diag("R? ", "resolveBoundaryTable: skipped (mock/specimen)", { subject: subject, series: series });
@@ -398,9 +408,10 @@ async function loadSubjectCatalogues() {
       diag("R? ", "resolveBoundaryTable: NULL (no course resolved)", { subject: subject, year: year, series: series });
       return null;
     }
-    const decision = Exam.decisionFor(course, numberEq(year), series, {});
+    const effectiveSeries = boundarySeriesFor({ series }, course);
+    const decision = Exam.decisionFor(course, numberEq(year), effectiveSeries, {});
     const result = decision.hasTable ? Exam.normalizeTable(decision.table) : null;
-    diag("R? ", "resolveBoundaryTable", { subject: subject, year: year, series: series, course: course.code + (course.tier ? "/" + course.tier : ""), hasTable: decision.hasTable, result: result ? "table" : "null" });
+    diag("R? ", "resolveBoundaryTable", { subject: subject, year: year, series: effectiveSeries, course: course.code + (course.tier ? "/" + course.tier : ""), hasTable: decision.hasTable, result: result ? "table" : "null" });
     return result;
   }
 
@@ -1402,7 +1413,8 @@ async function loadSubjectCatalogues() {
   function renderMainRow(sitting, showSubject, noteOpen, cacheSrc) {
     const course = resolveSittingCourse(sitting);
     const yearNum = numberEq(sitting.year);
-    const decision = Exam.decisionFor(course, yearNum, sitting.series, sitting);
+    const effectiveSeries = boundarySeriesFor(sitting, course);
+    const decision = Exam.decisionFor(course, yearNum, effectiveSeries, sitting);
     const gb = decision.hasTable ? decision.table : null;
 
     const avg = sittingAverage(sitting);
@@ -1413,6 +1425,9 @@ async function loadSubjectCatalogues() {
     const tr = document.createElement("tr");
     tr.className = "row-main";
     const annotatedSitting = annotateSitting(sitting);
+    const boundarySitting = effectiveSeries && !annotatedSitting.series
+      ? { ...annotatedSitting, series: effectiveSeries }
+      : annotatedSitting;
     tr.dataset.courseId = String(annotatedSitting.courseId || "");
     tr.dataset.seriesId = String(annotatedSitting.seriesId || "");
 
@@ -1424,7 +1439,7 @@ async function loadSubjectCatalogues() {
       cells.push(td(`<span class="sit-session">${sessionTitle(sitting)}</span>`, "col-session"));
     }
     cells.push(td(`<div class="sit-papers">${scoreSummary(sitting)}${subjectGradeChip(sitting, gb)}</div>`, "col-papers"));
-    cells.push(td(boundaryBadges(sitting.subject, decision, annotatedSitting), "col-boundary"));
+    cells.push(td(boundaryBadges(sitting.subject, decision, boundarySitting), "col-boundary"));
     if (cols.avg) {
       cells.push(td(avgEl, "col-avg"));
     }
