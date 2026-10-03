@@ -1514,6 +1514,20 @@ async function loadSubjectCatalogues() {
       : (model.source || "");
     if (aim.length && table) {
       const items = aim.map((label) => ({ label, mark: Exam.findGradeMark(table, label) }));
+      const missing = items.filter((x) => x.mark == null);
+      if (missing.length) {
+        console.warn("[NEURONET boundary-failure]", {
+          subject: subject || null,
+          year: sitting && sitting.year != null ? sitting.year : null,
+          series: sitting && sitting.series || null,
+          courseId: sitting && sitting.courseId || null,
+          seriesId: sitting && sitting.seriesId || null,
+          requestedGrades: missing.map((x) => x.label),
+          availableGrades: table.gradesInOrder || Object.keys(table.grades || {}),
+          reason: "REQUESTED_GRADE_MARK_MISSING",
+          rawSitting: sitting
+        });
+      }
       if (items.length) {
         return items.map((x) =>
           `<span class="${badgeClass}" title="${escapeHtml(badgeTitle)}">${escapeHtml(x.label)} &ge; ${x.mark != null ? escapeHtml(String(x.mark)) : "&ndash;"}</span>`
@@ -1522,6 +1536,19 @@ async function loadSubjectCatalogues() {
     }
     const defaultGrade = model.defaultGrade || (table && table.gradesInOrder ? table.gradesInOrder[0] : null);
     const mark = table && defaultGrade ? Exam.findGradeMark(table, defaultGrade) : (decision && decision.top);
+    if (mark == null) {
+      console.warn("[NEURONET boundary-failure]", {
+        subject: subject || null,
+        year: sitting && sitting.year != null ? sitting.year : null,
+        series: sitting && sitting.series || null,
+        courseId: sitting && sitting.courseId || null,
+        seriesId: sitting && sitting.seriesId || null,
+        requestedGrade: defaultGrade || null,
+        availableGrades: table && (table.gradesInOrder || Object.keys(table.grades || {})),
+        reason: "DEFAULT_GRADE_MARK_MISSING",
+        rawSitting: sitting
+      });
+    }
     const label = defaultGrade || highestGradeLabel(subject);
     return `<span class="${badgeClass}" title="${escapeHtml(badgeTitle)}">${escapeHtml(label)}${mark != null ? ` &ge; ${escapeHtml(String(mark))}` : ""}</span>`;
   }
