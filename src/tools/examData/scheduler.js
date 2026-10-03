@@ -162,10 +162,13 @@ export function sittingRequirement(sitting, resolveEnrollment) {
   if (!Number.isFinite(year) || year <= 0) return null;
   const enrollment = resolveEnrollment ? resolveEnrollment(sitting) : null;
   if (!enrollment) return null;
-  const month = monthFromWord(sitting.series);
-  // A blank/unmapped series word stays UNKNOWN — never invent "JUN". The
-  // repository resolves a month-less sitting only when exactly one series for
-  // that year exists; everything else surfaces as unknown/ambiguous.
+  const explicitMonth = monthFromWord(sitting.series);
+  // Older GCSE sittings were stored without series metadata. The tracker and
+  // boundary sources use June as the default official GCSE session, so the
+  // requirement must carry that same identity or a fetched JUN-YYYY record
+  // will never satisfy the monthless YYYYY requirement.
+  const month = explicitMonth ||
+    (String((enrollment && (enrollment.qual || enrollment.qualification)) || "").toLowerCase() === "gcse" ? "JUN" : null);
   const series = { month: month || null, year };
   const ck = courseKey(enrollment);
   if (!ck) return null;
