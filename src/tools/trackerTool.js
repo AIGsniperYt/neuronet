@@ -14,6 +14,7 @@ import { parseCourseKey, courseKey, seriesId, monthFromWord, normalizeTitle, boa
 // that is proven against the boards' own PDFs.
 import { acquireBoundary } from "./examData/bridge.js";
 import { findSubjects, matchSubjects } from "./subjects.js";
+import { diag } from "./diag.js";
 
 export function initTrackerTool(deps, context = {}) {
   const { getAllNodes, addNode, addNodes, deleteNode, getSubjects, escapeHtml } = deps;
@@ -147,14 +148,19 @@ export function initTrackerTool(deps, context = {}) {
       for (const n of all) {
         if (n && n.type === "subject") {
           subjectNodes.push(n);
-          const name = n.name || n.subject;
-          if (name && n.examBoard) boardsBySubject[name] = n.examBoard;
-          if (name && n.officialCourse && n.officialCourse.code) coursesBySubject[name] = n.officialCourse;
-          if (name) subjectMeta[name] = {
-            examBoard: n.examBoard || "",
-            qualification: n.qualification || "",
-            code: (n.officialCourse && n.officialCourse.code) || ""
-          };
+          // Older subject nodes may have a display `name` that differs from
+          // the stable `subject` value stored on past-paper sittings. Index
+          // both spellings so a valid official link is never lost at render.
+          const names = Array.from(new Set([n.name, n.subject].filter(Boolean)));
+          for (const name of names) {
+            if (n.examBoard) boardsBySubject[name] = n.examBoard;
+            if (n.officialCourse && n.officialCourse.code) coursesBySubject[name] = n.officialCourse;
+            subjectMeta[name] = {
+              examBoard: n.examBoard || "",
+              qualification: n.qualification || "",
+              code: (n.officialCourse && n.officialCourse.code) || ""
+            };
+          }
         }
       }
     } catch (e) { /* ignore */ }
@@ -170,7 +176,7 @@ export function initTrackerTool(deps, context = {}) {
     const out = { ...rec };
     if (out.subject) {
       const resolved = resolveCourse(out.subject);
-      if (resolved && out.courseId === undefined) out.courseId = courseKey(resolved) || null;
+      if (resolved && !out.courseId) out.courseId = courseKey(resolved) || null;
       if (out.courseId === undefined) out.courseId = null;
     }
     if (out.courseId === undefined) out.courseId = null;
@@ -372,12 +378,30 @@ async function loadSubjectCatalogues() {
     return matchSubjectInCatalogue(name);
   }
 
+  // Stored sittings carry the authoritative course identity. Prefer it over
+  // re-resolving the display subject, because subject labels can be renamed,
+  // localized, or absent from the current subject-node catalogue.
+  function resolveSittingCourse(sitting) {
+    const key = sitting && sitting.courseId;
+    const parsed = key ? parseCourseKey(key) : null;
+    if (parsed) return parsed;
+    return sitting && sitting.subject ? resolveCourse(sitting.subject) : null;
+  }
+
   function resolveBoundaryTable(subject, year, series, cacheSrc) {
-    if (/^(mock|specimen)$/i.test(String(series || "").trim())) return null;
+    if (/^(mock|specimen)$/i.test(String(series || "").trim())) {
+      diag("R? ", "resolveBoundaryTable: skipped (mock/specimen)", { subject: subject, series: series });
+      return null;
+    }
     const course = subject ? resolveCourse(subject) : null;
-    if (!course) return null;
+    if (!course) {
+      diag("R? ", "resolveBoundaryTable: NULL (no course resolved)", { subject: subject, year: year, series: series });
+      return null;
+    }
     const decision = Exam.decisionFor(course, numberEq(year), series, {});
-    return decision.hasTable ? Exam.normalizeTable(decision.table) : null;
+    const result = decision.hasTable ? Exam.normalizeTable(decision.table) : null;
+    diag("R? ", "resolveBoundaryTable", { subject: subject, year: year, series: series, course: course.code + (course.tier ? "/" + course.tier : ""), hasTable: decision.hasTable, result: result ? "table" : "null" });
+    return result;
   }
 
   // The ONE table a row renders from: live per-year decision, else the
@@ -386,9 +410,11 @@ async function loadSubjectCatalogues() {
   function effectiveTable(sitting) {
     const live = resolveBoundaryTable(sitting.subject, numberEq(sitting.year), sitting.series);
     if (live) {
+      diag("R? ", "effectiveTable: LIVE", { subject: sitting.subject, year: sitting.year, series: sitting.series, grades: live.gradesInOrder });
       return live;
     }
     const snapshot = Exam.normalizeTable(sitting && sitting.gradeBoundaries);
+    diag("R? ", "effectiveTable: " + (snapshot ? "SNAPSHOT" : "NULL"), { subject: sitting.subject, year: sitting.year, series: sitting.series, snapshot: snapshot ? "present" : "absent" });
     return snapshot;
   }
 
@@ -504,23 +530,29 @@ async function loadSubjectCatalogues() {
     if (el.boundaryNote) el.boundaryNote.textContent = "";
     const s = Exam.status();
     const busy = s && (s.phase === "discovering" || s.phase === "fetching");
+    diag("R? ", "renderBoundaryChips", { focusedSubject: focusedSubject, busy: busy, phase: s ? s.phase : null });
     if (!focusedSubject) {
+      diag("R? ", "renderBoundaryChips: no focused subject", {});
       if (el.boundaryChips) el.boundaryChips.innerHTML = `<div class="tracker-cus-empty">Scope to one subject (sidebar) to pick the grades it aims for.</div>`;
       return;
     }
     const options = pickableGrades(focusedSubject);
+    diag("R? ", "renderBoundaryChips pickableGrades", { focusedSubject: focusedSubject, options: options });
     if (!options.length) {
       // No usable boundaries for this subject yet. If the shared sweep (this
       // page's picker, the auto-warm, or the scraper tab) is running, tell the
       // user to wait instead of dead-ending with "go use another tool".
       if (busy) {
         const msg = sweepMessage(s) || "Fetching grade boundaries...";
+        diag("R? ", "renderBoundaryChips: BUSY (fetching)", { focusedSubject: focusedSubject, msg: msg });
         if (el.boundaryChips) el.boundaryChips.innerHTML = `<div class="tracker-cus-empty"><span class="tracker-cus-busy-text">${escapeHtml(msg)}</span></div>`;
       } else {
+        diag("R? ", "renderBoundaryChips: EMPTY (no boundaries, not busy)", { focusedSubject: focusedSubject });
         if (el.boundaryChips) el.boundaryChips.innerHTML = `<div class="tracker-cus-empty">No grade boundaries fetched for ${escapeHtml(focusedSubject)} yet &mdash; they'll be fetched in the background (or open the <b>Scraper</b> tool / link the official subject).</div>`;
       }
       return;
     }
+    diag("R? ", "renderBoundaryChips: rendering chips", { focusedSubject: focusedSubject, options: options });
     const selected = aimFor(focusedSubject);
     el.boundaryChips.innerHTML = options.map((g) =>
       `<button type="button" class="tracker-chip tracker-grade-chip ${selected.includes(g) ? "active" : ""}" data-g="${escapeHtml(g)}" title="Toggle grade ${escapeHtml(g)}${selected.includes(g) ? " (shown)" : ""}">` +
@@ -1166,7 +1198,7 @@ async function loadSubjectCatalogues() {
 
   function warmEnrollment(sitting) {
     if (!sitting || !sitting.subject) return null;
-    const course = resolveCourse(sitting.subject);
+    const course = resolveSittingCourse(sitting);
     if (!course) return null;
     const board = boardId(course && course.board);
     const qual = qualId(course && course.qual);
@@ -1228,17 +1260,23 @@ async function loadSubjectCatalogues() {
   // share one in-flight fetch inside ensureForSitting.
   async function runWarmFlight() {
     const reqs = planWarmRequirements();
+    diag("R? ", "runWarmFlight", { reqCount: reqs.length, boundaryReqs: reqs.filter(function (r) { return r.type === REQUIREMENT_TYPES.BOUNDARY; }).length });
     if (reqs.length === 0) return;
     let madeFetch = false;
     let attempted = 0;
     for (const r of reqs) {
       if (r.type !== REQUIREMENT_TYPES.BOUNDARY) continue;
-      if (Exam.recentlyAttempted(r.key)) continue;
-      if (attempted >= MAX_WARM_JOBS_PER_KICK) break;
+      if (Exam.recentlyAttempted(r.key)) { diag("R? ", "runWarmFlight: recently attempted, skipping", { key: r.key }); continue; }
+      if (attempted >= MAX_WARM_JOBS_PER_KICK) { diag("R? ", "runWarmFlight: MAX_WARM_JOBS_PER_KICK reached", { attempted: attempted }); break; }
       attempted++;
       await new Promise((res) => setTimeout(res, 0));
       const parsed = parseCourseKey(r.courseKey) || {};
-      const seriesWord = r.series && r.series.month ? String(r.series.month) : "";
+      // GCSE boundaries are always published for the June series. When the
+      // stored course key does not carry a month (the common case — the user
+      // links a subject but does not pick a series), default to JUN rather
+      // than sending an empty string that fails boundaryKey validation.
+      const seriesWord = (r.series && r.series.month) ? String(r.series.month) : "JUN";
+      diag("R? ", "runWarmFlight: acquiring", { board: r.board, qual: r.qual, code: parsed.code, tier: parsed.tier, year: r.series && r.series.year, series: seriesWord });
       try {
         const res = await acquireBoundary({
           board: r.board,
@@ -1248,6 +1286,7 @@ async function loadSubjectCatalogues() {
           year: r.series && r.series.year,
           series: seriesWord
         });
+        diag("R? ", "runWarmFlight: acquireBoundary result", { board: r.board, code: parsed.code, tier: parsed.tier, ok: res.ok, reason: res.reason || null });
         if (res.ok) {
           madeFetch = true;
           continue; // stored in canonical shape; the next read model sees it
@@ -1256,6 +1295,7 @@ async function loadSubjectCatalogues() {
         // series), not an error. The legacy path is kept as a fallback so a
         // series the engine cannot reach is still worth one attempt.
         if (res.reason === "NO_EXACT_SOURCE") {
+          diag("R? ", "runWarmFlight: NO_EXACT_SOURCE, trying legacy fallback", { board: r.board, code: parsed.code, tier: parsed.tier });
           await Exam.ensureForSitting({
             board: r.board,
             qual: r.qual,
@@ -1270,12 +1310,13 @@ async function loadSubjectCatalogues() {
           madeFetch = true;
         }
       } catch (e) {
-        /* best-effort */
+        diag("R? ", "runWarmFlight: acquireBoundary THREW", { board: r.board, code: parsed.code, error: String(e && e.message ? e.message : e) });
       }
     }
     // If this kick did real work and rows still need series, continue in a
     // fresh macrotask rather than recursively re-entering the flight.
     const remaining = planWarmRequirements().length > 0;
+    diag("R? ", "runWarmFlight done", { madeFetch: madeFetch, remaining: remaining });
     if (madeFetch && remaining) scheduleWarm();
     // If only paper requirements remain (boundary records lack paper metadata)
     // there is nothing fetchable for them here yet — the paper catalogue seam
@@ -1359,7 +1400,7 @@ async function loadSubjectCatalogues() {
   }
 
   function renderMainRow(sitting, showSubject, noteOpen, cacheSrc) {
-    const course = sitting.subject ? resolveCourse(sitting.subject) : null;
+    const course = resolveSittingCourse(sitting);
     const yearNum = numberEq(sitting.year);
     const decision = Exam.decisionFor(course, yearNum, sitting.series, sitting);
     const gb = decision.hasTable ? decision.table : null;
@@ -1383,7 +1424,7 @@ async function loadSubjectCatalogues() {
       cells.push(td(`<span class="sit-session">${sessionTitle(sitting)}</span>`, "col-session"));
     }
     cells.push(td(`<div class="sit-papers">${scoreSummary(sitting)}${subjectGradeChip(sitting, gb)}</div>`, "col-papers"));
-    cells.push(td(boundaryBadges(sitting.subject, decision, sitting), "col-boundary"));
+    cells.push(td(boundaryBadges(sitting.subject, decision, annotatedSitting), "col-boundary"));
     if (cols.avg) {
       cells.push(td(avgEl, "col-avg"));
     }
@@ -1420,25 +1461,69 @@ async function loadSubjectCatalogues() {
   }
 
   function boundaryBadges(subject, decision, sitting) {
+    diag("R? ", "boundaryBadges {subject: " + subject + ", sittingCourseId: " + (sitting && sitting.courseId) + ", decisionHasTable: " + (decision && decision.hasTable) + "}");
     const aim = aimFor(subject);
     const model = Exam.getBoundaryDisplayModel({ sitting, selectedGrades: aim });
+    diag("R? ", "boundaryBadges model.state=" + model.state + ", model.reason=" + (model.reason || "none") + ", hasTable=" + !!model.table);
+    if (decision && decision.hasTable) {
+      const d = decision.table;
+      if (d && Array.isArray(d.gradesInOrder) && d.gradesInOrder.length) {
+        const pick = aim.length ? aim[0] : (d.gradesInOrder[0] || null);
+        const mark = pick ? Exam.findGradeMark(d, pick) : null;
+        const projected = decision.kind === "projected" || model.projected;
+        const cls = `tracker-sitting-badge bnd${projected ? " bnd-proj" : ""}`;
+        const title = projected ? "Official boundary · projected from newest published series" : "Fetched boundary";
+        return `<span class="${cls}" title="${escapeHtml(title)}">${escapeHtml(pick || "")}${mark != null ? ` &ge; ${escapeHtml(String(mark))}` : ""}</span>`;
+      }
+    }
     if (model.state === "unknown") {
       const reasonText = model.reason || (decision && decision.tip) || "No boundary data";
+      console.warn("[NEURONET boundary-failure]", {
+        subject: subject || null,
+        year: sitting && sitting.year != null ? sitting.year : null,
+        series: sitting && sitting.series || null,
+        sittingId: sitting && (sitting.id || sitting.paperId || sitting.key) || null,
+        courseId: sitting && sitting.courseId || null,
+        seriesId: sitting && sitting.seriesId || null,
+        board: sitting && (sitting.examBoard || sitting.board) || null,
+        qualification: sitting && (sitting.qualification || sitting.qual) || null,
+        code: sitting && (sitting.code || sitting.subjectCode) || null,
+        tier: sitting && sitting.tier || null,
+        decision: decision ? {
+          kind: decision.kind || null,
+          reason: decision.reason || null,
+          tip: decision.tip || null,
+          hasTable: !!decision.hasTable,
+          source: decision.sourceLabel || null
+        } : null,
+        model: {
+          state: model.state,
+          reason: model.reason || null,
+          courseId: model.courseId || null,
+          seriesId: model.seriesId || null,
+          source: model.source || null
+        },
+        rawSitting: sitting
+      });
       return `<span class="tracker-sitting-badge bnd bnd-unknown" title="${escapeHtml(reasonText)}">Boundary: &mdash;</span>`;
     }
     const table = model.table || (decision && decision.table);
+    const badgeClass = `tracker-sitting-badge bnd${model.projected ? " bnd-proj" : ""}`;
+    const badgeTitle = model.projected
+      ? `${model.source || "Official"} · projected from newest published series`
+      : (model.source || "");
     if (aim.length && table) {
       const items = aim.map((label) => ({ label, mark: Exam.findGradeMark(table, label) }));
       if (items.length) {
         return items.map((x) =>
-          `<span class="tracker-sitting-badge bnd" title="${escapeHtml(model.source || "")}">${escapeHtml(x.label)} &ge; ${x.mark != null ? escapeHtml(String(x.mark)) : "&ndash;"}</span>`
+          `<span class="${badgeClass}" title="${escapeHtml(badgeTitle)}">${escapeHtml(x.label)} &ge; ${x.mark != null ? escapeHtml(String(x.mark)) : "&ndash;"}</span>`
         ).join("");
       }
     }
     const defaultGrade = model.defaultGrade || (table && table.gradesInOrder ? table.gradesInOrder[0] : null);
     const mark = table && defaultGrade ? Exam.findGradeMark(table, defaultGrade) : (decision && decision.top);
     const label = defaultGrade || highestGradeLabel(subject);
-    return `<span class="tracker-sitting-badge bnd" title="${escapeHtml(model.source || "")}">${escapeHtml(label)}${mark != null ? ` &ge; ${escapeHtml(String(mark))}` : ""}</span>`;
+    return `<span class="${badgeClass}" title="${escapeHtml(badgeTitle)}">${escapeHtml(label)}${mark != null ? ` &ge; ${escapeHtml(String(mark))}` : ""}</span>`;
   }
 
   function td(html, cls) {
