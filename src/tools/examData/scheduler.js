@@ -205,11 +205,12 @@ export function planRequirements(sittings, resolveEnrollment, isSatisfied) {
     add(REQUIREMENT_TYPES.BOUNDARY, base);
     add(REQUIREMENT_TYPES.PAPERS, base);
   }
-  // Deterministic execution order: ascending year first (2024 before 2025),
-  // boundary before papers for the same course+series.
+  // Deterministic execution order: newest year first so the visible/current
+  // sitting is fetched before the historical archive; boundary before papers
+  // for the same course+series.
   const list = [...out.values()];
   list.sort((a, b) => {
-    const y = Number(a.series.year) - Number(b.series.year);
+    const y = Number(b.series.year) - Number(a.series.year);
     if (y !== 0) return y;
     const k = String(a.courseKey).localeCompare(String(b.courseKey));
     if (k !== 0) return k;
