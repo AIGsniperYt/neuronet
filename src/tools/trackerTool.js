@@ -1331,12 +1331,16 @@ async function loadSubjectCatalogues() {
     // fresh macrotask rather than recursively re-entering the flight.
     const remaining = planWarmRequirements().length > 0;
     diag("R? ", "runWarmFlight done", { madeFetch: madeFetch, remaining: remaining });
-    if (madeFetch && remaining) scheduleWarm();
+    const continueWarm = madeFetch && remaining;
     // If only paper requirements remain (boundary records lack paper metadata)
     // there is nothing fetchable for them here yet — the paper catalogue seam
     // (Phase C-2) will own that work; do not busy-loop over it.
     warmRunning = false;
     renderPapers();
+    // Clear the single-flight guard before scheduling the next batch. Calling
+    // scheduleWarm while warmRunning is still true silently discarded the
+    // continuation, leaving every requirement after the first six unfetched.
+    if (continueWarm) scheduleWarm();
   }
 
   function shortSeries(s) {
