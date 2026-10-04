@@ -1280,13 +1280,10 @@ async function loadSubjectCatalogues() {
       return;
     }
     let madeFetch = false;
-    let attempted = 0;
-    for (const r of reqs) {
-      if (r.type !== REQUIREMENT_TYPES.BOUNDARY) continue;
-      if (Exam.recentlyAttempted(r.key)) { diag("R? ", "runWarmFlight: recently attempted, skipping", { key: r.key }); continue; }
-      if (attempted >= MAX_WARM_JOBS_PER_KICK) { diag("R? ", "runWarmFlight: MAX_WARM_JOBS_PER_KICK reached", { attempted: attempted }); break; }
-      attempted++;
-      await new Promise((res) => setTimeout(res, 0));
+    const batch = reqs.filter((r) => r.type === REQUIREMENT_TYPES.BOUNDARY)
+      .filter((r) => !Exam.recentlyAttempted(r.key))
+      .slice(0, MAX_WARM_JOBS_PER_KICK);
+    await Promise.all(batch.map(async (r) => {
       const parsed = parseCourseKey(r.courseKey) || {};
       // GCSE boundaries are always published for the June series. When the
       // stored course key does not carry a month (the common case — the user
@@ -1306,7 +1303,7 @@ async function loadSubjectCatalogues() {
         diag("R? ", "runWarmFlight: acquireBoundary result", { board: r.board, code: parsed.code, tier: parsed.tier, ok: res.ok, reason: res.reason || null });
         if (res.ok) {
           madeFetch = true;
-          continue; // stored in canonical shape; the next read model sees it
+          return; // stored in canonical shape; the next read model sees it
         }
         // The verified engine is the single acquisition path. A missing exact
         // source is a settled result, not a reason to launch the old legacy
@@ -1316,7 +1313,7 @@ async function loadSubjectCatalogues() {
         Exam.rememberAttempt(r.key);
         diag("R? ", "runWarmFlight: acquireBoundary THREW", { board: r.board, code: parsed.code, error: String(e && e.message ? e.message : e) });
       }
-    }
+    }));
     // The bridge normally emits Exam.onChanged(), but the production tool can
     // be opened while main.js is still replacing the tool DOM. Explicitly
     // refresh the repository and paint once after the batch so a successful
