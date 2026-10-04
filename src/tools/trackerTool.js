@@ -1270,9 +1270,15 @@ async function loadSubjectCatalogues() {
   // Best-effort; a failure just leaves that series uncached. Concurrent runs
   // share one in-flight fetch inside ensureForSitting.
   async function runWarmFlight() {
+    warmRunning = true;
+    renderPapers();
     const reqs = planWarmRequirements();
     diag("R? ", "runWarmFlight", { reqCount: reqs.length, boundaryReqs: reqs.filter(function (r) { return r.type === REQUIREMENT_TYPES.BOUNDARY; }).length });
-    if (reqs.length === 0) return;
+    if (reqs.length === 0) {
+      warmRunning = false;
+      renderPapers();
+      return;
+    }
     let madeFetch = false;
     let attempted = 0;
     for (const r of reqs) {
@@ -1329,6 +1335,8 @@ async function loadSubjectCatalogues() {
     // If only paper requirements remain (boundary records lack paper metadata)
     // there is nothing fetchable for them here yet — the paper catalogue seam
     // (Phase C-2) will own that work; do not busy-loop over it.
+    warmRunning = false;
+    renderPapers();
   }
 
   function shortSeries(s) {
@@ -1490,7 +1498,7 @@ async function loadSubjectCatalogues() {
     }
     if (model.state === "unknown") {
       const examStatus = Exam.status();
-      const pending = examStatus && (examStatus.phase === "fetching" || examStatus.phase === "discovering");
+      const pending = warmRunning || (examStatus && (examStatus.phase === "fetching" || examStatus.phase === "discovering"));
       if (pending && sitting && sitting.year != null && sitting.year !== "") {
         return `<span class="tracker-sitting-badge bnd bnd-pending" title="Fetching the official boundary from the exam board">Fetching&hellip;</span>`;
       }
