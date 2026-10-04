@@ -1331,7 +1331,11 @@ async function loadSubjectCatalogues() {
     // fresh macrotask rather than recursively re-entering the flight.
     const remaining = planWarmRequirements().length > 0;
     diag("R? ", "runWarmFlight done", { madeFetch: madeFetch, remaining: remaining });
-    const continueWarm = madeFetch && remaining;
+    // Failed jobs are recorded with rememberAttempt() and removed by
+    // planWarmRequirements(), so remaining work is always safe to continue.
+    // Gating on madeFetch stranded later subjects whenever an early batch was
+    // made entirely of unavailable/failed board documents.
+    const continueWarm = remaining;
     // If only paper requirements remain (boundary records lack paper metadata)
     // there is nothing fetchable for them here yet — the paper catalogue seam
     // (Phase C-2) will own that work; do not busy-loop over it.
