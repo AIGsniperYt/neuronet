@@ -1502,6 +1502,11 @@ async function loadSubjectCatalogues() {
       }
     }
     if (model.state === "unknown") {
+      const examStatus = Exam.status();
+      const pending = examStatus && (examStatus.phase === "fetching" || examStatus.phase === "discovering");
+      if (pending && sitting && sitting.year != null && sitting.year !== "") {
+        return `<span class="tracker-sitting-badge bnd bnd-pending" title="Fetching the official boundary from the exam board">Fetching&hellip;</span>`;
+      }
       const reasonText = model.reason || (decision && decision.tip) || "No boundary data";
       console.warn("[NEURONET boundary-failure]", {
         subject: subject || null,
@@ -2139,6 +2144,9 @@ async function loadSubjectCatalogues() {
       bsTimer = setTimeout(() => {
         bsPending = false;
         renderBoundaryChips();
+        // Status changes belong to the main tracker table too. Without this,
+        // rows stay on their first `Boundary: --` paint while the fetch runs.
+        renderPapers();
         if (el.linkPop && !el.linkPop.hidden) showLinkStatus(sweepMessage(Exam.status()));
       }, 150);
     });
