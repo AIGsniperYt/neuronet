@@ -1324,6 +1324,16 @@ async function loadSubjectCatalogues() {
         diag("R? ", "runWarmFlight: acquireBoundary THREW", { board: r.board, code: parsed.code, error: String(e && e.message ? e.message : e) });
       }
     }
+    // The bridge normally emits Exam.onChanged(), but the production tool can
+    // be opened while main.js is still replacing the tool DOM. Explicitly
+    // refresh the repository and paint once after the batch so a successful
+    // fetch can never remain invisible because its event fired too early.
+    try {
+      await Exam.sync();
+      renderPapers();
+    } catch (e) {
+      diag("R? ", "runWarmFlight: final sync/render failed", { error: String(e && e.message ? e.message : e) });
+    }
     // If this kick did real work and rows still need series, continue in a
     // fresh macrotask rather than recursively re-entering the flight.
     const remaining = planWarmRequirements().length > 0;
