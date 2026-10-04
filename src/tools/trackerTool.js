@@ -1302,25 +1302,12 @@ async function loadSubjectCatalogues() {
           madeFetch = true;
           continue; // stored in canonical shape; the next read model sees it
         }
-        // A refusal is a real answer (no official publication for that exact
-        // series), not an error. The legacy path is kept as a fallback so a
-        // series the engine cannot reach is still worth one attempt.
-        if (res.reason === "NO_EXACT_SOURCE") {
-          diag("R? ", "runWarmFlight: NO_EXACT_SOURCE, trying legacy fallback", { board: r.board, code: parsed.code, tier: parsed.tier });
-          await Exam.ensureForSitting({
-            board: r.board,
-            qual: r.qual,
-            code: String(parsed.code || ""),
-            tier: String(parsed.tier || ""),
-            title: "",
-            year: String(r.series && r.series.year),
-            seriesWord,
-            acquire: true,
-            priority: JOB_PRIORITIES.P1_SITTING
-          }, r.key);
-          madeFetch = true;
-        }
+        // The verified engine is the single acquisition path. A missing exact
+        // source is a settled result, not a reason to launch the old legacy
+        // fetcher (which could leave the UI reporting "fetching" forever).
+        Exam.rememberAttempt(r.key);
       } catch (e) {
+        Exam.rememberAttempt(r.key);
         diag("R? ", "runWarmFlight: acquireBoundary THREW", { board: r.board, code: parsed.code, error: String(e && e.message ? e.message : e) });
       }
     }
