@@ -11,6 +11,7 @@ export * from "./repository.js";
 export * from "./scheduler.js";
 export * from "./adapters.js";
 export * from "./papers.js";
+export * from "./paperFetcher.js";
 export * from "./validation.js";
 export * from "./ingest.js";
 export * from "./ensure.js";
