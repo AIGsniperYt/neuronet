@@ -960,6 +960,7 @@ export function getBoundaryDisplayModel(options = {}) {
   return {
     state: "unknown",
     reason,
+    tip: decision && decision.tip ? decision.tip : null,
     courseId: cId,
     seriesId: seriesId || (sitting && sitting.seriesId) ||
       schema.seriesId({ month: monthAbbr, year: Number(exactYear) }),

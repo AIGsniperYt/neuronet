@@ -1507,7 +1507,10 @@ async function loadSubjectCatalogues() {
       if (pending && sitting && sitting.year != null && sitting.year !== "") {
         return `<span class="tracker-sitting-badge bnd bnd-pending" title="Fetching the official boundary from the exam board">Fetching&hellip;</span>`;
       }
-      const reasonText = model.reason || (decision && decision.tip) || "No boundary data";
+      const reasonText = model.tip || (decision && decision.tip) || model.reason || "No boundary data";
+      const reasonLabel = model.reason === "NO_BOUNDARIES_PUBLISHED"
+        ? "No summer exams"
+        : "Unavailable";
       console.warn("[NEURONET boundary-failure]", {
         subject: subject || null,
         year: sitting && sitting.year != null ? sitting.year : null,
@@ -1535,7 +1538,7 @@ async function loadSubjectCatalogues() {
         },
         rawSitting: sitting
       });
-      return `<span class="tracker-sitting-badge bnd bnd-unknown" title="${escapeHtml(reasonText)}">Boundary: &mdash;</span>`;
+      return `<span class="tracker-sitting-badge bnd bnd-unknown" title="${escapeHtml(reasonText)}" aria-label="Boundary unavailable: ${escapeHtml(reasonText)}">Boundary: &mdash; <span class="tracker-boundary-note">(${escapeHtml(reasonLabel)})</span></span>`;
     }
     const table = model.table || (decision && decision.table);
     const badgeClass = `tracker-sitting-badge bnd${model.projected ? " bnd-proj" : ""}`;

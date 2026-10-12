@@ -47,6 +47,21 @@ function topGradeOfTable(boundary) {
   return Number.isFinite(mark) ? mark : null;
 }
 
+function unpublishedBoundaryReason(course, year, seriesWord) {
+  const board = String(course && course.board || "").toLowerCase();
+  const qual = String(course && course.qual || "").toLowerCase();
+  const code = String(course && course.code || "").toUpperCase().replace(/[HF]$/, "");
+  const month = monthFromWord(seriesWord);
+  if (board !== "aqa" || qual !== "gcse" || !["8461", "8462", "8463"].includes(code)) return null;
+  if ((Number(year) === 2020 || Number(year) === 2021) && (!month || month === "JUN")) {
+    return {
+      reason: "NO_BOUNDARIES_PUBLISHED",
+      tip: `AQA did not hold the summer ${Number(year)} GCSE exams because of COVID-19, so no raw-mark grade boundaries were published for this sitting.`
+    };
+  }
+  return null;
+}
+
 function findGradeMarkIn(boundary, label) {
   if (!boundary || !boundary.grades) return null;
   const wanted = String(label || "").replace(/\s+/g, "").toUpperCase();
@@ -250,6 +265,21 @@ export function deriveBoundaryDecision(repo, enrollment, year, seriesWord, sitti
       seriesLabel: seriesWord ? seriesWord : null,
       sourceLabel: "Stored with this sitting",
       tip: `Stored value ${storedTop} — no full table on record.`,
+      hasTable: false
+    };
+  }
+
+  const unpublished = unpublishedBoundaryReason(course, yearNum, seriesWord);
+  if (unpublished) {
+    return {
+      kind: "unknown",
+      reason: unpublished.reason,
+      table: null,
+      top: null,
+      year: yearNum,
+      seriesLabel: seriesWord ? seriesWord : null,
+      sourceLabel: null,
+      tip: unpublished.tip,
       hasTable: false
     };
   }
