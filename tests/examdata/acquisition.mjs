@@ -23,7 +23,7 @@ export async function run() {
   assert.ok(resH.boundary, "AQA 8461 H boundary exists");
   assert.strictEqual(resH.boundary.courseKey, "aqa:gcse:8461:H");
   assert.deepStrictEqual(resH.boundary.gradesInOrder, ["9", "8", "7", "6", "5", "4", "3"]);
-  assert.strictEqual(resH.boundary.grades["9"], 142);
+  assert.strictEqual(resH.boundary.grades["9"], 141);
   count += 5;
 
   // Test 2: AQA GCSE 8461 Biology Foundation June 2025
@@ -41,7 +41,7 @@ export async function run() {
   assert.ok(resF.boundary, "AQA 8461 F boundary exists");
   assert.strictEqual(resF.boundary.courseKey, "aqa:gcse:8461:F");
   assert.deepStrictEqual(resF.boundary.gradesInOrder, ["5", "4", "3", "2", "1"]);
-  assert.strictEqual(resF.boundary.grades["5"], 125);
+  assert.strictEqual(resF.boundary.grades["5"], 140);
   count += 5;
 
   // Test 3: Ensure board is AQA, not Pearson

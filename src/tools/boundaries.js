@@ -15,7 +15,9 @@
 import { diag } from "./diag.js";
 
 const CACHE_KEY = "neuronet:boundaries";
-const CACHE_VERSION = 2;
+// Bump whenever boundary identity/parser semantics change. Old cached tables
+// must not be allowed to masquerade as newly verified values.
+const CACHE_VERSION = 3;
 
 const FETCH_TIMEOUT_MS = 30000;
 
@@ -399,6 +401,7 @@ export function parsePearsonGcseRow(lines, code, tier) {
 // where trailing dashes are non-classified marks. Subjects with no tier run
 // the full 9..1 range.
 export function parseAqaGcseRow(lines, code, tier) {
+  if (!Array.isArray(lines)) return null;
   for (const line of lines) {
     if (!line.includes(code)) continue;
     const codeUpper = code.toUpperCase();
@@ -678,24 +681,13 @@ export async function getBoundaries({ board, qual, code, tier, year, series } = 
   const y = Number(year);
   const c = String(code).trim().toUpperCase();
   const t = tierId(tier);
-  diag("B? ", "cache MISS - will fetch", { board: b, code: c, tier: t, year: y, month: month });
 
-  // From here on this is real network work, so report it. A cache hit above
-  // returns silently, which is what keeps the UI from flickering on every row.
   beginWork(`${b} ${c}${t ? "/" + t : ""} ${month} ${y}`);
   let ok = false;
   try {
-    const bytes = await acquireSourceBytes(b, y, month, c, t);
-    if (!bytes) { diag("B? ", "NULL: acquireSourceBytes returned nothing", { board: b, code: c, tier: t, year: y, month: month }); return null; }
-    diag("B? ", "bytes acquired", { board: b, code: c, tier: t, bytes: bytes.length });
-
-    const lines = await pdfTextFromBytes(bytes);
-    diag("B? ", "pdf text extracted", { lines: lines.length });
-    const parsed = b === "pearson"
-      ? parsePearsonGcseRow(lines, c, t)
-      : parseAqaGcseRow(lines, c, t);
-    if (!parsed) { diag("B? ", "NULL: parser found no matching row", { board: b, code: c, tier: t, lineCount: lines.length }); return null; }
-    diag("B? ", "parsed OK", { board: b, code: c, tier: t, grades: parsed.grades, marks: parsed.marks });
+    const { acquireExamData } = await import("./examData/ingest.js");
+    const env = await acquireExamData({ board: b, qual: qualId(qual), code: c, tier: t, series: { month, year: y } });
+    if (!env || !env.table) return null;
 
     const table = {
       key,
@@ -705,27 +697,23 @@ export async function getBoundaries({ board, qual, code, tier, year, series } = 
       tier: t,
       year: y,
       month,
-      grades: parsed.grades,
-      marks: parsed.marks,
-      maxMark: parsed.maxMark,
+      grades: env.table.gradesInOrder || Object.keys(env.table.grades || {}),
+      marks: (env.table.gradesInOrder || Object.keys(env.table.grades || {})).map(g => env.table.grades[g]),
+      maxMark: env.table.maxMark,
       papers: [],
       source: {
-        publisher: b === "pearson" ? "Pearson Edexcel" : "AQA",
+        publisher: b === "pearson" ? "Pearson Edexcel" : b === "ocr" ? "OCR" : "AQA",
         verifiedAt: new Date().toISOString().slice(0, 10)
       }
     };
 
     storeBoundary(key, table);
-    diag("B? ", "stored in cache", { key: key });
     ok = true;
     return table;
   } catch (err) {
     diag("B? ", "THREW: " + (err && err.message ? err.message : String(err)));
-    throw err;
+    return null;
   } finally {
-    // Exactly one endWork per beginWork, on every path including a throw, so
-    // the active count cannot get stuck above zero and strand the UI on
-    // "fetching".
     endWork(ok);
   }
 }

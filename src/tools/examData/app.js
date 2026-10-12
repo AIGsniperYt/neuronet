@@ -31,6 +31,8 @@ import { diag } from "../diag.js";
 // ---- legacy blob / channel keys (strings only — no import, no cycle) ----
 const LEGACY_CACHE_KEY = "neuronet:gradeBoundaries";
 const ENGINE_CACHE_KEY = "neuronet:boundaries";
+const ENGINE_CACHE_VERSION = 3;
+const LEGACY_CACHE_VERSION = 3;
 const LEGACY_STATUS_KEY = "neuronet:boundaryStatus";
 const LEGACY_CACHE_TICK = `${LEGACY_CACHE_KEY}_tick`;
 const STATUS_CHANNEL = "neuronet:boundaryStatus";
@@ -56,7 +58,11 @@ function readJson(key, fallback) {
 }
 
 function readLegacyCache() {
-  return readJson(LEGACY_CACHE_KEY, { version: 2, entries: {} });
+  const cache = readJson(LEGACY_CACHE_KEY, { version: LEGACY_CACHE_VERSION, entries: {} });
+  if (!cache || cache.version !== LEGACY_CACHE_VERSION || !cache.entries) {
+    return { version: LEGACY_CACHE_VERSION, entries: {} };
+  }
+  return cache;
 }
 
 // boundaries.js predates the IndexedDB exam-data repository and stores exact
@@ -64,7 +70,11 @@ function readLegacyCache() {
 // read model; otherwise a successful fetch is invisible to the tracker until
 // another path happens to rewrite the table into IndexedDB.
 function readEngineCache() {
-  return readJson(ENGINE_CACHE_KEY, { version: 2, tables: {} });
+  const cache = readJson(ENGINE_CACHE_KEY, { version: ENGINE_CACHE_VERSION, tables: {} });
+  if (!cache || cache.version !== ENGINE_CACHE_VERSION || !cache.tables) {
+    return { version: ENGINE_CACHE_VERSION, tables: {} };
+  }
+  return cache;
 }
 
 function readLegacyStatus() {
@@ -131,7 +141,7 @@ export function mergedIndex(snap) {
       gradesInOrder: Array.isArray(table.gradesInOrder) ? table.gradesInOrder : Object.keys(table.grades),
       maxMark: table.maxMark || null,
       papers: Array.isArray(table.papers) ? table.papers : [],
-      provenance: { kind: "official", parsedAt: Number(table.fetchedAt) || Date.now(), verification: "verified", url: table.source && table.source.url || null }
+      provenance: { kind: "official", engineVersion: ENGINE_CACHE_VERSION, parsedAt: Number(table.fetchedAt) || Date.now(), verification: "verified", url: table.source && table.source.url || null }
     };
     if (!boundaries.has(boundary.id)) boundaries.set(boundary.id, boundary);
   }
@@ -139,7 +149,13 @@ export function mergedIndex(snap) {
     if (c && c.id && !courses.has(c.id)) courses.set(c.id, { ...c });
   }
   for (const b of (snap && snap.examBoundaries) || []) {
-    if (b && b.id) boundaries.set(b.id, { ...b });
+    if (!b || !b.id) continue;
+    // Old bridge records had no sourceIds and no engine version. They can
+    // contain stale parser output and must not overwrite a fresh engine row.
+    const p = b.provenance || {};
+    const staleBridgeRecord = !Array.isArray(b.sourceIds) && p.kind === "official" && p.engineVersion !== ENGINE_CACHE_VERSION;
+    if (staleBridgeRecord) continue;
+    boundaries.set(b.id, { ...b });
   }
   for (const [k, b] of legacy.boundaries) {
     if (!boundaries.has(k)) boundaries.set(k, b);

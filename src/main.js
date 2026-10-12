@@ -5,6 +5,7 @@ import { dialog } from "./tools/dialog.js";
 import { initMemoryTool } from "./tools/memoryTool.js";
 import { initMindmapTool } from "./tools/mindmapTool.js";
 import { initTrackerTool } from "./tools/trackerTool.js";
+import { install as installDiag } from "./tools/diag.js";
 import { initScraperTool } from "./tools/scraperTool.js";
 import { flushBoundaryCache } from "./tools/gradeBoundaries.js";
 import { performMigration } from "./migrations.js";
@@ -1492,6 +1493,7 @@ async function confirmUnpin() {
 
 // ========== EVENT LISTENERS ==========
 document.addEventListener("DOMContentLoaded", async () => {
+  installDiag();
   toolContainer = document.getElementById("toolContainer");
   setProfileUI(null);
 

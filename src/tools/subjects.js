@@ -10,11 +10,9 @@
 // current and as complete as the board's own publication. A subject that stops
 // being offered stops being listed; a new specification appears on its own.
 
-import { pdfTextFromBytes, fetchBoardResource, fetchTextResource, boardId, qualId, registerAqaDiscovery, isGcseBoundaryDocument, parseAqaGcseRow } from "./boundaries.js";
+import { pdfTextFromBytes, fetchBoardResource, boardId, qualId, parseAqaGcseRow, discoverAqaSeries } from "./boundaries.js";
+import { diag } from "./diag.js";
 
-// subjects.js owns AQA series discovery, so boundaries.js can resolve the same
-// PDF. Wiring it here keeps one discovery path rather than two.
-registerAqaDiscovery(discoverAqaSeries);
 
 const CACHE_KEY = "neuronet:subjectCatalogue";
 const CACHE_VERSION = 1;
@@ -65,120 +63,6 @@ export function clearSubjectCache() {
 // ---------------------------------------------------------------------------
 
 const PEARSON_GCSE_PDF = "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/grade-boundaries-june-2025-gcse.pdf";
-
-// AQA serves each series from hashed CDN paths that cannot be constructed, so
-// AQA is reached by reading its grade-boundary pages. Two shapes are handled:
-//
-//   current page — each card is an <a href="....pdf" aria-label="GCSE - Grade
-//                  boundaries June 2026">; the label names the series directly.
-//   archive page — the series lives in a heading ("2024/25 exams", "June 2025
-//                  exams") above cards whose own label is only "GCSE (164 KB)",
-//                  so the nearest preceding text supplies the context.
-//
-// Nothing is hardcoded, and a series the board no longer publishes is simply
-// not found rather than guessed at.
-const AQA_BOUNDARIES_PAGES = [
-  "https://www.aqa.org.uk/exams-administration/results-days/grade-boundaries",
-  "https://www.aqa.org.uk/exams-administration/results-days/grade-boundaries/archive"
-];
-
-const MONTH_WORD = { JAN: "january", FEB: "february", MAR: "march", APR: "april", MAY: "may", JUN: "june", JUL: "july", AUG: "august", SEP: "september", OCT: "october", NOV: "november", DEC: "december" };
-
-// Does this text identify the requested series? Handles both "June 2025" and
-// the archive's academic-year heading "2024/25 exams".
-function seriesMatches(text, year, series) {
-  const month = MONTH_WORD[series] || String(series || "").toLowerCase();
-  if (!month || !year) return false;
-  const stem = month.slice(0, 4);
-  if (new RegExp(`${stem}[^0-9]{0,12}${year}`, "i").test(text)) return true;
-  const two = String(year).slice(2);
-  return new RegExp(`\\b${String(year).slice(0, 4)}/${two}\\s+exams`, "i").test(text) &&
-    new RegExp(stem, "i").test(text);
-}
-
-function qualFromLabel(label) {
-  if (/Mathematical Studies|GCSE/i.test(label)) return "gcse";
-  if (/A-level/i.test(label)) return "alevel";
-  if (/(^|\s)AS(\s|$)/i.test(label)) return "as";
-  if (/Functional Skills/i.test(label)) return "functional";
-  return null;
-}
-
-/**
- * Every AQA grade-boundary PDF that could hold the requested series.
- *
- * The archive page nests three levels: an academic-year heading
- * ("2024/25 exams"), a series heading inside it ("June 2025 exams"), then one
- * card per qualification. A series is only collected from within its own
- * section, so a card from a neighbouring series can never be picked up. The
- * qualification is not guessed from the card label — the caller verifies the
- * document by parsing it, because a single series lists GCSE alongside
- * Mathematical Studies, ELC and AS, whose labels are easy to confuse.
- *
- * @returns {Promise<Array<{url,title,qual}>>}
- */
-export async function discoverAqaSeries({ year = 2025, series = "JUN" } = {}) {
-  const out = [];
-  const seen = new Set();
-
-  for (const page of AQA_BOUNDARIES_PAGES) {
-    // Through the CORS proxy, not direct: aqa.org.uk sends no CORS headers, so
-    // a direct browser fetch is guaranteed to fail and only logs a CORS error.
-    const html = await fetchTextResource(page);
-    if (!html) continue;
-    const clean = html.replace(/<svg[\s\S]*?<\/svg>/g, " ");
-
-    // Tag every heading and every PDF card with its position, then walk the
-    // document in order keeping the two most recent headings as context.
-    const tokens = [];
-    const headingRe = /<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>|(\d{4}\/\d{2}\s+exams)|((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}\s+exams)/gi;
-    for (const m of clean.matchAll(headingRe)) {
-      const raw = (m[1] || m[2] || m[3] || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-      if (raw) tokens.push({ at: m.index, kind: "heading", text: raw });
-    }
-    const cardRe = /<a\b([^>]*\.pdf[^>]*)>/gi;
-    for (const m of clean.matchAll(cardRe)) {
-      tokens.push({ at: m.index, kind: "card", attrs: m[1] });
-    }
-    tokens.sort((a, b) => a.at - b.at);
-
-    let yearHeading = "";
-    let seriesHeading = "";
-    for (const t of tokens) {
-      if (t.kind === "heading") {
-        if (/^\d{4}\/\d{2}\s+exams$/i.test(t.text)) { yearHeading = t.text; seriesHeading = ""; }
-        else if (/^(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}\s+exams$/i.test(t.text)) {
-          seriesHeading = t.text;
-        }
-        continue;
-      }
-
-      const href = /href=["']([^"']+\.pdf)["']/i.exec(t.attrs);
-      if (!href) continue;
-      if (seen.has(href[1])) continue;
-      const aria = /aria-label=["']([^"']+)["']/i.exec(t.attrs);
-      const label = aria ? aria[1].replace(/\s+/g, " ").trim() : "";
-
-      // Two page shapes. The current page has no headings at all: every card
-      // labels itself "GCSE - Grade boundaries June 2026". The archive puts the
-      // series in a heading above cards labelled only "GCSE (164 KB)". So a
-      // card qualifies when either its own label or its section heading names
-      // the requested series.
-      const ownMatches = label ? seriesMatches(label, year, series) : false;
-      const sectionMatches = seriesHeading ? seriesMatches(seriesHeading, year, series) : false;
-      if (!ownMatches && !sectionMatches) continue;
-
-      seen.add(href[1]);
-      out.push({
-        url: href[1].startsWith("http") ? href[1] : `https://www.aqa.org.uk${href[1]}`,
-        title: aria ? aria[1].replace(/\s+/g, " ").trim() : `${seriesHeading} (${yearHeading})`,
-        qual: null
-      });
-    }
-    if (out.length) break; // the live page wins; the archive is the fallback
-  }
-  return out;
-}
 
 // ---------------------------------------------------------------------------
 // row readers — pull the subject out of a boundary table row
@@ -247,7 +131,11 @@ export function parseAqaSubjects(lines) {
 
 async function subjectsForBoard(board, { year = 2025, series = "JUN" } = {}) {
   const cache = readCache();
-  if (cache && cache.boards && cache.boards[board]) return cache.boards[board];
+  if (cache && cache.boards && cache.boards[board]) {
+    diag("C? ", "subjectsForBoard cache HIT", { board: board, count: cache.boards[board].length });
+    return cache.boards[board];
+  }
+  diag("C? ", "subjectsForBoard cache MISS", { board: board, year: year, series: series });
 
   let lines = null;
 
@@ -255,27 +143,29 @@ async function subjectsForBoard(board, { year = 2025, series = "JUN" } = {}) {
     const bytes = await fetchBoardResource(PEARSON_GCSE_PDF);
     if (bytes) lines = await pdfTextFromBytes(bytes);
   } else if (board === "aqa") {
-    // A series lists several PDFs; use the one that is actually the GCSE
-    // publication. Identified by its contents, never by its filename.
-    for (const { url } of await discoverAqaSeries({ year, series })) {
+    // A series lists several PDFs and they are not distinguishable by heading,
+    // so the GCSE publication is recognised the only reliable way: by parsing
+    // it. A probe course is tried across tiers (a tiered subject will not answer
+    // a tier-less request) and the document that carries it is the GCSE one.
+    const PROBES = [["8461", "H"], ["8461", "F"], ["8700", null], ["8462", "H"]];
+    const candidates = await discoverAqaSeries({ year, series });
+    diag("C? ", "AQA subject discovery", { candidates: candidates.length });
+    for (const { url } of candidates) {
       const bytes = await fetchBoardResource(url);
-      if (!bytes) continue;
+      if (!bytes) { diag("C? ", "AQA subject candidate fetch failed", { url: url.slice(0, 80) }); continue; }
       let doc;
-      try { doc = await pdfTextFromBytes(bytes); } catch { continue; }
-      if (!isGcseBoundaryDocument(doc)) continue;
-      // A real GCSE document carries recognisable spec rows; a maths-studies
-      // or ELC one does not. Probe across tiers because a tiered subject will
-      // not answer a tier-less request.
-      const looksLikeGcse = ["8700", "8461", "8462"].some((c) =>
-        parseAqaGcseRow(doc, c, null) || parseAqaGcseRow(doc, c, "H") || parseAqaGcseRow(doc, c, "F"));
-      if (!looksLikeGcse) continue;
+      try { doc = await pdfTextFromBytes(bytes); } catch (e) { diag("C? ", "AQA subject candidate parse threw", { url: url.slice(0, 80), error: String(e && e.message) }); continue; }
+      const matched = PROBES.some(([c, t]) => parseAqaGcseRow(doc, c, t));
+      diag("C? ", "AQA subject candidate check", { url: url.slice(0, 80), matched: matched });
+      if (!matched) continue;
       lines = doc;
       break;
     }
   }
 
-  if (!lines) return [];
+  if (!lines) { diag("C? ", "subjectsForBoard: no document found", { board: board }); return []; }
   const list = board === "pearson" ? parsePearsonSubjects(lines) : parseAqaSubjects(lines);
+  diag("C? ", "subjectsForBoard result", { board: board, count: list.length });
   list.sort((a, b) => a.code.localeCompare(b.code) || String(a.tier).localeCompare(String(b.tier)));
   return list;
 }
@@ -288,8 +178,13 @@ export async function findSubjects({ board, year = 2025, series = "JUN" } = {}) 
   const b = boardId(board) || (board ? String(board).toLowerCase() : null);
   if (!b) return [];
   const list = await subjectsForBoard(b, { year, series });
-  const cache = readCache();
-  writeCache({ ...(cache && cache.boards), [b]: list });
+  // Do not cache a failed fetch. Empty means the board was unreachable, not
+  // that the board has no subjects — caching the failure would poison every
+  // subsequent visit until the TTL expires.
+  if (list.length > 0) {
+    const cache = readCache();
+    writeCache({ ...(cache && cache.boards), [b]: list });
+  }
   return list.map((s) => ({ ...s, id: `${s.board}|${s.qual}|${s.code}|${s.tier || "_"}` }));
 }
 
@@ -329,13 +224,15 @@ const AMBIGUOUS = new Set(["science", "english", "maths", "mathematics", "studie
  */
 export function matchSubjects(catalogue, subjectName, { board, qual } = {}) {
   const want = tokenize(subjectName);
-  if (!want.length) return [];
+  diag("C? ", "matchSubjects", { subjectName: subjectName, want: want, catalogueSize: catalogue.length, board: board || null, qual: qual || null });
+  if (!want.length) { diag("C? ", "matchSubjects: empty token list", { subjectName: subjectName }); return []; }
 
   const pool = catalogue.filter((s) => {
     if (board && s.board !== boardId(board)) return false;
     if (qual && s.qual !== qualId(qual)) return false;
     return true;
   });
+  diag("C? ", "matchSubjects pool", { poolSize: pool.length });
 
   const scored = pool.map((s) => {
     const have = tokenize(s.title);
@@ -358,9 +255,11 @@ export function matchSubjects(catalogue, subjectName, { board, qual } = {}) {
   scored.sort((a, b) => b.score - a.score || String(a.tier).localeCompare(String(b.tier)));
 
   const top = scored[0];
-  if (!top) return [];
+  if (!top) { diag("C? ", "matchSubjects: no match", { subjectName: subjectName }); return []; }
   const tied = scored.filter((s) => s.score === top.score);
-  return scored.map((s) => ({ ...s, ambiguous: tied.length > 1 && s.score === top.score }));
+  const result = scored.map((s) => ({ ...s, ambiguous: tied.length > 1 && s.score === top.score }));
+  diag("C? ", "matchSubjects result", { subjectName: subjectName, topScore: top.score, tiedCount: tied.length, results: result.slice(0, 5).map(function (s) { return { code: s.code, tier: s.tier, score: s.score, ambiguous: s.ambiguous }; }) });
+  return result;
 }
 
 /**
@@ -369,8 +268,15 @@ export function matchSubjects(catalogue, subjectName, { board, qual } = {}) {
  */
 export function resolveSubject(catalogue, subjectName, opts = {}) {
   const ranked = matchSubjects(catalogue, subjectName, opts);
-  if (!ranked.length) return null;
+  if (!ranked.length) { diag("C? ", "resolveSubject: NULL (no match)", { subjectName: subjectName }); return null; }
   const top = ranked.filter((s) => s.score === ranked[0].score);
-  if (top.length !== 1) return { ambiguous: true, candidates: top };
+  if (top.length !== 1) {
+    diag("C? ", "resolveSubject: AMBIGUOUS", { subjectName: subjectName, candidates: top.map(function (s) { return { code: s.code, tier: s.tier, score: s.score }; }) });
+    return { ambiguous: true, candidates: top };
+  }
+  diag("C? ", "resolveSubject: resolved", { subjectName: subjectName, code: top[0].code, tier: top[0].tier, board: top[0].board });
   return { ambiguous: false, course: top[0] };
 }
+
+// Re-exported so callers have one obvious place to import discovery from.
+export { discoverAqaSeries };

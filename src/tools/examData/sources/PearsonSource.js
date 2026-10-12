@@ -292,7 +292,19 @@ async function sha256Hex(bytes) {
 }
 
 async function fetchBoundaryResourceWithProxy(url) {
-  return fetch(url);
+  // Route through the CORS proxy. Pearson's site does not send
+  // Access-Control-Allow-Origin, so a direct browser fetch is refused.
+  let base = "https://neuronet-backend.onrender.com";
+  try {
+    if (typeof window !== "undefined" && window.__NEURONET_PROXY_BASE) {
+      base = window.__NEURONET_PROXY_BASE;
+    } else if (typeof document !== "undefined") {
+      const meta = document.querySelector('meta[name="neuronet-proxy"]');
+      if (meta && meta.content) base = meta.content;
+    }
+  } catch { /* ignore */ }
+  base = String(base || "").replace(/\/+$/, "");
+  return fetch(`${base}/api/proxy?url=${encodeURIComponent(url)}`);
 }
 
 export async function fetchSource(resource, { fetchImpl } = {}) {

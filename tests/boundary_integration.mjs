@@ -8,11 +8,6 @@
 //   node tests/boundary_integration.mjs          offline (cached PDFs)
 //   LIVE=1 node tests/boundary_integration.mjs    refetch everything
 
-import { registerAqaDiscovery } from "../src/tools/boundaries.js";
-import { discoverAqaSeries } from "../src/tools/subjects.js";
-
-registerAqaDiscovery(discoverAqaSeries);
-
 const { toCanonicalBoundary } = await import("../src/tools/examData/bridge.js");
 const repository = await import("../src/tools/examData/repository.js");
 const boundaries = await import("../src/tools/boundaries.js");

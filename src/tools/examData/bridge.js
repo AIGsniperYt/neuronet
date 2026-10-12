@@ -60,6 +60,7 @@ export function toCanonicalBoundary(table) {
     papers: Array.isArray(table.papers) ? table.papers : [],
     provenance: {
       kind: "official",
+      engineVersion: 3,
       parsedAt: Date.now(),
       publisher: table.source ? table.source.publisher : null,
       url: table.source ? table.source.url : null,

@@ -13,7 +13,9 @@ import { buildExamIndex, openExamRepository, deriveBoundaryDecision } from "./ex
 
 export const BOUNDARY_CACHE_KEY = "neuronet:gradeBoundaries";
 export const BOUNDARY_STATUS_KEY = "neuronet:boundaryStatus";
-export const BOUNDARY_CACHE_VERSION = 2;
+// Boundary row parsing/identity changed; discard older blobs rather than
+// allowing stale subject tables to override a newly fetched exact result.
+export const BOUNDARY_CACHE_VERSION = 3;
 
 // How long a completed sweep stays "fresh" before we re-scan for new series
 // (so the tracker's subject picker never fires a fetch set the first time it
