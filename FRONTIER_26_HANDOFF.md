@@ -1,5 +1,14 @@
 # FRONTIER #26 HANDOFF — EXAM-DATA BRAIN, BOARD-AGNOSTIC ACQUISITION + TRACKER CONSUMPTION
 
+> **Superseded on 2026-10-12.** This is a historical implementation brief, not
+> current instructions. Its claims that the tracker uses `uk-exam-engine`, that
+> AQA source acquisition is implemented in `examData/sources/AqaSource.js`, and
+> that earlier acquisition tests prove official data were not reliable. The
+> current tracker path is `Exam.ensureForSitting` → `examData/ingest.js` →
+> `boundaries.js` (official PDF discovery, PDF signature check, exact row parse,
+> SHA-256, and canonical persistence). Unsupported boards/qualifications fail
+> closed. See Git history for the original brief and subsequent audit changes.
+
 **Repo root (git):** `/home/aigsniper/Documents/website/neuronet/frontend`
 **Runtime:** plain Node `>= 20` (v24.18.1 used here). No dev dependencies. Do NOT add any.
 **This file is read and executed by you (the frontier/agent).** Implement everything below. Do not stop earlyches; reach Definition of Done (#41).

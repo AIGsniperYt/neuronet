@@ -285,10 +285,7 @@ async function sha256Hex(bytes) {
     const digest = await subtle.digest("SHA-256", bytes);
     return [...new Uint8Array(digest)].map((x) => x.toString(16).padStart(2, "0")).join("");
   }
-  // deterministic fallback id — not a real sha-256 (explicitly labelled)
-  let h = 2166136261;
-  for (const byte of new Uint8Array(bytes)) { h ^= byte; h = Math.imul(h, 16777619); }
-  return `faux-${(h >>> 0).toString(16).padStart(8, "0")}`;
+  return null;
 }
 
 async function fetchBoundaryResourceWithProxy(url) {
@@ -313,14 +310,6 @@ export async function fetchSource(resource, { fetchImpl } = {}) {
   try {
     res = await doFetch(resource.url);
   } catch (e) {
-    if (!fetchImpl && resource && (resource.kind === "catalogue" || resource.source === "catalogue")) {
-      return {
-        ok: true, url: resource.url, status: 200, contentType: "application/pdf",
-        bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]).buffer,
-        byteLength: 5, contentHash: resource.contentHash || "verified-cat-hash",
-        hostVerified: true
-      };
-    }
     return { ok: false, url: resource.url, reason: "NETWORK", error: String(e && e.message || e) };
   }
   const finalUrl = res.url || resource.url;
@@ -328,14 +317,6 @@ export async function fetchSource(resource, { fetchImpl } = {}) {
     return { ok: false, url: finalUrl, status: res.status, reason: "HOST_UNVERIFIED" };
   }
   if (!res.ok) {
-    if (!fetchImpl && resource && (resource.kind === "catalogue" || resource.source === "catalogue")) {
-      return {
-        ok: true, url: resource.url, status: 200, contentType: "application/pdf",
-        bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]).buffer,
-        byteLength: 5, contentHash: resource.contentHash || "verified-cat-hash",
-        hostVerified: true
-      };
-    }
     return { ok: false, url: finalUrl, status: res.status, reason: `HTTP_${res.status}` };
   }
   const contentType = String(res.headers && res.headers.get && res.headers.get("content-type") || "").toLowerCase();
@@ -361,38 +342,10 @@ export async function parseSource(bytes, { qual, series, expected } = {}) {
   try {
     lines = await extractPdfLayoutLinesFromBuffer(bytes);
   } catch (e) {
-    /* fallback to synthetic lines for verified catalogue if bytes are short/mock */
+    return { ok: false, reason: "PDF_PARSE_FAILED", rows: [], problems: [], error: String(e && e.message || e) };
   }
   if (!lines || !lines.length) {
-    const yr = Number(series && series.year);
-    const mo = String((series && series.month) || "").toUpperCase();
-    const makeLine = (str) => ({
-      items: str.split(/\s+/).map((s, idx) => ({ str: s, x: idx * 10 }))
-    });
-    if (yr === 2024 && mo === "JUN") {
-      lines = [
-        makeLine("GCSE (9-1) Grade Boundaries June 2024"),
-        makeLine("Overall grade boundaries"),
-        makeLine("1MA1 Mathematics Higher Subject 240 197 167 137 105 73 42 26 0"),
-        makeLine("1MA1 Mathematics Foundation Subject 240 175 142 103 65 27 0")
-      ];
-    } else if (yr === 2025 && mo === "JUN") {
-      lines = [
-        makeLine("GCSE (9-1) Grade Boundaries June 2025"),
-        makeLine("Overall grade boundaries"),
-        makeLine("1MA1 Mathematics Higher Subject 240 217 186 156 121 87 53 36 0"),
-        makeLine("1MA1 Mathematics Foundation Subject 240 182 147 109 71 33 0")
-      ];
-    } else if (yr === 2022 && mo === "JUN") {
-      lines = [
-        makeLine("GCSE (9-1) Grade Boundaries June 2022"),
-        makeLine("Overall grade boundaries"),
-        makeLine("1MA1 Mathematics Higher Subject 240 194 165 137 104 71 38 21 0"),
-        makeLine("1MA1 Mathematics Foundation Subject 240 173 135 100 66 32 0")
-      ];
-    } else {
-      return { ok: false, reason: "PARSE_FAILED", rows: [], problems: [] };
-    }
+    return { ok: false, reason: "EMPTY_PDF_TEXT", rows: [], problems: [] };
   }
   const parsed = parsePearsonRows(lines, q);
   const docSeries = extractDocumentSeries(lines);

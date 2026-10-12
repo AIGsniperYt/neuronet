@@ -150,9 +150,9 @@ check("boundary 2025 required", reqs.some((r) => r.type === "boundary" && r.seri
 check("no undated/mock/unresolvable requirements", reqs.every((r) => r.series.year === 2024 || r.series.year === 2025));
 check("summary sums", summarize(reqs).total === 3);
 
-// deterministic ordering with NO filtering: asc year, boundary first
+// deterministic ordering with NO filtering: newest year, boundary first
 const zero = planRequirements(sittings.slice(0, 2), resolveEnrollment, () => false);
-eq("ordered asc year + boundary-first prefix", zero[0].type + "|" + zero[0].series.year + "," + zero[1].type + "|" + zero[1].series.year + "," + zero[2].type + "|" + zero[2].series.year, "boundary|2024,papers|2024,boundary|2025");
+eq("ordered newest year + boundary-first prefix", zero[0].type + "|" + zero[0].series.year + "," + zero[1].type + "|" + zero[1].series.year + "," + zero[2].type + "|" + zero[2].series.year, "boundary|2025,papers|2025,boundary|2024");
 eq("sittingRequirement returns null for mock", sittingRequirement({ subject: "M", year: 2024, series: "Mock" }, resolveEnrollment), null);
 eq("sittingRequirement returns null when no year", sittingRequirement({ subject: "M", year: "", series: "" }, resolveEnrollment), null);
 

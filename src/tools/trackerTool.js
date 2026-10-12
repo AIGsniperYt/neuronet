@@ -8,11 +8,6 @@ import { dialog } from "./dialog.js";
 import { Exam } from "./examData/app.js";
 import { planRequirements, REQUIREMENT_TYPES, JOB_PRIORITIES } from "./examData/scheduler.js";
 import { parseCourseKey, courseKey, seriesId, monthFromWord, normalizeTitle, boardId, qualId } from "./examData/schema.js";
-// The verified boundary engine. `acquireBoundary` fetches one exact official
-// table and writes it into the canonical store, so the tracker keeps rendering
-// from the single decision surface while acquisition goes through the engine
-// that is proven against the boards' own PDFs.
-import { acquireBoundary } from "./examData/bridge.js";
 import { findSubjects, matchSubjects } from "./subjects.js";
 import { diag } from "./diag.js";
 
@@ -1248,7 +1243,10 @@ async function loadSubjectCatalogues() {
       (sitting) => warmEnrollment(sitting),
       warmSatisfied()
     );
-    return reqs.filter((r) => r.type === REQUIREMENT_TYPES.BOUNDARY &&
+    // Do not invent June for a year-only sitting. Such a row can still render
+    // an already-cached exact table through the display policy, but warming
+    // requires an explicitly identified series.
+    return reqs.filter((r) => r.type === REQUIREMENT_TYPES.BOUNDARY && r.series && r.series.month &&
       !Exam.recentlyAttempted(r.key));
   }
 
@@ -1285,23 +1283,21 @@ async function loadSubjectCatalogues() {
       .slice(0, MAX_WARM_JOBS_PER_KICK);
     await Promise.all(batch.map(async (r) => {
       const parsed = parseCourseKey(r.courseKey) || {};
-      // GCSE boundaries are always published for the June series. When the
-      // stored course key does not carry a month (the common case — the user
-      // links a subject but does not pick a series), default to JUN rather
-      // than sending an empty string that fails boundaryKey validation.
-      const seriesWord = (r.series && r.series.month) ? String(r.series.month) : "JUN";
+      const seriesWord = String(r.series.month);
       diag("R? ", "runWarmFlight: acquiring", { board: r.board, qual: r.qual, code: parsed.code, tier: parsed.tier, year: r.series && r.series.year, series: seriesWord });
       try {
-        const res = await acquireBoundary({
+        const res = await Exam.ensureForSitting({
           board: r.board,
           qual: r.qual,
           code: String(parsed.code || ""),
           tier: parsed.tier && parsed.tier !== "_" ? String(parsed.tier) : null,
           year: r.series && r.series.year,
-          series: seriesWord
+          seriesWord,
+          acquire: true
         });
-        diag("R? ", "runWarmFlight: acquireBoundary result", { board: r.board, code: parsed.code, tier: parsed.tier, ok: res.ok, reason: res.reason || null });
-        if (res.ok) {
+        const acquiredOfficially = res && (res.status === "complete" || (res.decision && res.decision.kind === "official"));
+        diag("R? ", "runWarmFlight: Exam.ensureForSitting result", { board: r.board, code: parsed.code, tier: parsed.tier, status: res && res.status, reason: res && res.reason || null, decision: res && res.decision && res.decision.kind });
+        if (acquiredOfficially) {
           madeFetch = true;
           return; // stored in canonical shape; the next read model sees it
         }

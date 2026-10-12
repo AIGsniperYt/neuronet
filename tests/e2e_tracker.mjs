@@ -373,7 +373,6 @@ try {
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.evaluate(OPEN_TRACKER);
   await page.waitForSelector(".row-main .bnd", { timeout: 15000 });
-
   const rows2 = await page.$$eval(".row-main", (rows) =>
     rows.map((row) => ({
       session: row.querySelector(".sit-session") ? row.querySelector(".sit-session").textContent.trim() : "",
@@ -381,9 +380,11 @@ try {
     }))
   );
   const flat2 = rows2.flatMap((r) => r.badges);
-  check("2022 sitting never fabricates a number", flat2.some((b) => b.includes("–") || b.includes("—")), JSON.stringify(flat2));
   const r2022 = rows2.find((r) => r.session.includes("2022"));
-  check("2022 sitting does NOT show 217", !r2022 || !r2022.badges.some((b) => b.includes("9 ≥ 217")), JSON.stringify(rows2));
+  check("2022 sitting stays unavailable or pending without a guessed number",
+    !!r2022 && !r2022.badges.some((b) => /[≥>]\s*\d+/.test(b))
+      && r2022.badges.some((b) => /fetching|—|–|unavailable/i.test(b)),
+    JSON.stringify(r2022));
   check("cached 2024 still official 197 under network block", flat2.some((b) => b.includes("9 ≥ 197")), JSON.stringify(flat2));
   await page.evaluate(() => { localStorage.removeItem("e2e:netblock"); });
 

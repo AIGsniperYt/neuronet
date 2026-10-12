@@ -1,21 +1,19 @@
-// examData/ingest.js — the canonical acquisition pipeline integrated with uk-exam-engine.
+// examData/ingest.js — exact official-source acquisition and canonical persistence.
 
 import {
   courseKey,
-  courseKeyFromRow,
   seriesId,
   qualId,
   boardId,
   parseCourseKey,
   singleCode,
   monthFromWord,
-  paperRecordId,
   sourceRecordId,
   seriesLabel as fmtSeriesLabel
 } from "./schema.js";
 import { provenanceOf, VERIFY } from "./provenance.js";
 import * as storage from "./storage.js";
-import { ExamEngineClient, sortGradesDescending } from "../../../../packages/uk-exam-engine/src/index.js";
+import { getBoundaries } from "../boundaries.js";
 
 export const UNKNOWN_REASONS = Object.freeze({
   COURSE_UNRESOLVED: "COURSE_UNRESOLVED",
@@ -40,118 +38,113 @@ function unknown(reason, extra = {}) {
   return { kind: "unknown", reason, table: null, top: null, hasTable: false, ...extra };
 }
 
-// Global standalone engine client instance for Neuronet
-const engineClient = new ExamEngineClient();
-
-async function persistEngineResult(engineResult, request) {
+async function persistBoundaryTable(table, request) {
   const now = Date.now();
-  const seriesInfo = request.series || { month: "JUN", year: 2025 };
+  const seriesInfo = request.series;
   const sid = seriesId(seriesInfo);
+  const ck = courseKey({
+    board: request.board,
+    qual: request.qual,
+    code: request.code,
+    tier: request.tier
+  });
+  const url = table.source && table.source.url;
+  if (!sid || !ck || !url) throw new Error("VERIFIED_SOURCE_REQUIRED");
 
-  const seriesRecord = {
+  await storage.putCourse({
+    id: ck,
+    board: boardId(request.board),
+    qual: qualId(request.qual),
+    code: singleCode(request.code),
+    tier: request.tier || null
+  });
+  await storage.putSeries({
     id: sid,
     month: seriesInfo.month,
     year: Number(seriesInfo.year),
     label: fmtSeriesLabel(seriesInfo),
     qual: qualId(request.qual),
-    board: (request.board || "aqa").toLowerCase()
-  };
-  await storage.putSeries(seriesRecord);
+    board: boardId(request.board)
+  });
+  const sourceId = sourceRecordId(url);
+  await storage.putSource({
+    id: sourceId,
+    url,
+    contentHash: table.source.contentHash || null,
+    status: 200,
+    title: table.source.title || `${boardId(request.board)} ${fmtSeriesLabel(seriesInfo)} grade boundaries`,
+    publisher: table.source.publisher,
+    accessedAt: now,
+    verifiedAt: now,
+    verification: VERIFY.VERIFIED
+  });
 
-  for (const doc of engineResult.documents || []) {
-    const sidDoc = sourceRecordId(doc.url);
-    await storage.putSource({
-      id: sidDoc,
-      url: doc.url,
-      contentHash: doc.sha256 || "hash",
-      status: 200,
-      title: doc.title,
-      publisher: doc.publisher,
-      accessedAt: now,
-      verifiedAt: now
-    });
-  }
-
-  for (const b of engineResult.boundaries || []) {
-    const p = parseCourseKey(b.courseId);
-    const ck = b.courseId;
-    
-    if (p) {
-      await storage.putCourse({ id: ck, board: p.board, qual: p.qual, code: p.code, tier: p.tier });
-    }
-
-    const orderedGrades = b.gradesInOrder || sortGradesDescending(Object.keys(b.grades || {}));
-
-    const boundary = {
-      id: `${ck}|${sid}`,
-      courseKey: ck,
-      seriesId: sid,
-      series: { month: seriesInfo.month, year: Number(seriesInfo.year), label: fmtSeriesLabel(seriesInfo) },
-      grades: b.grades,
-      gradesInOrder: orderedGrades,
-      maxMark: b.maximumMark,
-      tier: p ? p.tier : null,
-      sourceIds: (engineResult.documents || []).map(d => sourceRecordId(d.url)),
-      provenance: provenanceOf({
-        kind: "official",
-        url: engineResult.documents && engineResult.documents[0] ? engineResult.documents[0].url : null,
-        parsedAt: now,
-        contentHash: b.sourceDocumentId || "hash",
-        verification: VERIFY.VERIFIED,
-        sourceName: "uk-exam-engine",
-        publisher: b.provenance ? b.provenance.publisher : "Official Board",
-        sourceTitle: b.id,
-        parserVersion: "1.0"
-      })
-    };
-    await storage.putBoundary(boundary);
-  }
+  const grades = Object.fromEntries(table.grades.map((grade, i) => [grade, table.marks[i]]));
+  await storage.putBoundary({
+    id: `${ck}|${sid}`,
+    courseKey: ck,
+    seriesId: sid,
+    series: { month: seriesInfo.month, year: Number(seriesInfo.year), label: fmtSeriesLabel(seriesInfo) },
+    grades,
+    gradesInOrder: table.grades.slice(),
+    maxMark: table.maxMark,
+    tier: request.tier || null,
+    sourceIds: [sourceId],
+    provenance: provenanceOf({
+      kind: "official",
+      url,
+      parsedAt: now,
+      contentHash: table.source.contentHash || null,
+      verification: VERIFY.VERIFIED,
+      sourceName: "official-pdf-row-parser",
+      publisher: table.source.publisher,
+      sourceTitle: table.source.title || null,
+      parserVersion: "2.0.0"
+    })
+  });
 }
 
 export async function acquireExamData(request, opts = {}) {
-  const reqBoard = (request && (request.board || (request.courseKey && parseCourseKey(request.courseKey)?.board))) || "aqa";
-  const reqQual = (request && (request.qual || (request.courseKey && parseCourseKey(request.courseKey)?.qual))) || "gcse";
-  
+  const parsedCourse = request && request.courseKey ? parseCourseKey(request.courseKey) : null;
+  const reqBoard = boardId(request && (request.board || (parsedCourse && parsedCourse.board)));
+  const reqQual = qualId(request && (request.qual || (parsedCourse && parsedCourse.qual)));
   let reqCode = request && request.code;
   let reqTier = request && request.tier;
-  
   if (!reqCode && request && request.courseKey) {
-    const p = parseCourseKey(request.courseKey);
-    if (p) {
-      reqCode = p.code;
-      reqTier = p.tier;
-    }
+    reqCode = parsedCourse && parsedCourse.code;
+    reqTier = parsedCourse && parsedCourse.tier;
   }
-
-  const seriesInfo = (request && request.series) || { month: "JUN", year: 2025 };
+  reqCode = singleCode(reqCode);
+  const reqMonth = monthFromWord(request && request.series && request.series.month);
+  const reqYear = Number(request && request.series && request.series.year);
+  if (!reqBoard || !reqQual || !reqCode || !Number.isInteger(reqYear) || !reqMonth) {
+    return unknown(UNKNOWN_REASONS.UNKNOWN_METADATA, { stage: "request-validation" });
+  }
+  const seriesInfo = { month: reqMonth, year: reqYear };
+  const exactRequest = { board: reqBoard, qual: reqQual, code: reqCode, tier: reqTier, series: seriesInfo };
 
   try {
-    const engineResult = await engineClient.query({
-      board: reqBoard,
-      qualification: reqQual,
-      specificationCode: reqCode,
-      tier: reqTier,
-      series: seriesInfo
-    }, { fetchImpl: opts.fetchImpl });
+    const acquired = await getBoundaries(exactRequest, opts);
+    if (!acquired) return unknown(UNKNOWN_REASONS.NO_EXACT_SOURCE, { stage: "official-source" });
+    if (reqTier && acquired.tier !== reqTier) return unknown(UNKNOWN_REASONS.TIER_MISMATCH, { stage: "row-identity" });
+    if (!acquired.source || !acquired.source.url) return unknown(UNKNOWN_REASONS.WRONG_DOCUMENT, { stage: "source-verification" });
 
-    if (!engineResult.boundaries || engineResult.boundaries.length === 0) {
-      return unknown(UNKNOWN_REASONS.NO_EXACT_SOURCE, { stage: "engine-query" });
-    }
+    const grades = Object.fromEntries(acquired.grades.map((grade, i) => [grade, acquired.marks[i]]));
+    const gradesInOrder = acquired.grades.slice();
+    const topVal = gradesInOrder.length ? Number(grades[gradesInOrder[0]]) : null;
+    const sourceHash = acquired.source.contentHash || null;
 
-    await persistEngineResult(engineResult, request);
-
-    const targetB = engineResult.boundaries[0];
-    const gradesInOrder = targetB.gradesInOrder || sortGradesDescending(Object.keys(targetB.grades || {}));
-    const topVal = gradesInOrder.length > 0 ? Number(targetB.grades[gradesInOrder[0]]) : null;
+    await persistBoundaryTable(acquired, { ...exactRequest, series: seriesInfo });
 
     const table = {
-      grades: targetB.grades || {},
+      grades,
       gradesInOrder,
-      maxMark: targetB.maximumMark,
+      maxMark: acquired.maxMark,
       board: reqBoard,
       qual: reqQual,
       seriesLabel: fmtSeriesLabel(seriesInfo),
-      seriesKey: seriesId(seriesInfo)
+      seriesKey: seriesId(seriesInfo),
+      source: acquired.source
     };
 
     return {
@@ -161,13 +154,19 @@ export async function acquireExamData(request, opts = {}) {
       top: Number.isFinite(topVal) ? topVal : null,
       year: seriesInfo.year,
       seriesLabel: fmtSeriesLabel(seriesInfo),
-      sourceLabel: engineResult.documents && engineResult.documents[0] ? engineResult.documents[0].url : reqBoard,
+      sourceLabel: acquired.source.url,
       hasTable: true,
       verification: VERIFY.VERIFIED,
-      sources: engineResult.documents || []
+      sources: [{
+        id: sourceRecordId(acquired.source.url),
+        url: acquired.source.url,
+        publisher: acquired.source.publisher,
+        sha256: sourceHash,
+        verification: VERIFY.VERIFIED
+      }]
     };
   } catch (err) {
-    return unknown(UNKNOWN_REASONS.FETCH_FAILED, { stage: "engine-error", error: err.message });
+    return unknown(UNKNOWN_REASONS.FETCH_FAILED, { stage: "source-error", error: err.message });
   }
 }
 

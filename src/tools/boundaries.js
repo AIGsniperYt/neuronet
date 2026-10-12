@@ -17,7 +17,9 @@ import { diag } from "./diag.js";
 const CACHE_KEY = "neuronet:boundaries";
 // Bump whenever boundary identity/parser semantics change. Old cached tables
 // must not be allowed to masquerade as newly verified values.
-const CACHE_VERSION = 3;
+// Version 4 drops tables written by the earlier mock-backed ExamEngine path.
+// A reusable cache row must now include a successfully fetched official PDF URL.
+const CACHE_VERSION = 4;
 
 const FETCH_TIMEOUT_MS = 30000;
 
@@ -257,35 +259,36 @@ function aqaSeriesMatches(text, year, series) {
  */
 const aqaDiscoveryMemo = new Map();
 
-export async function discoverAqaSeries(request = {}) {
-  const year = request.year == null ? 2025 : Number(request.year);
-  const series = request.series || "JUN";
+export async function discoverAqaSeries(request = {}, options = {}) {
+  const year = Number(request.year);
+  const series = String(request.series || "").toUpperCase();
+  if (!Number.isInteger(year) || year < 1900 || !MONTH_WORDS[series]) return [];
   const memoKey = `${year}|${series}`;
   diag("B? ", "discoverAqaSeries", { year: year, series: series });
   // The candidate list for a series cannot change within a session, and several
   // subjects from the same series ask for it in turn. Memoising keeps that to
   // one page read plus one PDF per verification instead of repeating both.
-  if (aqaDiscoveryMemo.has(memoKey)) {
+  if (!options.fetchImpl && aqaDiscoveryMemo.has(memoKey)) {
     const hit = aqaDiscoveryMemo.get(memoKey);
     diag("B? ", "discoverAqaSeries MEMO HIT", { year: year, series: series, count: (hit && hit.length) || 0 });
     return hit;
   }
-  const promise = discoverAqaSeriesUncached({ year, series });
-  aqaDiscoveryMemo.set(memoKey, promise);
+  const promise = discoverAqaSeriesUncached({ year, series, options });
+  if (!options.fetchImpl) aqaDiscoveryMemo.set(memoKey, promise);
   return promise;
 }
 
 /** Drop the memoised AQA catalogue lookups (used by tests and force-refresh). */
 export function clearAqaDiscoveryCache() { aqaDiscoveryMemo.clear(); }
 
-async function discoverAqaSeriesUncached({ year, series }) {
+async function discoverAqaSeriesUncached({ year, series, options = {} }) {
   const out = [];
   const seen = new Set();
 
   for (const page of AQA_BOUNDARIES_PAGES) {
     // Through the CORS proxy, not direct: aqa.org.uk sends no CORS headers, so a
     // direct browser fetch cannot succeed and only logs a CORS error.
-    const html = await fetchTextResource(page);
+    const html = await fetchTextResource(page, options);
     if (!html) continue;
     // Inline SVG carries no useful text and would drown the card labels.
     const clean = html.replace(/<svg[\s\S]*?<\/svg>/g, " ");
@@ -337,8 +340,8 @@ async function discoverAqaSeriesUncached({ year, series }) {
   return out;
 }
 
-async function aqaSeriesUrls(year, month) {
-  const found = await discoverAqaSeries({ year, series: month });
+async function aqaSeriesUrls(year, month, options) {
+  const found = await discoverAqaSeries({ year, series: month }, options);
   return (found || []).map((f) => f.url).filter(Boolean);
 }
 
@@ -363,6 +366,8 @@ export function parsePearsonGcseRow(lines, code, tier) {
     if (!line.includes(code)) continue;
     const isFoundation = /\(Foundation\)/i.test(line);
     const isHigher = /\(Higher\)/i.test(line);
+    if (isFoundation && tier !== "F") continue;
+    if (isHigher && tier !== "H") continue;
     if (tier === "F" && !isFoundation) continue;
     if (tier === "H" && !isHigher) continue;
 
@@ -436,11 +441,11 @@ export function parseAqaGcseRow(lines, code, tier) {
   return null;
 }
 
-async function fetchBytes(url, timeoutMs = FETCH_TIMEOUT_MS) {
+async function fetchBytes(url, timeoutMs = FETCH_TIMEOUT_MS, fetchImpl = fetch) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { signal: ctrl.signal, cache: "no-store" });
+    const res = await fetchImpl(url, { signal: ctrl.signal, cache: "no-store", redirect: "error" });
     if (!res.ok) return null;
     return new Uint8Array(await res.arrayBuffer());
   } catch {
@@ -513,7 +518,7 @@ function labelFor(url, via) {
  * Fetch a resource, reporting every attempt on the fetch log.
  * @returns {Promise<Uint8Array|null>} bytes, or null when unreachable.
  */
-export async function fetchTracked(url, { timeoutMs = FETCH_TIMEOUT_MS } = {}) {
+export async function fetchTracked(url, { timeoutMs = FETCH_TIMEOUT_MS, fetchImpl = fetch } = {}) {
   const via = url.includes("/api/proxy?") ? "proxy" : "direct";
   const at = Date.now();
   diag("B? ", "fetch start", { url: url.slice(0, 120), via: via });
@@ -528,7 +533,7 @@ export async function fetchTracked(url, { timeoutMs = FETCH_TIMEOUT_MS } = {}) {
   }
   const run = (async () => {
     try {
-      const bytes = await fetchBytes(url, timeoutMs);
+      const bytes = await fetchBytes(url, timeoutMs, fetchImpl);
       if (bytes) {
         diag("B? ", "fetch OK", { url: url.slice(0, 120), bytes: bytes.length, ms: Date.now() - at });
         logFetch({ at, url, host: labelFor(url, via), ok: true, bytes: bytes.length, ms: Date.now() - at });
@@ -556,35 +561,39 @@ export async function fetchTracked(url, { timeoutMs = FETCH_TIMEOUT_MS } = {}) {
  * Fetch a board PDF. Proxy first, direct only as a fallback.
  * @returns {Promise<Uint8Array|null>}
  */
-export async function fetchBoardResource(url) {
-  const base = proxyBase();
+export async function fetchBoardResource(url, options = {}) {
+  const base = options.proxyBase || proxyBase();
+  const fetchImpl = options.fetchImpl || fetch;
   diag("B? ", "fetchBoardResource", { url: url.slice(0, 120), proxyBase: base || "(none)" });
-  if (base) {
-    const bytes = await fetchTracked(proxyUrl(url, base), { timeoutMs: FETCH_TIMEOUT_MS });
+  const proxyTarget = options.proxyFn ? options.proxyFn(url) : (base ? proxyUrl(url, base) : null);
+  if (proxyTarget) {
+    const bytes = await fetchTracked(proxyTarget, { timeoutMs: FETCH_TIMEOUT_MS, fetchImpl });
     if (bytes) return bytes;
     diag("B? ", "proxy fetch returned nothing, will try direct", { url: url.slice(0, 120) });
   }
   // The proxy was unreachable or refused. Only now is a direct attempt worth
   // making, because a board occasionally does send CORS headers.
-  if (!url.includes("/api/proxy?")) return fetchTracked(url, { timeoutMs: FETCH_TIMEOUT_MS });
+  if (!url.includes("/api/proxy?")) return fetchTracked(url, { timeoutMs: FETCH_TIMEOUT_MS, fetchImpl });
   return null;
 }
 
 /** Plain text fetch through the same CORS path (used for catalogue pages). */
-export async function fetchTextResource(url) {
-  const base = proxyBase();
+export async function fetchTextResource(url, options = {}) {
+  const base = options.proxyBase || proxyBase();
+  const fetchImpl = options.fetchImpl || fetch;
   const tryOne = async (target) => {
     try {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
-      const res = await fetch(target, { signal: ctrl.signal, cache: "no-store" });
+      const res = await fetchImpl(target, { signal: ctrl.signal, cache: "no-store" });
       clearTimeout(timer);
       if (!res.ok) return null;
       return await res.text();
     } catch { return null; }
   };
-  if (base) {
-    const text = await tryOne(proxyUrl(url, base));
+  const proxyTarget = options.proxyFn ? options.proxyFn(url) : (base ? proxyUrl(url, base) : null);
+  if (proxyTarget) {
+    const text = await tryOne(proxyTarget);
     if (text) {
       logFetch({ at: Date.now(), url, host: labelFor(url, "proxy"), ok: true, bytes: text.length, kind: "text" });
       return text;
@@ -668,13 +677,21 @@ export function resetProgress() {
  * @returns {Promise<{key,board,qual,code,tier,year,month,grades,marks,maxMark,papers,source}|null>}
  *   the published table, or null when it cannot be satisfied exactly.
  */
-export async function getBoundaries({ board, qual, code, tier, year, series } = {}) {
+export async function getBoundaries({ board, qual, code, tier, year, series } = {}, options = {}) {
   const key = boundaryKey({ board, qual, code, tier, year, series });
   diag("B? ", "getBoundaries called", { board: board, qual: qual, code: code, tier: tier, year: year, series: series, key: key });
   if (!key) { diag("B? ", "NULL: boundaryKey rejected the request", { board: board, qual: qual, code: code, tier: tier, year: year, series: series }); return null; }
 
   const cached = cachedBoundary(key);
-  if (cached) { diag("B? ", "cache HIT", { key: key, grades: cached.grades, marks: cached.marks }); return cached; }
+  if (cached && isOfficialSourceUrl(cached.source && cached.source.url, boardId(board))
+    && Array.isArray(cached.grades) && Array.isArray(cached.marks)
+    && cached.grades.length > 0 && cached.grades.length === cached.marks.length
+    && /^[a-f0-9]{64}$/i.test(String(cached.source.contentHash || ""))
+    && Number.isFinite(Number(cached.maxMark)) && Number(cached.maxMark) > 0
+    && cached.marks.every((mark) => Number.isFinite(Number(mark)) && Number(mark) >= 0 && Number(mark) <= Number(cached.maxMark))) {
+    diag("B? ", "verified source cache HIT", { key: key, grades: cached.grades, marks: cached.marks });
+    return cached;
+  }
 
   const b = boardId(board);
   const month = monthId(series);
@@ -682,13 +699,31 @@ export async function getBoundaries({ board, qual, code, tier, year, series } = 
   const c = String(code).trim().toUpperCase();
   const t = tierId(tier);
 
+  // Until a parser for a board/qualification is verified, fail closed rather
+  // than allow the former mock-backed engine to manufacture an official row.
+  if (!((b === "aqa" || b === "pearson") && qualId(qual) === "gcse")) {
+    diag("B? ", "unsupported exact source/parser", { board: b, qual: qual, code: c });
+    return null;
+  }
+
   beginWork(`${b} ${c}${t ? "/" + t : ""} ${month} ${y}`);
   let ok = false;
   try {
-    const { acquireExamData } = await import("./examData/ingest.js");
-    const env = await acquireExamData({ board: b, qual: qualId(qual), code: c, tier: t, series: { month, year: y } });
-    if (!env || !env.table) return null;
+    const resource = await acquireSourceBytes(b, y, month, c, t, options);
+    if (!resource) return null;
+    const lines = await pdfTextFromBytes(resource.bytes);
+    const parsed = b === "aqa"
+      ? parseAqaGcseRow(lines, c, t)
+      : parsePearsonGcseRow(lines, c, t);
+    if (!parsed || !Array.isArray(parsed.grades) || !Array.isArray(parsed.marks)
+      || parsed.grades.length === 0 || parsed.grades.length !== parsed.marks.length
+      || !parsed.marks.every((mark) => Number.isFinite(Number(mark)))) return null;
 
+    const contentHash = await sha256Digest(resource.bytes);
+    if (!contentHash) {
+      diag("B? ", "cannot verify source without SHA-256", { board: b, url: resource.url });
+      return null;
+    }
     const table = {
       key,
       board: b,
@@ -697,16 +732,24 @@ export async function getBoundaries({ board, qual, code, tier, year, series } = 
       tier: t,
       year: y,
       month,
-      grades: env.table.gradesInOrder || Object.keys(env.table.grades || {}),
-      marks: (env.table.gradesInOrder || Object.keys(env.table.grades || {})).map(g => env.table.grades[g]),
-      maxMark: env.table.maxMark,
+      grades: parsed.grades.map(String),
+      gradesInOrder: parsed.grades.map(String),
+      marks: parsed.marks.map(Number),
+      maxMark: Number(parsed.maxMark),
       papers: [],
       source: {
         publisher: b === "pearson" ? "Pearson Edexcel" : b === "ocr" ? "OCR" : "AQA",
+        url: resource.url,
+        title: `${b === "pearson" ? "Pearson Edexcel" : "AQA"} GCSE grade boundaries ${month} ${y}`,
+        contentHash,
         verifiedAt: new Date().toISOString().slice(0, 10)
       }
     };
 
+    if (!Number.isFinite(table.maxMark) || !isOfficialSourceUrl(table.source.url, b)
+      || !/^[a-f0-9]{64}$/i.test(table.source.contentHash)
+      || table.marks.some((mark) => mark < 0 || mark > table.maxMark)
+      || table.marks.some((mark, i) => i > 0 && mark > table.marks[i - 1])) return null;
     storeBoundary(key, table);
     ok = true;
     return table;
@@ -718,6 +761,26 @@ export async function getBoundaries({ board, qual, code, tier, year, series } = 
   }
 }
 
+function isOfficialSourceUrl(value, board) {
+  try {
+    const url = new URL(String(value || ""));
+    if (url.protocol !== "https:") return false;
+    const host = url.hostname.toLowerCase();
+    if (board === "aqa") return host === "aqa.org.uk" || host.endsWith(".aqa.org.uk");
+    if (board === "pearson") return host === "pearson.com" || host.endsWith(".pearson.com");
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+async function sha256Digest(bytes) {
+  const subtle = globalThis.crypto && globalThis.crypto.subtle;
+  if (!subtle || typeof subtle.digest !== "function") return null;
+  const digest = await subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 // The GCSE publication for a series, found once and then reused. Resolving it
 // means fetching and parsing candidate PDFs until one actually contains the
 // requested course, so without this every subject from the same series repeated
@@ -727,7 +790,7 @@ const seriesDocumentCache = new Map();
 /** Drop cached series documents (tests, force-refresh). */
 export function clearSeriesDocumentCache() { seriesDocumentCache.clear(); }
 
-async function loadSeriesDocument(board, year, month, code, tier) {
+async function loadSeriesDocument(board, year, month, code, tier, options = {}) {
   // AQA's document choice depends on which course was asked for, so the cache
   // is keyed per course as well as per series. Pearson's publication holds every
   // subject in one PDF, so its key stays coarse.
@@ -743,20 +806,25 @@ async function loadSeriesDocument(board, year, month, code, tier) {
     if (board === "pearson") {
       const url = pearsonSeriesUrl(year, month);
       diag("B? ", "pearson series URL", { url: url });
-      return url ? await fetchBoardResource(url) : null;
+      const bytes = url ? await fetchBoardResource(url, options) : null;
+      if (!bytes || !isPdfBytes(bytes)) return null;
+      const lines = await pdfTextFromBytes(bytes);
+      return documentDeclaresSeries(lines, year, month) ? { bytes, url } : null;
     }
     if (board === "aqa") {
       // AQA's archive lists several PDFs per series (GCSE, Mathematical Studies,
       // ELC, AS, A-level) whose labels are easy to confuse, so the document is
       // chosen by parsing it, never by its filename or card label. The GCSE
       // publication is recognised by its own contents.
-      const urls = await aqaSeriesUrls(year, month);
+      const urls = await aqaSeriesUrls(year, month, options);
       diag("B? ", "AQA candidate URLs", { count: urls.length, urls: urls.map(function (u) { return u.slice(0, 80); }) });
       for (const url of urls) {
-        const bytes = await fetchBoardResource(url);
+        const bytes = await fetchBoardResource(url, options);
         if (!bytes) { diag("B? ", "AQA candidate fetch failed", { url: url.slice(0, 80) }); continue; }
+        if (!isPdfBytes(bytes)) { diag("B? ", "AQA candidate is not a PDF", { url: url.slice(0, 80) }); continue; }
         let lines;
         try { lines = await pdfTextFromBytes(bytes); } catch (e) { diag("B? ", "AQA candidate parse threw", { url: url.slice(0, 80), error: String(e && e.message) }); continue; }
+        if (!documentDeclaresSeries(lines, year, month)) { diag("B? ", "AQA candidate series mismatch", { url: url.slice(0, 80), year, month }); continue; }
         const codeUp = String(code).trim().toUpperCase();
         const tierNorm = tierId(tier);
         const match = parseAqaGcseRow(lines, codeUp, tierNorm);
@@ -764,7 +832,7 @@ async function loadSeriesDocument(board, year, month, code, tier) {
         // Accept the candidate only if it really contains the requested
         // course. This is what keeps A-level and AS documents from being
         // mistaken for the GCSE one.
-        if (match) return bytes;
+        if (match) return { bytes, url };
       }
       diag("B? ", "AQA: no candidate document matched", { code: code, tier: tier });
       return null;
@@ -775,18 +843,34 @@ async function loadSeriesDocument(board, year, month, code, tier) {
   return promise;
 }
 
-async function acquireSourceBytes(boardId_, year, month, code, tier) {
-  const bytes = await loadSeriesDocument(boardId_, year, month, code, tier);
-  if (!bytes) { diag("B? ", "acquireSourceBytes: no document bytes", { board: boardId_, code: code, tier: tier }); return null; }
+async function acquireSourceBytes(boardId_, year, month, code, tier, options = {}) {
+  const resource = await loadSeriesDocument(boardId_, year, month, code, tier, options);
+  if (!resource || !resource.bytes) { diag("B? ", "acquireSourceBytes: no document bytes", { board: boardId_, code: code, tier: tier }); return null; }
+  const { bytes, url } = resource;
+  if (!isPdfBytes(bytes)) { diag("B? ", "acquireSourceBytes: invalid PDF signature", { board: boardId_, url }); return null; }
   // A cached document may be the wrong publication for this course (an
   // un-tiered AQA paper requested from a document that only lists tiered ones),
   // so the requested row is still checked before the document is accepted.
-  if (boardId_ !== "aqa") return bytes;
+  if (boardId_ !== "aqa") return { bytes, url };
   let lines;
   try { lines = await pdfTextFromBytes(bytes); } catch (e) { diag("B? ", "acquireSourceBytes: AQA re-parse threw", { error: String(e && e.message) }); return null; }
   const ok = parseAqaGcseRow(lines, String(code).trim().toUpperCase(), tierId(tier));
   diag("B? ", "acquireSourceBytes: AQA row re-check", { code: code, tier: tier, ok: !!ok });
-  return ok ? bytes : null;
+  return ok ? { bytes, url } : null;
+}
+
+function isPdfBytes(bytes) {
+  return Boolean(bytes && bytes.length >= 5
+    && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44
+    && bytes[3] === 0x46 && bytes[4] === 0x2d);
+}
+
+function documentDeclaresSeries(lines, year, month) {
+  const text = (lines || []).join(" ").replace(/\s+/g, " ");
+  const monthWord = MONTH_WORDS[month];
+  if (!monthWord || !Number.isInteger(Number(year))) return false;
+  const aliases = [monthWord, monthWord.slice(0, 3)];
+  return aliases.some((word) => new RegExp(`\\b${word}\\.?[\\s-]+${Number(year)}\\b`, "i").test(text));
 }
 
 /**

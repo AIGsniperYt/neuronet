@@ -15,7 +15,10 @@ export const BOUNDARY_CACHE_KEY = "neuronet:gradeBoundaries";
 export const BOUNDARY_STATUS_KEY = "neuronet:boundaryStatus";
 // Boundary row parsing/identity changed; discard older blobs rather than
 // allowing stale subject tables to override a newly fetched exact result.
-export const BOUNDARY_CACHE_VERSION = 3;
+// Version 4 invalidates tables written by the former mock-backed ingestion
+// path. New reusable rows must be parsed from fetched official documents and
+// retain their source URL.
+export const BOUNDARY_CACHE_VERSION = 4;
 
 // How long a completed sweep stays "fresh" before we re-scan for new series
 // (so the tracker's subject picker never fires a fetch set the first time it

@@ -31,8 +31,8 @@ import { diag } from "../diag.js";
 // ---- legacy blob / channel keys (strings only — no import, no cycle) ----
 const LEGACY_CACHE_KEY = "neuronet:gradeBoundaries";
 const ENGINE_CACHE_KEY = "neuronet:boundaries";
-const ENGINE_CACHE_VERSION = 3;
-const LEGACY_CACHE_VERSION = 3;
+const ENGINE_CACHE_VERSION = 4;
+const LEGACY_CACHE_VERSION = 4;
 const LEGACY_STATUS_KEY = "neuronet:boundaryStatus";
 const LEGACY_CACHE_TICK = `${LEGACY_CACHE_KEY}_tick`;
 const STATUS_CHANNEL = "neuronet:boundaryStatus";
@@ -129,18 +129,28 @@ export function mergedIndex(snap) {
   const engineCache = readEngineCache();
   for (const [key, table] of Object.entries((engineCache && engineCache.tables) || {})) {
     const m = /^([^|]+)\|([^|]+)\|([^|]+)\|([^|]*)\|([^|]+)\|(\d{4})$/.exec(String(key));
-    if (!m || !table || !table.grades || !Array.isArray(table.marks)) continue;
+    if (!m || !table || !table.grades || !Array.isArray(table.marks)
+      || !isVerifiedBoardUrl(table.source && table.source.url, m[1])
+      || !/^[a-f0-9]{64}$/i.test(String(table.source && table.source.contentHash || ""))
+      || !Array.isArray(table.gradesInOrder)
+      || table.gradesInOrder.length !== table.marks.length) continue;
     const [, board, qual, code, tier, month, year] = m;
     const ck = `${board}:${qual}:${code}:${tier || "_"}`;
     const sid = `${month}-${year}`;
+    const grades = Array.isArray(table.grades)
+      ? Object.fromEntries(table.grades.map((grade, i) => [String(grade), Number(table.marks[i])]))
+      : table.grades;
+    const gradeOrder = Array.isArray(table.gradesInOrder)
+      ? table.gradesInOrder.map(String)
+      : Array.isArray(table.grades) ? table.grades.map(String) : Object.keys(grades || {});
     if (!courses.has(ck)) courses.set(ck, { board, qual, code, tier: tier || null, title: table.title || null });
     const boundary = {
       id: `${ck}|${sid}`,
       courseKey: ck,
       seriesId: sid,
       series: { month, year: Number(year), label: table.seriesLabel || `${month} ${year}` },
-      grades: table.grades,
-      gradesInOrder: Array.isArray(table.gradesInOrder) ? table.gradesInOrder : Object.keys(table.grades),
+      grades,
+      gradesInOrder: gradeOrder,
       maxMark: table.maxMark || null,
       papers: Array.isArray(table.papers) ? table.papers : [],
       provenance: { kind: "official", engineVersion: ENGINE_CACHE_VERSION, parsedAt: Number(table.fetchedAt) || Date.now(), verification: "verified", url: table.source && table.source.url || null }
@@ -156,7 +166,12 @@ export function mergedIndex(snap) {
     // contain stale parser output and must not overwrite a fresh engine row.
     const p = b.provenance || {};
     const staleBridgeRecord = !Array.isArray(b.sourceIds) && p.kind === "official" && p.engineVersion !== ENGINE_CACHE_VERSION;
-    if (staleBridgeRecord) continue;
+    const oldSyntheticEngineRecord = p.sourceName === "uk-exam-engine";
+    if (staleBridgeRecord || oldSyntheticEngineRecord
+      || p.kind !== "official" || p.verification !== "verified"
+      || p.sourceName !== "official-pdf-row-parser"
+      || !isVerifiedBoardUrl(p.url, String(b.courseKey || "").split(":")[0])
+      || !/^[a-f0-9]{64}$/i.test(String(p.contentHash || ""))) continue;
     boundaries.set(b.id, { ...b });
   }
   for (const [k, b] of legacy.boundaries) {
@@ -178,6 +193,19 @@ export function mergedIndex(snap) {
     if (s3 && s3.id) sources.set(s3.id, { ...s3 });
   }
   return { courses, series, boundaries, papers, sources };
+}
+
+function isVerifiedBoardUrl(value, board) {
+  try {
+    const url = new URL(String(value || ""));
+    if (url.protocol !== "https:") return false;
+    const host = url.hostname.toLowerCase();
+    if (board === "aqa") return host === "aqa.org.uk" || host.endsWith(".aqa.org.uk");
+    if (board === "pearson") return host === "pearson.com" || host.endsWith(".pearson.com");
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 export function repoNow() {
@@ -402,7 +430,7 @@ export function getForSittingFor(enrollment, year, seriesWord, sitting = {}) {
 }
 
 export async function ensureForSitting(opts = {}, attemptKey) {
-  const { board, qual, code, tier, title, year, seriesWord, confirm, acquire, fetchImpl, proxyFn, onProgress, parse, priority } = opts;
+  const { board, qual, code, tier, title, year, seriesWord, confirm, acquire, fetchImpl, proxyFn, onProgress, priority } = opts;
   localFetching += 1;
   fireStatus();
   let result;
@@ -410,7 +438,7 @@ export async function ensureForSitting(opts = {}, attemptKey) {
     result = await ensureForSittingImpl({
       board, qual, code, tier, title, year, seriesWord,
       confirm: !!confirm, acquire: !!acquire,
-      fetchImpl, proxyFn, onProgress, parse, priority
+      fetchImpl, proxyFn, onProgress, priority
     });
   } catch (err) {
     result = { status: "unknown", reason: "FETCH_FAILED", error: String((err && err.message) || err) };
@@ -979,11 +1007,8 @@ export function onStatus(fn) {
 }
 
 // Re-read the canonical stores into the in-memory read model and notify
-// listeners. Anything that writes boundaries outside ensureForSitting — the
-// verified engine via examData/bridge.js, or another tab — must call this or
-// the renderer keeps reading a stale snapshot and shows null while the data is
-// sitting in storage. This is the single reason a fetch can "succeed" and still
-// render nothing.
+// listeners. External writers (the legacy Scraper tab or another tab) must
+// call this or the renderer may continue reading a stale snapshot.
 export async function sync() {
   invalidateIndex();
   await refreshIndex();

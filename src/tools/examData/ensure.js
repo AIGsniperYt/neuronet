@@ -34,12 +34,19 @@ function indexFromSnapshot(snap) {
   for (const r of (snap && snap.examCourses) || []) {
     if (r && r.id) courses.set(r.id, { ...r });
   }
+  const sources = new Map((snap.examSources || []).map((r) => [r.id, { ...r }]));
+  const boundaries = new Map();
+  for (const boundary of snap.examBoundaries || []) {
+    if (boundary && boundary.id && sourcesValidFor(boundary, { ...snap, _sourceMap: sources })) {
+      boundaries.set(boundary.id, { ...boundary });
+    }
+  }
   return {
     courses,
     series: new Map((snap.examSeries || []).map((r) => [r.id, { ...r }])),
-    boundaries: new Map((snap.examBoundaries || []).map((r) => [r.id, { ...r }])),
+    boundaries,
     papers: new Map((snap.examPapers || []).map((r) => [r.id, { ...r }])),
-    sources: new Map((snap.examSources || []).map((r) => [r.id, { ...r }]))
+    sources
   };
 }
 
@@ -49,16 +56,29 @@ function indexFromSnapshot(snap) {
 // stored provenance is not failed/conflicting — never upgraded, never assumed.
 function sourcesValidFor(boundary, snap) {
   if (!boundary) return false;
-  const v = boundary.provenance && boundary.provenance.verification;
-  if (v === "failed" || v === "conflicting") return false;
+  const provenance = boundary.provenance || {};
+  if (provenance.kind !== "official" || provenance.verification !== "verified"
+    || provenance.sourceName !== "official-pdf-row-parser") return false;
   const ids = Array.isArray(boundary.sourceIds) ? boundary.sourceIds : [];
-  if (ids.length) {
-    return ids.some((sid) => {
-      const src = (snap.examSources || []).find((s) => s && s.id === sid);
-      return Boolean(src && src.url);
-    });
-  }
-  return true;
+  if (!ids.length) return false;
+  const sources = snap._sourceMap || new Map((snap.examSources || []).map((s) => [s.id, s]));
+  const courseBoard = String(boundary.courseKey || "").split(":")[0];
+  return ids.some((sid) => {
+    const source = sources.get(sid);
+    const contentHash = String(source && source.contentHash || "");
+    if (!source || source.verification !== "verified" || !/^[a-f0-9]{64}$/i.test(contentHash)
+      || provenance.contentHash !== contentHash) return false;
+    try {
+      const url = new URL(source.url);
+      if (url.protocol !== "https:") return false;
+      const host = url.hostname.toLowerCase();
+      if (courseBoard === "aqa") return host === "aqa.org.uk" || host.endsWith(".aqa.org.uk");
+      if (courseBoard === "pearson") return host === "pearson.com" || host.endsWith(".pearson.com");
+      return false;
+    } catch {
+      return false;
+    }
+  });
 }
 
 export async function ensureExamData({
@@ -70,7 +90,6 @@ export async function ensureExamData({
   fetchImpl,
   proxyFn,
   onProgress,
-  parse,
   priority = JOB_PRIORITIES.P0_EXACT_REQUEST
 } = {}) {
   const reason = "courseId/seriesId";
@@ -131,7 +150,7 @@ export async function ensureExamData({
       qual: qual || (course && course.qual),
       courseKey: courseId,
       series: sInfo
-    }, { fetchImpl, proxyFn, onProgress, parse });
+    }, { fetchImpl, proxyFn, onProgress });
     const snap2 = await storage.loadSnapshot();
     const boundary2 = (snap2.examBoundaries || []).find((b) => b.id === boundaryKey) || null;
     result.boundary = boundary2;
@@ -169,7 +188,7 @@ export async function ensureForSitting({
   board, qual, code, tier, title,
   year, seriesWord,
   confirm = false, acquire = false,
-  fetchImpl, proxyFn, onProgress, parse,
+  fetchImpl, proxyFn, onProgress,
   priority = JOB_PRIORITIES.P0_EXACT_REQUEST
 } = {}) {
   const yearN = Number(year);
@@ -195,8 +214,9 @@ export async function ensureForSitting({
   let snap = await storage.loadSnapshot();
   let repo = openExamRepository(indexFromSnapshot(snap));
   const resolved = repo && repo.courseFor(enrollment);
+  const explicitlyPersisted = (snap.examCourses || []).some((course) => course && course.id === ck);
 
-  if (!resolved && !confirm) {
+  if (!explicitlyPersisted && !confirm) {
     // A persisted course shares the base identity at a DIFFERENT tier (e.g.
     // Foundation persisted, Higher requested — the real demo-data export). The
     // engine must not silently switch the persisted course to the desired one:
@@ -220,7 +240,7 @@ export async function ensureForSitting({
     }
   }
 
-  if (!resolved) {
+  if (!explicitlyPersisted) {
     // Explicit confirmation (or no persisted contradiction at all): adopt the
     // REQUESTED identity as a NEW course record. This is the confirmation step
     // #19 demands — the persisted Foundation record above is never touched; a
@@ -233,7 +253,7 @@ export async function ensureForSitting({
 
   const ensured = await ensureExamData({
     courseId: ck, seriesId: sid,
-    board, qual, acquire, fetchImpl, proxyFn, onProgress, parse, priority
+    board, qual, acquire, fetchImpl, proxyFn, onProgress, priority
   });
   const snapFinal = await storage.loadSnapshot();
   const repoFinal = openExamRepository(indexFromSnapshot(snapFinal));

@@ -163,13 +163,10 @@ export function sittingRequirement(sitting, resolveEnrollment) {
   const enrollment = resolveEnrollment ? resolveEnrollment(sitting) : null;
   if (!enrollment) return null;
   const explicitMonth = monthFromWord(sitting.series);
-  // Older GCSE sittings were stored without series metadata. The tracker and
-  // boundary sources use June as the default official GCSE session, so the
-  // requirement must carry that same identity or a fetched JUN-YYYY record
-  // will never satisfy the monthless YYYYY requirement.
-  const month = explicitMonth ||
-    (String((enrollment && (enrollment.qual || enrollment.qualification)) || "").toLowerCase() === "gcse" ? "JUN" : null);
-  const series = { month: month || null, year };
+  // A year-only sitting is not enough evidence to choose June vs November.
+  // Preserve the unknown month; the UI may display a board-specific default,
+  // but acquisition must not turn that presentation choice into source identity.
+  const series = { month: explicitMonth || null, year };
   const ck = courseKey(enrollment);
   if (!ck) return null;
   const board = ck.split(":")[0];

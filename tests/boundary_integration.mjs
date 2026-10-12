@@ -1,102 +1,68 @@
-// boundary_integration.mjs — proves the pieces the tracker actually uses.
-//
-// The tracker renders from Exam.decisionFor, which reads the canonical store.
-// So the thing that matters is not "can the parser read a PDF" but "does a
-// table fetched by the engine become a decision the tracker resolves, with the
-// right numbers, and stay unknown when it should".
-//
-//   node tests/boundary_integration.mjs          offline (cached PDFs)
-//   LIVE=1 node tests/boundary_integration.mjs    refetch everything
+// boundary_integration.mjs — deterministic canonical-record integration.
+// Acquisition/network behavior is tested separately; this suite feeds verified
+// published values through the legacy-table-to-canonical mapper and repository.
+import { readFile } from "node:fs/promises";
+import { toCanonicalBoundary } from "../src/tools/examData/bridge.js";
+import { openExamRepository, deriveBoundaryDecision } from "../src/tools/examData/repository.js";
 
-const { toCanonicalBoundary } = await import("../src/tools/examData/bridge.js");
-const repository = await import("../src/tools/examData/repository.js");
-const boundaries = await import("../src/tools/boundaries.js");
-
+const golden = JSON.parse(await readFile(new URL("./golden_fixtures.json", import.meta.url), "utf8"));
 let passed = 0;
 let failed = 0;
-const ok = (m) => { passed++; console.log(`  ok   ${m}`); };
-const bad = (m, d = "") => { failed++; console.log(`  FAIL ${m}  ${d}`); };
+const ok = (name) => { passed += 1; console.log(`ok   ${name}`); };
+const bad = (name, details) => { failed += 1; console.log(`FAIL ${name} ${details || ""}`); };
 
-// These numbers are the boards' own published values.
-const CASES = [
-  ["aqa", "gcse", "8461", "H", 2025, "June", 141],
-  ["aqa", "gcse", "8462", "H", 2025, "June", 150],
-  ["aqa", "gcse", "8463", "H", 2025, "June", 152],
-  ["aqa", "gcse", "8700", null, 2025, "June", 119],
-  ["aqa", "gcse", "8702", null, 2025, "June", 136],
-  ["pearson", "gcse", "1MA1", "H", 2025, "June", 217],
-  ["pearson", "gcse", "1MA1", "H", 2024, "June", 197],
-  ["pearson", "gcse", "1MA1", "H", 2022, "June", 194],
-  ["pearson", "gcse", "1CP2", null, 2025, "June", 124],
-  ["pearson", "gcse", "1GB0", null, 2025, "June", 217]
-];
-
-console.log("== engine → canonical record → repository decision ==");
+const source = { publisher: "Official fixture", url: "https://qualifications.pearson.com/verified-fixture.pdf" };
+const fixtures = [...golden.actualJune2025, ...golden.historicalPearson1MA1Higher, ...golden.tierRegression];
 const records = [];
-for (const [board, qual, code, tier, year, series, wantTop] of CASES) {
-  const label = `${board} ${code}${tier ? "/" + tier : ""} ${year}`;
-  const table = await boundaries.getBoundaries({ board, qual, code, tier, year, series });
-  if (!table) { bad(`${label} fetched`); continue; }
-
-  const rec = toCanonicalBoundary(table);
-  if (!rec) { bad(`${label} canonical record`, "could not be keyed"); continue; }
-
-  // Identity must survive the trip untouched.
-  const wantKey = `${board}:${qual}:${code}:${tier || "_"}`;
-  if (rec.courseKey !== wantKey) { bad(`${label} courseKey`, `got ${rec.courseKey} want ${wantKey}`); continue; }
-
-  const top = rec.gradesInOrder.length ? rec.grades[rec.gradesInOrder[0]] : null;
-  if (top !== wantTop) { bad(`${label} top mark`, `got ${top} want ${wantTop}`); continue; }
-
-  records.push(rec);
-  ok(`${label} → ${rec.id} top=${top}`);
+for (const fixture of fixtures) {
+  const table = {
+    board: fixture.board,
+    qual: fixture.qualification,
+    code: fixture.code,
+    tier: fixture.tier,
+    year: fixture.series.year,
+    month: fixture.series.month,
+    grades: Object.keys(fixture.grades),
+    marks: Object.keys(fixture.grades).map((grade) => fixture.grades[grade]),
+    maxMark: fixture.maxMark,
+    papers: fixture.papers || [],
+    source
+  };
+  const record = toCanonicalBoundary(table);
+  if (!record) { bad(`${fixture.code} ${fixture.series.year} canonical conversion`, "no record"); continue; }
+  const expectedId = `${fixture.board}:${fixture.qualification}:${fixture.code}:${fixture.tier || "_"}|${fixture.series.month}-${fixture.series.year}`;
+  if (record.id !== expectedId) { bad(`${fixture.code} canonical identity`, `${record.id} != ${expectedId}`); continue; }
+  const firstGrade = Object.keys(fixture.grades)[0];
+  if (record.grades[firstGrade] !== fixture.grades[firstGrade]) { bad(`${fixture.code} top grade`, "marks changed during conversion"); continue; }
+  records.push(record);
+  ok(`${fixture.code}${fixture.tier ? `/${fixture.tier}` : ""} ${fixture.series.month}-${fixture.series.year} converted (${record.id})`);
 }
 
-console.log("\n== repository resolves each stored record as official ==");
-const index = {
-  courses: new Map(), series: new Map(), boundaries: new Map(),
-  papers: new Map(), sources: new Map()
-};
-for (const r of records) {
-  index.boundaries.set(r.id, r);
-  if (!index.courses.has(r.courseKey)) {
-    index.courses.set(r.courseKey, { board: r.board, qual: r.qual, code: r.code, tier: r.tier });
+const index = { courses: new Map(), series: new Map(), boundaries: new Map(), papers: new Map(), sources: new Map() };
+for (const record of records) {
+  index.boundaries.set(record.id, record);
+  if (!index.courses.has(record.courseKey)) index.courses.set(record.courseKey, {
+    board: record.board, qual: record.qual, code: record.code, tier: record.tier
+  });
+  index.series.set(record.seriesId, record.series);
+}
+const repo = openExamRepository(index);
+for (const record of records) {
+  const parsed = record.courseKey.split(":");
+  const decision = deriveBoundaryDecision(repo, { board: parsed[0], qual: parsed[1], code: parsed[2], tier: parsed[3] === "_" ? null : parsed[3] }, record.series.year, record.series.month, {});
+  const expectedTopGrade = Object.keys(record.grades)[0];
+  if (decision.kind === "official" && decision.top === record.grades[expectedTopGrade]) {
+    ok(`${record.id} resolves exact official decision`);
+  } else {
+    bad(`${record.id} resolves exact official decision`, `kind=${decision.kind} top=${decision.top}`);
   }
-  if (!index.series.has(r.seriesId)) index.series.set(r.seriesId, r.series);
-}
-const repo = repository.openExamRepository(index);
-
-for (const [board, qual, code, tier, year, series, wantTop] of CASES) {
-  const label = `decision ${code}${tier ? "/" + tier : ""} ${year}`;
-  const d = repository.deriveBoundaryDecision(repo, { board, qual, code, tier }, year, series, {});
-  if (!d || d.kind !== "official") { bad(label, `kind=${d && d.kind}`); continue; }
-  if (d.top !== wantTop) { bad(label, `top=${d.top} want=${wantTop}`); continue; }
-  ok(`${label} kind=official top=${d.top}`);
 }
 
-console.log("\n== honesty: what was never stored stays unknown ==");
-const negatives = [
-  ["aqa", "gcse", "8461", "H", 2023, "June", "an unacquired year"],
-  ["aqa", "gcse", "8461", "H", 2025, "November", "a series never acquired"],
-  ["pearson", "gcse", "1MA1", "H", 2025, "June", "present in the store"]
-];
-for (const [board, qual, code, tier, year, series, why] of negatives) {
-  const d = repository.deriveBoundaryDecision(repo, { board, qual, code, tier }, year, series, {});
-  if (why.startsWith("present")) continue; // sanity check that the positive case works
-  if (d && d.kind === "unknown" && !d.hasTable) ok(`${why} → unknown`);
-  else bad(`${why} → unknown`, `kind=${d && d.kind} hasTable=${d && d.hasTable}`);
-}
-
-// Mock papers must never resolve to official data.
-const mock = repository.deriveBoundaryDecision(repo, { board: "aqa", qual: "gcse", code: "8461", tier: "H" }, 2025, "Mock", {});
-if (mock && mock.kind === "unknown") ok("Mock paper → unknown");
-else bad("Mock paper → unknown", `kind=${mock && mock.kind}`);
-
-// Cross-year borrowing is the exact historical bug: ask 2024 for a store that
-// only holds 2025 and the answer must be unknown, not the 2025 table.
-const borrowed = repository.deriveBoundaryDecision(repo, { board: "aqa", qual: "gcse", code: "8702", tier: null }, 2024, "June", {});
-if (borrowed && borrowed.kind === "unknown") ok("2024 request never borrows the stored 2025 table");
-else bad("2024 request never borrows", `kind=${borrowed && borrowed.kind}`);
+const absent = deriveBoundaryDecision(repo, { board: "pearson", qual: "gcse", code: "1MA1", tier: "H" }, 1999, "June", {});
+if (absent.kind === "unknown" && !absent.hasTable) ok("unrecorded historical year stays unknown");
+else bad("unrecorded historical year stays unknown", `kind=${absent.kind}`);
+const mock = deriveBoundaryDecision(repo, { board: "pearson", qual: "gcse", code: "1MA1", tier: "H" }, 2025, "Mock", {});
+if (mock.kind === "unknown") ok("mock sitting stays unknown"); else bad("mock sitting stays unknown", `kind=${mock.kind}`);
 
 console.log(`\n${passed} passed, ${failed} failed`);
-if (failed > 0) process.exit(1);
+if (failed) process.exit(1);

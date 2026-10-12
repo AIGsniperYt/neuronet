@@ -1,10 +1,8 @@
-// examData/adapters.js — declarative per-board adapters.
-//
-// The legacy fetch is board-specific already (AQA xlsx via filestore, Pearson
-// + OCR PDF via pdf.js + page crawls). This registry names each adapter and its
-// contract so the scheduler and the Scraper debug surface share one vocabulary.
-// Actual fetch/parse execution stays in gradeBoundaries (Phase C wiring) —
-// adapters here are the schema for that wiring.
+// examData/adapters.js — board/qualification capabilities and source adapters.
+// EXAM_BOARDS also supplies the legacy Scraper's vocabulary; it is not proof
+// that every board adapter can acquire data. Tracker acquisition currently
+// uses the real exact-PDF path in ../boundaries.js. The AQA source module below
+// intentionally reports unsupported until its standalone parser is real.
 
 import { boardId, qualId, currentExamYear } from "./schema.js";
 import * as PearsonSource from "./sources/PearsonSource.js";
@@ -75,16 +73,16 @@ export function sourceFor(board) {
       implemented: true,
       discover: (opts) => PearsonSource.discover(opts),
       parse: (bytes, opts) => PearsonSource.parseSource(bytes, opts),
-      notes: "landing-page discovery + verified catalogue; content-hash validated; never filename-guesses"
+      notes: "official archive discovery and real PDF parsing; fetch/parser failures return unknown"
     };
   }
   if (id === "aqa") {
     return {
       name: "AQASource",
-      implemented: true,
+      implemented: false,
       discover: (opts) => AqaSource.discover(opts),
       parse: (bytes, opts) => AqaSource.parseSource(bytes, opts),
-      notes: "official AQA grade-boundary discovery + XLSX/PDF parsing"
+      notes: "standalone AQA adapter is not implemented; tracker currently uses its separate verified PDF-row path"
     };
   }
   if (id === "ocr") {
@@ -100,5 +98,5 @@ export function sourceFor(board) {
 }
 
 export function adaptersImplemented() {
-  return { pearson: true, aqa: true, ocr: false };
+  return { pearson: true, aqa: false, ocr: false };
 }
