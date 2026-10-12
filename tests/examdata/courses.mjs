@@ -13,9 +13,15 @@ export async function run() {
   assert.ok(courses.length > 5, "courseList() returns canonical courses");
   const aqaBio = courses.find(c => c.board === "aqa" && c.code === "8461" && c.tier === "H");
   assert.ok(aqaBio, "AQA 8461 Biology Higher present");
+  const aqaPhysics = courses.filter(c => c.board === "aqa" && c.code === "8463");
+  assert.deepStrictEqual(
+    aqaPhysics.map(c => c.tier).sort(),
+    ["F", "H"],
+    "AQA 8463 Physics Higher/Foundation present"
+  );
   const pearsonMaths = courses.find(c => c.board === "pearson" && c.code === "1MA1" && c.tier === "H");
   assert.ok(pearsonMaths, "Pearson 1MA1 Higher present");
-  count += 3;
+  count += 4;
 
   // Test 2: Subject auto-matching exact match
   const exact = Exam.listCourseCandidates({

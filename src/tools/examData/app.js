@@ -104,6 +104,8 @@ export function discoverCourseCatalogue() {
     { id: "aqa:gcse:8461:F", board: "aqa", qual: "gcse", code: "8461", tier: "F", title: "Biology Tier F" },
     { id: "aqa:gcse:8462:H", board: "aqa", qual: "gcse", code: "8462", tier: "H", title: "Chemistry Tier H" },
     { id: "aqa:gcse:8462:F", board: "aqa", qual: "gcse", code: "8462", tier: "F", title: "Chemistry Tier F" },
+    { id: "aqa:gcse:8463:H", board: "aqa", qual: "gcse", code: "8463", tier: "H", title: "Physics Tier H" },
+    { id: "aqa:gcse:8463:F", board: "aqa", qual: "gcse", code: "8463", tier: "F", title: "Physics Tier F" },
     { id: "aqa:gcse:8300:H", board: "aqa", qual: "gcse", code: "8300", tier: "H", title: "Mathematics Tier H" },
     { id: "aqa:gcse:8300:F", board: "aqa", qual: "gcse", code: "8300", tier: "F", title: "Mathematics Tier F" },
     { id: "aqa:gcse:8464", board: "aqa", qual: "gcse", code: "8464", tier: "", title: "Combined Science: Trilogy" },
