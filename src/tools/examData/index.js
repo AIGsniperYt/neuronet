@@ -12,13 +12,6 @@ export * from "./scheduler.js";
 export * from "./adapters.js";
 export * from "./papers.js";
 export * from "./paperFetcher.js";
-export * from "./validation.js";
 export * from "./ingest.js";
 export * from "./ensure.js";
 export * from "./storage.js";
-export * from "./sources/PearsonSource.js";
-// The reusable official-source discovery engine (Phase 2A). Both this module
-// and PearsonSource define isPdfBuffer; the star-export below makes that name
-// ambiguous, so PearsonSource's implementation is re-exported explicitly.
-export * from "./sources/officialEngine.js";
-export { isPdfBuffer } from "./sources/PearsonSource.js";

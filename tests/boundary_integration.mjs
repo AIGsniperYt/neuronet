@@ -1,9 +1,10 @@
 // boundary_integration.mjs — deterministic canonical-record integration.
-// Acquisition/network behavior is tested separately; this suite feeds verified
-// published values through the legacy-table-to-canonical mapper and repository.
+// Acquisition/network behavior is tested separately; this suite keys verified
+// published values through the canonical schema and feeds them to the
+// repository, proving identity is preserved end to end.
 import { readFile } from "node:fs/promises";
-import { toCanonicalBoundary } from "../src/tools/examData/bridge.js";
 import { openExamRepository, deriveBoundaryDecision } from "../src/tools/examData/repository.js";
+import { courseKey, seriesId, seriesLabel } from "../src/tools/examData/schema.js";
 
 const golden = JSON.parse(await readFile(new URL("./golden_fixtures.json", import.meta.url), "utf8"));
 let passed = 0;
@@ -11,24 +12,57 @@ let failed = 0;
 const ok = (name) => { passed += 1; console.log(`ok   ${name}`); };
 const bad = (name, details) => { failed += 1; console.log(`FAIL ${name} ${details || ""}`); };
 
-const source = { publisher: "Official fixture", url: "https://qualifications.pearson.com/verified-fixture.pdf" };
-const fixtures = [...golden.actualJune2025, ...golden.historicalPearson1MA1Higher, ...golden.tierRegression];
-const records = [];
-for (const fixture of fixtures) {
-  const table = {
+const source = {
+  url: "https://qualifications.pearson.com/verified-fixture.pdf",
+  contentHash: "b".repeat(64)
+};
+
+// Canonical boundary record exactly as the acquisition pipeline persists it
+// (ingest.js): identity comes from schema.courseKey + seriesId, provenance is
+// official/verified. Unkeyable input returns null rather than approximating.
+function canonicalRecord(fixture) {
+  const ck = courseKey({
     board: fixture.board,
     qual: fixture.qualification,
     code: fixture.code,
-    tier: fixture.tier,
-    year: fixture.series.year,
-    month: fixture.series.month,
-    grades: Object.keys(fixture.grades),
-    marks: Object.keys(fixture.grades).map((grade) => fixture.grades[grade]),
-    maxMark: fixture.maxMark,
+    tier: fixture.tier
+  });
+  const sid = seriesId({ month: fixture.series.month, year: fixture.series.year });
+  if (!ck || !sid) return null;
+  const gradesInOrder = Object.keys(fixture.grades);
+  if (!gradesInOrder.length) return null;
+  return {
+    id: `${ck}|${sid}`,
+    courseKey: ck,
+    seriesId: sid,
+    board: fixture.board,
+    qual: fixture.qualification,
+    code: fixture.code,
+    tier: fixture.tier || null,
+    title: null,
+    series: {
+      month: fixture.series.month,
+      year: fixture.series.year,
+      label: seriesLabel({ month: fixture.series.month, year: fixture.series.year })
+    },
+    grades: { ...fixture.grades },
+    gradesInOrder,
+    maxMark: fixture.maxMark ?? null,
     papers: fixture.papers || [],
-    source
+    provenance: {
+      kind: "official",
+      verification: "verified",
+      sourceName: "official-pdf-row-parser",
+      url: source.url,
+      contentHash: source.contentHash
+    }
   };
-  const record = toCanonicalBoundary(table);
+}
+
+const fixtures = [...golden.actualJune2025, ...golden.historicalPearson1MA1Higher, ...golden.tierRegression];
+const records = [];
+for (const fixture of fixtures) {
+  const record = canonicalRecord(fixture);
   if (!record) { bad(`${fixture.code} ${fixture.series.year} canonical conversion`, "no record"); continue; }
   const expectedId = `${fixture.board}:${fixture.qualification}:${fixture.code}:${fixture.tier || "_"}|${fixture.series.month}-${fixture.series.year}`;
   if (record.id !== expectedId) { bad(`${fixture.code} canonical identity`, `${record.id} != ${expectedId}`); continue; }

@@ -1,12 +1,9 @@
-// examData/adapters.js — board/qualification capabilities and source adapters.
-// EXAM_BOARDS also supplies the legacy Scraper's vocabulary; it is not proof
-// that every board adapter can acquire data. Tracker acquisition currently
-// uses the real exact-PDF path in ../boundaries.js. The AQA source module below
-// intentionally reports unsupported until its standalone parser is real.
+// examData/adapters.js — board/qualification capabilities vocabulary.
+// EXAM_BOARDS supplies the legacy Scraper's board/qualification lists; it is
+// not proof that every board can acquire data. Tracker acquisition uses the
+// real exact-PDF path in ../boundaries.js (AQA + Pearson GCSE only).
 
 import { boardId, qualId, currentExamYear } from "./schema.js";
-import * as PearsonSource from "./sources/PearsonSource.js";
-import * as AqaSource from "./sources/AqaSource.js";
 
 export const EXAM_BOARDS = [
   {
@@ -61,42 +58,4 @@ export function defaultSeriesWindow(board, now = Date.now()) {
     { month: "JUN", year: y },
     { month: "NOV", year: y - (board && boardId(board) === "pearson" ? 0 : 1) }
   ];
-}
-
-// ---- executable source adapters (execution-spec #54) -----------------------
-export function sourceFor(board) {
-  const id = boardId(board);
-  if (!id) return null;
-  if (id === "pearson") {
-    return {
-      name: "PearsonSource",
-      implemented: true,
-      discover: (opts) => PearsonSource.discover(opts),
-      parse: (bytes, opts) => PearsonSource.parseSource(bytes, opts),
-      notes: "official archive discovery and real PDF parsing; fetch/parser failures return unknown"
-    };
-  }
-  if (id === "aqa") {
-    return {
-      name: "AQASource",
-      implemented: false,
-      discover: (opts) => AqaSource.discover(opts),
-      parse: (bytes, opts) => AqaSource.parseSource(bytes, opts),
-      notes: "standalone AQA adapter is not implemented; tracker currently uses its separate verified PDF-row path"
-    };
-  }
-  if (id === "ocr") {
-    return {
-      name: "OCRSiteSource",
-      implemented: false,
-      discover: async () => ({ resources: [] }),
-      parse: async () => ({ ok: false, reason: "NO_EXACT_SOURCE", rows: [] }),
-      notes: "interface-only — OCR datasheet crawl is a future step"
-    };
-  }
-  return null;
-}
-
-export function adaptersImplemented() {
-  return { pearson: true, aqa: false, ocr: false };
 }
