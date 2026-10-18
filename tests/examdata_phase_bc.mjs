@@ -85,12 +85,17 @@ eq("official provenance has parsedAt", b2024.boundary.provenance.parsedAt, 17000
 check("boundary papers migrated", Array.isArray(b2024.boundary.papers) && b2024.boundary.papers.length === 3);
 eq("migrateSitting: plain sitting is manual", migrateSitting({ gradeBoundary: 217 }).kind, "manual");
 
-// AQA tier lives on the code
+// AQA tier lives on the code; the key normalizes the spec code to its base
 const aqaH = courseKey({ board: "aqa", qual: "gcse", code: "8300H", tier: "H" });
-eq("AQA tier-from-code key", aqaH, "aqa:gcse:8300H:H");
+eq("AQA tier-from-code key", aqaH, "aqa:gcse:8300:H");
+eq("AQA tier-in-code and bare-code keys converge",
+  courseKey({ board: "aqa", qual: "gcse", code: "8461H", tier: "H" }),
+  courseKey({ board: "aqa", qual: "gcse", code: "8461", tier: "H" }));
 const aqaRep = openExamRepository(index);
 const aqaHit = aqaRep.pickBoundary({ board: "aqa", qual: "gcse", code: "8300H" }, 2024, "june");
 eq("AQA 8300H resolves to H row (not F)", aqaHit && aqaHit.boundary.grades["9"], 208);
+const aqaBareHit = aqaRep.pickBoundary({ board: "aqa", qual: "gcse", code: "8300", tier: "H" }, 2024, "june");
+eq("AQA bare 8300+H hits the same H row", aqaBareHit && aqaBareHit.boundary.grades["9"], 208);
 
 // latestBoundary picks 2025 for 1MA1 H
 const latest = aqaRep.latestBoundary({ board: "pearson", qual: "gcse", code: "1MA1", tier: "H" });

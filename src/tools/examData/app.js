@@ -135,7 +135,7 @@ export function mergedIndex(snap) {
       || !Array.isArray(table.gradesInOrder)
       || table.gradesInOrder.length !== table.marks.length) continue;
     const [, board, qual, code, tier, month, year] = m;
-    const ck = `${board}:${qual}:${code}:${tier || "_"}`;
+    const ck = `${board}:${qual}:${baseCode(code)}:${tier || "_"}`;
     const sid = `${month}-${year}`;
     const grades = Array.isArray(table.grades)
       ? Object.fromEntries(table.grades.map((grade, i) => [String(grade), Number(table.marks[i])]))
@@ -158,7 +158,12 @@ export function mergedIndex(snap) {
     if (!boundaries.has(boundary.id)) boundaries.set(boundary.id, boundary);
   }
   for (const c of (snap && snap.examCourses) || []) {
-    if (c && c.id && !courses.has(c.id)) courses.set(c.id, { ...c });
+    if (!c || !c.id) continue;
+    // Re-key persisted rows through the canonical course key so records written
+    // under the legacy tier-suffixed convention ("aqa:gcse:8461H:H") become
+    // addressable by the same key as catalogue/engine rows.
+    const ck = schema.courseKey(c) || c.id;
+    if (!courses.has(ck)) courses.set(ck, { ...c });
   }
   for (const b of (snap && snap.examBoundaries) || []) {
     if (!b || !b.id) continue;
@@ -172,7 +177,14 @@ export function mergedIndex(snap) {
       || p.sourceName !== "official-pdf-row-parser"
       || !isVerifiedBoardUrl(p.url, String(b.courseKey || "").split(":")[0])
       || !/^[a-f0-9]{64}$/i.test(String(p.contentHash || ""))) continue;
-    boundaries.set(b.id, { ...b });
+    const canon = b.courseKey ? schema.normalizeCourseKey(b.courseKey) : null;
+    const sid = b.seriesId || String(b.id).split("|")[1] || null;
+    if (canon && sid) {
+      const norm = { ...b, courseKey: canon, id: `${canon}|${sid}` };
+      boundaries.set(norm.id, norm);
+    } else {
+      boundaries.set(b.id, { ...b });
+    }
   }
   for (const [k, b] of legacy.boundaries) {
     if (!boundaries.has(k)) boundaries.set(k, b);
@@ -925,12 +937,14 @@ export function getBoundaryDisplayModel(options = {}) {
   const repo = repoNow();
   const enrollment = { board, qual, code, tier, title };
   let course = options.course || null;
+  // A sitting persisted under the legacy identity convention may carry a tier
+  // suffix inside the course key ("aqa:gcse:8461H:H"); canonicalize before any
+  // lookup so both conventions address the same course.
+  const requestedId = courseId || (sitting && sitting.courseId) || null;
+  const requestedCanonical = requestedId ? schema.normalizeCourseKey(requestedId) : null;
 
-  if (!course && courseId) {
-    course = repo.courses().find((c) => schema.courseKey(c) === courseId) || null;
-  }
-  if (!course && sitting && sitting.courseId) {
-    course = repo.courses().find((c) => schema.courseKey(c) === sitting.courseId) || null;
+  if (!course && requestedCanonical) {
+    course = repo.courses().find((c) => schema.courseKey(c) === requestedCanonical) || null;
   }
   if (!course && sitting && sitting.subject) {
     // A subject label is not an identity. Only use it when the resolver has
@@ -950,7 +964,7 @@ export function getBoundaryDisplayModel(options = {}) {
     return {
       state: "unknown",
       reason: "COURSE_UNRESOLVED",
-      courseId: course ? schema.courseKey(course) : courseId || (sitting && sitting.courseId) || null,
+      courseId: course ? schema.courseKey(course) : requestedCanonical,
       seriesId: seriesId || (sitting && sitting.seriesId) || null,
       table: null,
       source: null,
@@ -960,7 +974,7 @@ export function getBoundaryDisplayModel(options = {}) {
     };
   }
 
-  const cId = courseId || (sitting && sitting.courseId) || schema.courseKey(course);
+  const cId = requestedCanonical || schema.courseKey(course);
   const monthAbbr = exactSeriesWord ? schema.monthFromWord(exactSeriesWord) : null;
 
   const decision = decisionFor(course, exactYear, exactSeriesWord, sitting || {});

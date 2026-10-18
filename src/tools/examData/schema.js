@@ -78,7 +78,13 @@ export function courseKey(course = {}) {
   if (!b) return null;
   const q = qualId(qual);
   if (!q) return null; // a course without a known qualification cannot be keyed
-  return `${b}:${q}:${singleCode(code)}:${tierOf(course) || "_"}`;
+  // The specification code is normalized to its base form so the two real-world
+  // conventions converge: AQA stores the tier inside the code ("8461H") while
+  // the catalogue and PDF parser path carry the bare code plus a tier field
+  // ("8461" + H). Without this, the same course keys as "aqa:gcse:8461H:H" and
+  // "aqa:gcse:8461:H" depending on where the record came from, and a fetched
+  // boundary can never match the sitting that asked for it.
+  return `${b}:${q}:${baseCode(code)}:${tierOf(course) || "_"}`;
 }
 
 export function courseKeyFromRow(board, qual, row) {
@@ -86,7 +92,15 @@ export function courseKeyFromRow(board, qual, row) {
   if (!b) return null;
   const q = qualId(qual);
   if (!q) return null;
-  return `${b}:${q}:${singleCode(row && row.code)}:${tierOf(row) || "_"}`;
+  return `${b}:${q}:${baseCode(row && row.code)}:${tierOf(row) || "_"}`;
+}
+
+// Re-key any course key (possibly carrying a tier suffix in the code) through
+// the canonical rules. Unparseable input is returned untouched.
+export function normalizeCourseKey(key) {
+  const p = parseCourseKey(key);
+  if (!p) return key;
+  return courseKey({ board: p.board, qual: p.qual, code: p.code, tier: p.tier });
 }
 
 export function parseCourseKey(key) {

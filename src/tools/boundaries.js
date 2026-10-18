@@ -57,6 +57,19 @@ export function tierId(tier) {
   return null;
 }
 
+// AQA publishes the tier inside the specification code ("8461H"); callers and
+// persisted records may pass either that or the bare code plus a tier field.
+// Both conventions must address the exact same official table, so normalize
+// here, at the one boundary identity.
+function splitCodeTier(code, tier) {
+  const raw = String(code || "").trim().toUpperCase();
+  const suffixed = /^([0-9A-Z]{3,6})([HF])$/.exec(raw);
+  return {
+    code: suffixed ? suffixed[1] : raw,
+    tier: tierId(tier) || (suffixed ? suffixed[2] : null)
+  };
+}
+
 export function monthId(series) {
   const s = String(series || "").trim().toLowerCase();
   if (!s) return null;
@@ -77,9 +90,8 @@ export function boundaryKey({ board, qual, code, tier, year, series }) {
   const b = boardId(board);
   const q = qualId(qual);
   const m = monthId(series);
-  const c = String(code || "").trim().toUpperCase();
+  const { code: c, tier: t } = splitCodeTier(code, tier);
   const y = year == null ? null : Number(year);
-  const t = tierId(tier);
   if (!b || !q || !c || !m || !Number.isInteger(y)) return null;
   return `${b}|${q}|${c}|${t || "_"}|${m}|${y}`;
 }
@@ -696,8 +708,7 @@ export async function getBoundaries({ board, qual, code, tier, year, series } = 
   const b = boardId(board);
   const month = monthId(series);
   const y = Number(year);
-  const c = String(code).trim().toUpperCase();
-  const t = tierId(tier);
+  const { code: c, tier: t } = splitCodeTier(code, tier);
 
   // Until a parser for a board/qualification is verified, fail closed rather
   // than allow the former mock-backed engine to manufacture an official row.

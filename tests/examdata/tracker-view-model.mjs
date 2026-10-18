@@ -106,6 +106,26 @@ export async function run() {
   assert.strictEqual(missing.reason, "NO_EXACT_SOURCE");
   count += 2;
 
+  // Test 7 (regression): a sitting persisted under the legacy tier-suffixed
+  // identity convention ("aqa:gcse:8461H:H") must resolve the same official
+  // table as the canonical key. AQA stores the tier inside the specification
+  // code while the engine keys the bare code, so both conventions must
+  // converge or the render path reports no exact source forever.
+  await seedBoundary("aqa", "8461", "H", 2018,
+    { "9": 134, "8": 114, "7": 95, "6": 75, "5": 55, "4": 36, "3": 17 },
+    ["9", "8", "7", "6", "5", "4", "3"]);
+  await storage.putCourse({ id: "aqa:gcse:8461H:H", board: "aqa", qual: "gcse", code: "8461H", tier: "H" });
+  await sync();
+  const legacyId = Exam.getBoundaryDisplayModel({
+    courseId: "aqa:gcse:8461H:H",
+    year: "2018",
+    seriesWord: "June",
+    selectedGrades: ["9"]
+  });
+  assert.strictEqual(legacyId.state, "official", "legacy suffixed courseId must resolve official");
+  assert.strictEqual(Exam.findGradeMark(legacyId.table, "9"), 134);
+  count += 2;
+
   console.log(`tracker-view-model.mjs: ${count} assertions passed.`);
   return { passed: count, failed: 0 };
 }
