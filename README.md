@@ -13,7 +13,7 @@ This repository is publicly viewable, but **no part of this code**—including J
 
 For inquiries or requests for reuse, please contact the author directly.
 
-See the gh-pages branch for deployment code -
+Deployment is automated from `main` via GitHub Pages (see `.github/workflows/pages.yml`) -
 I've chosen to keep the codebase transparent :)
 
 See the commit history for a nice detailed juicy changelog, I never bothered to start a proper one, sorry :P
