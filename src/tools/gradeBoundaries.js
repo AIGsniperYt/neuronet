@@ -20,15 +20,6 @@ export const BOUNDARY_STATUS_KEY = "neuronet:boundaryStatus";
 // retain their source URL.
 export const BOUNDARY_CACHE_VERSION = 4;
 
-// How long a completed sweep stays "fresh" before we re-scan for new series
-// (so the tracker's subject picker never fires a fetch set the first time it
-// opens, but still picks up newly-released series every so often).
-const SWEEP_FRESH_MS = 8 * 60 * 60 * 1000;
-// Don't retry a series that just failed (dead legacy URLs) within this window —
-// previously every open of the picker retried every dead series, stalling the
-// modal on a full fetch pass each time.
-const RETRY_WINDOW_MS = 60 * 60 * 1000;
-
 const RESULTS_WINDOW_MS = 60 * 24 * 60 * 60 * 1000; // ~60 days, results-day policy
 
 // In-memory mirror of the persisted cache. The tracker/scraper query the cache
@@ -121,7 +112,7 @@ function defaultBoundaryStatus() {
     jobsFailed: 0,
     current: null, // { board, qual, seriesLabel, message }
     sweepFinishedAt: null,
-    attemptedFailed: {}, // sweep "key" -> last try ts (skip retries for RETRY_WINDOW)
+    attemptedFailed: {}, // series key -> last try ts (skip retries while fresh)
     updatedAt: 0
   };
 }
@@ -154,7 +145,7 @@ function publishBoundaryStatus(patch) {
   const prev = getBoundaryStatus();
   const next = { ...prev, ...patch, updatedAt: Date.now() };
   // Skip when nothing the app actually reacts to changed (identical phase,
-  // counters, current job, attempts) — otherwise a long sweep resprays
+  // counters, current job, attempts) — otherwise a long fetch run resprays
   // localStorage and re-fires every listener for every sub-message.
   try {
     const { updatedAt: a, ...prevRest } = prev;
@@ -853,8 +844,6 @@ const AQA_SERIES = [
 ];
 
 const AQA_FILE_BASE = "https://filestore.aqa.org.uk/over/stat_pdf";
-const AQA_PAGE_BASE = "https://www.aqa.org.uk/exams-administration/results-days/grade-boundaries";
-const AQA_PAGE_ARCHIVE = `${AQA_PAGE_BASE}/archive`;
 const AQA_MONTHS = [
   ["January", "JAN"], ["February", "FEB"], ["March", "MAR"], ["April", "APR"],
   ["May", "MAY"], ["June", "JUN"], ["July", "JUL"], ["August", "AUG"],
@@ -897,15 +886,6 @@ const ENGINE_QR = {
   as: { id: "as", name: "AS" }
 };
 
-const OCR_PAGE_BASE = "https://www.ocr.org.uk/administration/grade-boundaries/index.aspx";
-const OCR_PAGE_ARCHIVE = "https://www.ocr.org.uk/administration/grade-boundaries/grade-boundaries-archive/grade-boundaries-archive.aspx";
-const OCR_QUAL_PATTERNS = {
-  gcse: /gcse-grade-boundaries-/,
-  aLevel: /as-and-a-level-grade-boundaries-|a-level-grade-boundaries-/,
-  as: /as-and-a-level-grade-boundaries-|a-level-grade-boundaries-/
-};
-
-const PEARSON_PAGE = "https://qualifications.pearson.com/en/support/support-topics/results-certification/grade-boundaries.html";
 const PEARSON_DAM = "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries";
 // Baseline = every series in the VERIFIED_CATALOGUE (real, hash-confirmed PDFs)
 // plus the live landing-page trails. June 2022 (2206-…pdf) is genuinely
@@ -922,7 +902,6 @@ const PEARSON_BASELINE = [
 const PEARSON_VERIFIED = new Map(VERIFIED_CATALOGUE.map((r) => [`${r.month}-${r.year}:${r.qual}`, r.url]));
 
 const discovered = { aqa: new Map(), ocr: new Map(), pearson: new Map() };
-let boundaryDiscoveryPromise = null;
 
 function seriesKey(series) {
   return `${series.month}-${series.year}`;
@@ -1030,60 +1009,6 @@ export function bestSeriesForYear(board, year, monthAbbr) {
   return [...sameYear].sort((a, b) => monthIndex(b.month) - monthIndex(a.month))[0];
 }
 
-function qualFromAqaFile(fileName) {
-  if (/GCSE/.test(fileName)) return "gcse";
-  if (/A-LEVEL/.test(fileName) || /A-LEVEL-UM/.test(fileName)) return "aLevel";
-  if (/\bAS\b/.test(fileName)) return "as";
-  return null;
-}
-
-function qualFromAqaLabel(label) {
-  if (/^GCSE\b/.test(label)) return "gcse";
-  if (/^A-level/.test(label)) return "aLevel";
-  if (/^AS\b/.test(label)) return "as";
-  return null;
-}
-
-function parseAqaSeriesFromFilename(fileName) {
-  const m = fileName.match(/-((?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(?:UARY|E|Y|EMBER)?)-(20\d\d)\./i);
-  if (!m) return null;
-  const raw = m[1].toUpperCase();
-  const map = {
-    JANUARY: "JAN", FEBRUARY: "FEB", MARCH: "MAR", APRIL: "APR", MAY: "MAY",
-    JUNE: "JUN", JULY: "JUL", AUGUST: "AUG", SEPTEMBER: "SEP",
-    OCTOBER: "OCT", NOVEMBER: "NOV", DECEMBER: "DEC"
-  };
-  const month = map[raw] || raw.slice(0, 3);
-  if (!["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"].includes(month)) return null;
-  const year = Number(m[2]);
-  const fullMonth = { JAN: "January", FEB: "February", MAR: "March", APR: "April", MAY: "May", JUN: "June", JUL: "July", AUG: "August", SEP: "September", OCT: "October", NOV: "November", DEC: "December" }[month];
-  return { month, year, label: `${fullMonth} ${year}`, format: "pdf" };
-}
-
-function extractGradeBoundaryPairs(html) {
-  const escaped = /\\"url\\":\\"(https:\/\/cdn\.sanity\.io\/files\/[^\\"]+?\.xlsx)\\"[\s\S]*?\\"title\\":\\"([^\\"]+?)\\"/g;
-  const plain = /"url":"(https:\/\/cdn\.sanity\.io\/files\/[^"]+?\.xlsx)"[\s\S]*?"title":"([^"]+?)"/g;
-  const out = [];
-  for (const re of [escaped, plain]) {
-    let m;
-    while ((m = re.exec(html)) !== null) out.push({ url: m[1], title: m[2] });
-    if (out.length > 0) break;
-  }
-  return out;
-}
-
-function parseBoundaryTitle(title) {
-  const m = title.match(/(January|February|March|April|May|June|July|August|September|October|November|December) (\d{4})/);
-  if (!m) return null;
-  const month = AQA_MONTHS.find(([full]) => full === m[1]);
-  const series = { month: month[1], year: Number(m[2]), label: `${m[1]} ${m[2]}` };
-  let qualId = null;
-  if (/\bGCSE\b/.test(title)) qualId = "gcse";
-  else if (/A-level/.test(title)) qualId = "aLevel";
-  else if (/\bAS\b/.test(title)) qualId = "as";
-  return qualId ? { qualId, series } : null;
-}
-
 function legacyAqaSeriesUrl(qual, series) {
   const legacy = AQA_LEGACY_PREFIX[seriesKey(series)];
   const ext = series.format === "pdf" ? ".PDF" : ".XLSX";
@@ -1172,186 +1097,6 @@ function parseAqaXlsx(wb, qual, fallbackGrades) {
   return subjects;
 }
 
-function parseAqaArchiveAnchors(html) {
-  const liRe = /<li[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<\/li>/gi;
-  let m;
-  const anchors = [];
-  while ((m = liRe.exec(html)) !== null) {
-    anchors.push({ href: m[1], label: m[2].replace(/<[^>]+>/g, "").trim() });
-  }
-  let kept = 0;
-  for (const { href, label } of anchors) {
-    const fileName = href.split("/").pop();
-    const extMatch = fileName.match(/\.(PDF|XLSX|XLS)$/i);
-    if (!extMatch) continue;
-    const format = extMatch[1].toLowerCase() === "pdf" ? "pdf" : "xlsx";
-    const series = parseAqaSeriesFromFilename(fileName);
-    if (!series) continue;
-    if (series.year < 2018) continue;
-    const qualId = qualFromAqaFile(fileName) || qualFromAqaLabel(label);
-    if (!qualId) continue;
-    const key = `${seriesKey(series)}:${qualId}`;
-    const existing = discovered.aqa.get(key);
-    if (!existing) {
-      discovered.aqa.set(key, { url: href, format });
-      kept++;
-    } else if (format === "xlsx" && existing.format === "pdf") {
-      discovered.aqa.set(key, { url: href, format });
-    } else if (format === "xlsx" && existing.format === "xlsx" && /GCSE-2/i.test(href) && !/GCSE-2/i.test(existing.url)) {
-      discovered.aqa.set(key, { url: href, format });
-    }
-  }
-  const seriesBlockRe = /<p[^>]*>\s*(January|February|March|April|May|June|July|August|September|October|November|December)\s+(20\d\d)\s+exams\s*<\/p>([\s\S]*?)(?=<p[^>]*>\s*(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+20\d\d\s+exams\s*<\/p>|$)/gi;
-  while ((m = seriesBlockRe.exec(html)) !== null) {
-    const month = AQA_MONTHS.find(([full]) => full.toLowerCase() === m[1].toLowerCase());
-    if (!month) continue;
-    const series = { month: month[1], year: Number(m[2]), label: `${m[1]} ${m[2]}` };
-    const linkRe = /<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
-    let link;
-    while ((link = linkRe.exec(m[3])) !== null) {
-      const linkLabel = link[2].replace(/<[^>]+>/g, "").trim();
-      const qualId = qualFromAqaLabel(linkLabel);
-      if (!qualId) continue;
-      const url = new URL(link[1], AQA_PAGE_BASE).href;
-      const key = `${seriesKey(series)}:${qualId}`;
-      const format = /\.(xlsx|xls)(?:$|\?)/i.test(url) ? "xlsx" : "pdf";
-      const existing = discovered.aqa.get(key);
-      if (!existing) {
-        discovered.aqa.set(key, { url, format });
-        kept++;
-      } else if (format === "xlsx" && existing.format === "pdf") {
-        discovered.aqa.set(key, { url, format });
-      } else if (format === "xlsx" && existing.format === "xlsx" && /GCSE-2/i.test(url) && !/GCSE-2/i.test(existing.url)) {
-        discovered.aqa.set(key, { url, format });
-      }
-    }
-  }
-  return { anchors: anchors.length, kept };
-}
-
-async function discoverAqaSeries(onProgress) {
-  const found = [];
-  const pages = [
-    { url: AQA_PAGE_ARCHIVE, name: "archive page" },
-    { url: AQA_PAGE_BASE, name: "current page" }
-  ];
-  for (const { url: page, name } of pages) {
-    if (onProgress) onProgress(`Scanning AQA ${name}...`);
-    let text;
-    try {
-      const res = await fetchBoundaryResource(page);
-      if (!res.ok) continue;
-      text = await res.text();
-    } catch {
-      continue;
-    }
-    found.push(...extractGradeBoundaryPairs(text));
-    parseAqaArchiveAnchors(text);
-  }
-  for (const { url, title } of found) {
-    const parsed = parseBoundaryTitle(title);
-    if (!parsed) continue;
-    const key = `${seriesKey(parsed.series)}:${parsed.qualId}`;
-    if (!discovered.aqa.has(key)) discovered.aqa.set(key, { url, format: "xlsx" });
-  }
-  return found.length;
-}
-
-function extractOcrPdfLinks(html) {
-  const re = /<a\s+[^>]*href="(\/Images\/[^"]*?grade-boundaries[^"]*?\.pdf)"/gi;
-  const out = [];
-  let m;
-  while ((m = re.exec(html)) !== null) {
-    const fileName = m[1].split("/").pop();
-    out.push({ url: `https://www.ocr.org.uk${m[1]}`, fileName });
-  }
-  return out;
-}
-
-async function discoverOcrSeries(onProgress) {
-  const found = [];
-  const pages = [
-    { url: boundaryProxyUrl(OCR_PAGE_BASE), name: "index page" },
-    { url: boundaryProxyUrl(OCR_PAGE_ARCHIVE), name: "archive page" }
-  ];
-  for (const { url: page, name } of pages) {
-    if (onProgress) onProgress(`Scanning OCR ${name}...`);
-    let text;
-    try {
-      const res = await fetch(page);
-      if (!res.ok) continue;
-      text = await res.text();
-    } catch {
-      continue;
-    }
-    found.push(...extractOcrPdfLinks(text));
-  }
-  let kept = 0;
-  for (const { url, fileName } of found) {
-    const fullMatch = fileName.match(/-(january|february|march|april|may|june|july|august|september|october|november|december)-(\d{4})\b/i);
-    if (!fullMatch) continue;
-    const full = fullMatch[1][0].toUpperCase() + fullMatch[1].slice(1).toLowerCase();
-    const month = AQA_MONTHS.find(([f]) => f === full);
-    const seriesObj = { month: month[1], year: Number(fullMatch[2]), label: `${full} ${fullMatch[2]}` };
-    for (const [qualId, pattern] of Object.entries(OCR_QUAL_PATTERNS)) {
-      if (!pattern.test(fileName)) continue;
-      const key = `${seriesKey(seriesObj)}:${qualId}`;
-      if (!discovered.ocr.has(key)) kept++;
-      discovered.ocr.set(key, url);
-    }
-  }
-  return { found: found.length, kept };
-}
-
-async function discoverPearsonSeries(onProgress) {
-  let text;
-  if (onProgress) onProgress("Scanning Pearson grade-boundaries page...");
-  try {
-    const res = await fetch(boundaryProxyUrl(PEARSON_PAGE));
-    if (!res.ok) return { found: 0, kept: 0 };
-    text = await res.text();
-  } catch {
-    return { found: 0, kept: 0 };
-  }
-  const titles = [...text.matchAll(/class= *"hiddenAssetTitle">\s*([^<]+?)\s*<\/span>/g)].map((m) => m[1]);
-  const urls = [...text.matchAll(/class= *"hiddenAssetUrl">\s*([^<]+?)\s*<\/span>/g)].map((m) => m[1]);
-  let kept = 0;
-  for (let i = 0; i < Math.min(titles.length, urls.length); i++) {
-    const title = titles[i];
-    const urlPath = urls[i].trim();
-    if (!urlPath.endsWith(".pdf")) continue;
-    const url = `https://qualifications.pearson.com${urlPath.startsWith("/") ? "" : "/"}${urlPath}`;
-    const m = title.match(/(January|February|March|April|May|June|July|August|September|October|November|December) (\d{4})/i);
-    if (!m) continue;
-    const month = AQA_MONTHS.find(([f]) => f.toLowerCase() === m[1].toLowerCase());
-    const series = { month: month[1], year: Number(m[2]), label: `${m[1][0].toUpperCase()}${m[1].slice(1).toLowerCase()} ${m[2]}` };
-    const norm = title.toLowerCase();
-    if (/gcse \(9-1\)/.test(norm) && /notional/.test(norm)) continue;
-    let quals = [];
-    if (/gcse \(9-1\)/.test(norm) && !/international|\bproject\b|award|maths|\bmath\b|bt|level 3/i.test(norm)) quals.push("gcse");
-    if (/ - gce\b/.test(norm) && !/international|\bproject\b|award|mathematics in context|level 3/i.test(norm)) quals.push("aLevel", "as");
-    for (const q of quals) {
-      const key = `${seriesKey(series)}:${q}`;
-      if (!discovered.pearson.has(key)) kept++;
-      discovered.pearson.set(key, url);
-    }
-  }
-  return { found: titles.length, kept };
-}
-
-// Run discovery for every board once (idempotent). Resolves regardless of
-// individual board failures so partial discovery never blocks boundary use.
-export function discoverBoundarySeries(onProgress) {
-  if (!boundaryDiscoveryPromise) {
-    boundaryDiscoveryPromise = Promise.allSettled([
-      discoverAqaSeries(onProgress),
-      discoverOcrSeries(onProgress),
-      discoverPearsonSeries(onProgress)
-    ]);
-  }
-  return boundaryDiscoveryPromise;
-}
-
 // Download + parse the subjects for a board/qual/series. Throws on failure.
 export async function fetchBoundarySubjects(board, qual, series, onProgress) {
   const bId = boardToId(board) || String(board || "").toLowerCase();
@@ -1435,104 +1180,11 @@ export async function ensureBoundarySeries(board, qual, series, onProgress) {
   }
 }
 
-// ---------- the one sweep runner ----------
-// Fetches EVERY board × qual × series that isn't already cached (the union the
-// subject picker shows and the per-row boundary tables resolve from). This is
-// THE only place the app decides "what should we have fetched by now", so
-// opening the link picker never re-fires a fetch set again: what's cached is
-// served from cache, what failed is not retried within the retry window, and a
-// recently-completed sweep is treated as fresh. Concurrent sweeps (picker +
-// auto-warm) collapse into one run.
 const sweepInflight = new Map(); // series fetch key -> in-flight promise
-let sweepBusy = false;
-let sweepQueued = false;
-
-export function runBoundarySweep(opts = {}) {
-  const { onStatus } = opts;
-  if (sweepBusy) {
-    sweepQueued = true;
-    return Promise.resolve();
-  }
-  sweepBusy = true;
-  const run = (async () => {
-    const status = getBoundaryStatus();
-    const now = Date.now();
-    // A sweep completed recently (this tab or another) -> everything's already
-    // cached/attempted; don't re-fire.
-    if (status.sweepFinishedAt && now - status.sweepFinishedAt < SWEEP_FRESH_MS) {
-      publishBoundaryStatus({ phase: "ready" });
-      if (onStatus) onStatus(getBoundaryStatus());
-      return;
-    }
-    publishBoundaryStatus({
-      phase: "discovering",
-      sweepFinishedAt: null,
-      current: { message: "Scanning AQA, OCR and Pearson..." }
-    });
-    if (onStatus) onStatus(getBoundaryStatus());
-    try {
-      await discoverBoundarySeries((msg) =>
-        publishBoundaryStatus({ current: { ...(getBoundaryStatus().current || {}), message: msg } })
-      );
-    } catch {
-      /* deterministic fallback URLs still work */
-    }
-    const boards = ["aqa", "ocr", "pearson"];
-    const quals = ["gcse", "aLevel", "as"];
-    const jobs = [];
-    const cache = loadBoundaryCache();
-    for (const board of boards) {
-      for (const series of boundarySeriesList(board)) {
-        for (const qualId of quals) {
-          const qualObj = boundaryQualification(board, qualId);
-          if (!qualObj || !series || !series.month || !series.year) continue;
-          const key = `${board}:${series.month}-${series.year}:${qualObj.id}`;
-          const entry = cache.entries[key];
-          if (entry && entry.subjects && entry.subjects.length) continue; // cached
-          if (sweepReentryOld(key, now)) continue; // just failed
-          jobs.push({ board, qual: qualObj, series, key });
-        }
-      }
-    }
-    const total = jobs.length;
-    publishBoundaryStatus({ phase: "fetching", jobsTotal: total, jobsDone: 0, jobsFailed: 0, current: null, sweepFinishedAt: null });
-    let done = 0;
-    let failed = 0;
-    for (const job of jobs) {
-      publishBoundaryStatus({ current: { board: job.board, qual: job.qual.id, seriesLabel: job.series.label } });
-      try {
-        await ensureBoundarySeries(job.board, job.qual, job.series, (msg) =>
-          publishBoundaryStatus({ current: { board: job.board, qual: job.qual.id, seriesLabel: job.series.label, message: msg } })
-        );
-        done++;
-      } catch {
-        failed++;
-      }
-      publishBoundaryStatus({ jobsDone: done, jobsFailed: failed });
-      if (onStatus) onStatus(getBoundaryStatus());
-      // Yield on the macrotask queue so spinners/scratch buffers actually paint
-      // between sequential (synchronous-ish) parses.
-      await new Promise((r) => setTimeout(r, 0));
-    }
-    publishBoundaryStatus({ phase: "ready", jobsTotal: total, jobsDone: done, jobsFailed: failed, current: null, sweepFinishedAt: Date.now() });
-    if (onStatus) onStatus(getBoundaryStatus());
-  })();
-  return run
-    .catch(() => {
-      publishBoundaryStatus({ phase: "ready", current: null, sweepFinishedAt: Date.now() });
-    })
-    .finally(() => {
-      sweepBusy = false;
-      if (sweepQueued) {
-        sweepQueued = false;
-        runBoundarySweep();
-      }
-    });
-}
 
 // Failure bookkeeping: series key -> last try ts. Keys use the canonical
-// "board:MONTH-YEAR:qual" form (same as cache entries). The sweep skips keys
-// attempted within the retry window, so a dead legacy URL is not re-fetched
+// "board:MONTH-YEAR:qual" form (same as cache entries). ensureBoundarySeries
+// rejects a fresh failure timestamp so a dead legacy URL is not re-fetched
 // every single time the subject picker opens.
 function sweepMarkFailed(seriesKey) {
   const status = getBoundaryStatus();
@@ -1547,11 +1199,4 @@ function sweepClearFailed(seriesKey) {
   const attemptedFailed = { ...status.attemptedFailed };
   delete attemptedFailed[seriesKey];
   publishBoundaryStatus({ attemptedFailed });
-}
-
-function sweepReentryOld(seriesKey, now) {
-  const status = getBoundaryStatus();
-  const ts = status.attemptedFailed && status.attemptedFailed[seriesKey];
-  if (!ts) return false;
-  return now - ts < RETRY_WINDOW_MS;
 }
