@@ -203,9 +203,7 @@ async function putRecord(storeName, item) {
 
 export function putCourse(course) { return putRecord("examCourses", course); }
 export function putSeries(series) { return putRecord("examSeries", series); }
-export function putPaper(paper) { return putRecord("examPapers", paper); }
 export function putBoundary(boundary) { return putRecord("examBoundaries", boundary); }
 export function putSource(source) { return putRecord("examSources", source); }
-export function putJob(job) { return putRecord("examJobs", job); }
 
 export { STORES };

@@ -6,7 +6,7 @@ import { dialog } from "./dialog.js";
 // workbooks, OCR links, sweeps or any scraper. All of that lives behind
 // ExamData (src/tools/examData/).
 import { Exam } from "./examData/app.js";
-import { planRequirements, REQUIREMENT_TYPES, JOB_PRIORITIES } from "./examData/scheduler.js";
+import { planRequirements, REQUIREMENT_TYPES } from "./examData/scheduler.js";
 import { parseCourseKey, courseKey, seriesId, monthFromWord, normalizeTitle, boardId, qualId } from "./examData/schema.js";
 import { findSubjects, matchSubjects } from "./subjects.js";
 import { diag } from "./diag.js";

@@ -130,12 +130,6 @@ function writeCache(cache) {
   try { s.setItem(CACHE_KEY, JSON.stringify(cache)); } catch { /* quota / private mode */ }
 }
 
-export function clearBoundaryCache() {
-  const s = storage();
-  if (!s) return;
-  try { s.removeItem(CACHE_KEY); } catch { /* ignore */ }
-}
-
 export function cachedBoundary(key) {
   if (!key) return null;
   const cache = readCache();
@@ -289,9 +283,6 @@ export async function discoverAqaSeries(request = {}, options = {}) {
   if (!options.fetchImpl) aqaDiscoveryMemo.set(memoKey, promise);
   return promise;
 }
-
-/** Drop the memoised AQA catalogue lookups (used by tests and force-refresh). */
-export function clearAqaDiscoveryCache() { aqaDiscoveryMemo.clear(); }
 
 async function discoverAqaSeriesUncached({ year, series, options = {} }) {
   const out = [];
@@ -620,20 +611,6 @@ export async function fetchTextResource(url, options = {}) {
   return text;
 }
 
-// AQA publishes several PDFs per series — GCSE, A-level, AS, Mathematical
-// Studies, ELC — and they are indistinguishable by heading: A-level and AS
-// documents use the same "Subject grade boundaries" wording. Row density is also
-// not a reliable test (the GCSE document was only just the densest).
-//
-// So the document is not classified at all. Instead a candidate is accepted only
-// if parsing it yields the course that was actually asked for, which is the
-// same standard used everywhere else here: a document counts as the GCSE
-// publication if and only if it contains this course's row.
-export function isGcseBoundaryDocument(lines, code, tier) {
-  if (!code) return false;
-  return Boolean(parseAqaGcseRow(lines, code, tier));
-}
-
 // ---------------------------------------------------------------------------
 // progress — what the UI needs to show that work is happening
 // ---------------------------------------------------------------------------
@@ -656,8 +633,6 @@ function emitProgress(patch) {
   for (const fn of progressListeners) { try { fn({ ...progress }); } catch { /* listener fault */ } }
 }
 
-export function getProgress() { return { ...progress }; }
-
 /** Begin reporting acquisition work. Idempotent-safe: each call pairs with end(). */
 export function beginWork(detail = "") {
   emitProgress({ active: progress.active + 1, phase: "fetching", detail });
@@ -672,11 +647,6 @@ export function endWork(ok = true) {
     phase: Math.max(0, progress.active - 1) > 0 ? "fetching" : "ready",
     detail: ""
   });
-}
-
-/** Reset between scopes so a reopened tracker does not show stale totals. */
-export function resetProgress() {
-  emitProgress({ active: 0, done: 0, failed: 0, phase: "idle", detail: "" });
 }
 
 // ---------------------------------------------------------------------------
@@ -798,9 +768,6 @@ async function sha256Digest(bytes) {
 // the whole search.
 const seriesDocumentCache = new Map();
 
-/** Drop cached series documents (tests, force-refresh). */
-export function clearSeriesDocumentCache() { seriesDocumentCache.clear(); }
-
 async function loadSeriesDocument(board, year, month, code, tier, options = {}) {
   // AQA's document choice depends on which course was asked for, so the cache
   // is keyed per course as well as per series. Pearson's publication holds every
@@ -882,25 +849,6 @@ function documentDeclaresSeries(lines, year, month) {
   if (!monthWord || !Number.isInteger(Number(year))) return false;
   const aliases = [monthWord, monthWord.slice(0, 3)];
   return aliases.some((word) => new RegExp(`\\b${word}\\.?[\\s-]+${Number(year)}\\b`, "i").test(text));
-}
-
-/**
- * Every cached exact table for a course. Cheap, offline, and the basis of the
- * "fill every year I've done" behaviour — no refetch needed because official
- * boundaries never change.
- */
-export function cachedBoundariesForCourse({ board, qual, code, tier } = {}) {
-  const b = boardId(board);
-  const q = qualId(qual);
-  const c = String(code || "").trim().toUpperCase();
-  const t = tierId(tier);
-  if (!b || !q || !c) return [];
-  const prefix = `${b}|${q}|${c}|${t || "_"}|`;
-  const cache = readCache();
-  return Object.entries(cache.tables)
-    .filter(([k]) => k.startsWith(prefix))
-    .map(([, v]) => v)
-    .sort((a, b2) => (a.year - b2.year) || (a.month < b2.month ? -1 : a.month > b2.month ? 1 : 0));
 }
 
 /**

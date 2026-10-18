@@ -12,7 +12,6 @@
 // examData, never the other way).
 
 export const BOARD_IDS = ["aqa", "ocr", "pearson"];
-export const QUALIFICATION_IDS = ["gcse", "alevel", "as"];
 
 // id from a board token; null when unrecognised.
 export function boardId(board) {
@@ -134,29 +133,10 @@ export function quickHash(input) {
   return (h >>> 0).toString(16).padStart(8, "0");
 }
 
-export function courseRecord(ck) {
-  const p = parseCourseKey(ck);
-  return p
-    ? { id: ck, board: p.board, qual: p.qual, code: p.code, tier: p.tier }
-    : { id: ck, board: null, qual: null, code: null, tier: null };
-}
-
 export function seriesRecord(series) {
   const sid = seriesId(series);
   if (!sid) return { id: null, ...series };
   return { id: sid, month: series.month, year: Number(series.year), label: series.label || seriesLabel(series) };
-}
-
-export function boundaryRecordId(courseKey, seriesIdValue) {
-  return `${courseKey}|${String(seriesIdValue == null ? "" : seriesIdValue)}`;
-}
-
-export function paperRecordId(courseKey, seriesIdValue, paper) {
-  const code = singleCode(paper && paper.code);
-  const label = String((paper && (paper.label || paper.name || paper.title)) || "").trim()
-    .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-  const key = code || label || "unnamed";
-  return `${courseKey}|${String(seriesIdValue == null ? "" : seriesIdValue)}|${key}`;
 }
 
 export function sourceRecordId(url) {
@@ -185,22 +165,10 @@ export function qualGradeScope(qual) {
   return q === "as" ? "A-E" : "A*-E";
 }
 
-// Paired labels for double-award GCSE (spec: never treat "9-9" as two grades).
-export function doubleAwardLabels() {
-  const labels = ["9-9", "9-8", "8-8", "8-7", "7-7", "7-6", "6-6", "6-5", "5-5", "5-4", "4-4", "4-3", "3-3", "3-2", "2-2", "2-1", "1-1", "U"];
-  return labels;
-}
-
 export function isDoubleAwardGrades(grades) {
   if (!grades) return false;
   const keys = Object.keys(grades);
   return keys.length > 0 && keys.every((k) => /^\d-\d$/.test(String(k)) || String(k) === "U");
-}
-
-export function seriesKeyOf(board, qualId, series) {
-  const id = seriesId(series);
-  if (!id) return null;
-  return `${board}:${id}:${qualId}`;
 }
 
 // Friendly label from a series word ("June 2025", "JUN-2025", "2025") or null.

@@ -18,88 +18,8 @@ import {
   singleCode,
   baseCode,
   tierOf,
-  normalizeTitle,
-  monthFromWord
+  normalizeTitle
 } from "./schema.js";
-
-// ---- DocumentIdentity -------------------------------------------------------
-// Reads what the document itself declares. `series` is the month/year the
-// caller's text extractor found in the PDF (document-derived, never the
-// request). `rows` are the parsed boundary rows (courses/max-marks the
-// document carries). Qualification/documentType/publisher are read from the
-// document's own text lines. When the document does not declare a value, that
-// field stays null — absence stays absent.
-export function documentIdentityOf({ board, lines = [], rows = [], series = null } = {}) {
-  const text = (lines || [])
-    .map((line) => (line && Array.isArray(line.items) ? line.items.map((it) => String(it.str || "")).join(" ") : String(line || "")))
-    .join("\n");
-  const norm = normalizeTitle(text);
-
-  let qualification = null;
-  if (/gcse|\(9-1\)/.test(norm)) qualification = "gcse";
-  else if (/a[\s-]*level|gce\b|advanced level/.test(norm)) qualification = "alevel";
-  else if (/\bas\b/i.test(norm) && !/gcse/.test(norm)) qualification = "as";
-
-  const documentType = /notional/i.test(norm) ? "notional-component" : "grade-boundaries";
-
-  const publisher = /edexcel|pearson/i.test(norm)
-    ? "Pearson Edexcel"
-    : (board ? boardNameOf(board) : null);
-
-  const courses = [];
-  const seenCourses = new Set();
-  for (const row of rows || []) {
-    const code = singleCode(row && row.code);
-    if (!code) continue;
-    const tier = tierOf(row) || null;
-    const key = `${code}|${tier || "_"}`;
-    if (seenCourses.has(key)) continue;
-    seenCourses.add(key);
-    courses.push({ code, tier, maxMark: Number(row.maxMark) || null });
-  }
-
-  const scope = documentType === "notional-component"
-    ? "component"
-    : courses.length === 1
-      ? "single-course"
-      : "qualification";
-
-  return { publisher, qualification, series, documentType, scope, courses };
-}
-
-function boardNameOf(board) {
-  return { pearson: "Pearson Edexcel", aqa: "AQA", ocr: "OCR" }[String(board || "").toLowerCase()] || null;
-}
-
-// Compare a DocumentIdentity against what the request wanted. Problems are
-// strings in the same "AREA: description" vocabulary as validation.js so the
-// pipeline can map them to deterministic unknown reasons.
-export function compareDocumentIdentity(identity, request = {}) {
-  const problems = [];
-  const i = identity || {};
-  const reqQual = qualId(request.qual);
-  const docQual = qualId(i.qualification);
-  if (reqQual && docQual && docQual !== reqQual) {
-    problems.push(`qualification: document declares ${String(i.qualification).toUpperCase()} != requested ${String(reqQual).toUpperCase()}`);
-  }
-  if (i.documentType === "notional-component") {
-    problems.push("component: document is a component-level boundary table");
-  }
-  if (i.series && request.series) {
-    const expYear = Number(request.series.year);
-    if (Number.isFinite(expYear) && Number(i.series.year) !== expYear) {
-      problems.push(`series: document year ${String(i.series.year)} != expected ${expYear} (wrong-year guard)`);
-    }
-    if (request.series.month && i.series.month) {
-      const expMonth = String(request.series.month).toUpperCase();
-      const gotMonth = String(i.series.month).toUpperCase();
-      if (gotMonth !== expMonth && monthFromWord(gotMonth) !== monthFromWord(expMonth)) {
-        problems.push(`series: document month ${gotMonth} != expected ${expMonth} (wrong-series guard)`);
-      }
-    }
-  }
-  return { ok: problems.length === 0, problems };
-}
 
 // ---- evidence scoring (order-only) ------------------------------------------
 // Scoring NEVER picks a winner. It answers "inspect which candidate first?".

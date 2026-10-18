@@ -182,15 +182,6 @@ function publishBoundaryStatus(patch) {
   }
 }
 
-// Subscribe to boundary status. The callback fires immediately with the current
-// status and then on every change (local OR from another tab via BroadcastChannel /
-// a storage event when the channel is unavailable). Returns an unsubscribe fn.
-export function subscribeBoundaryStatus(fn) {
-  statusListeners.add(fn);
-  try { fn(getBoundaryStatus()); } catch { /* ignore */ }
-  return () => statusListeners.delete(fn);
-}
-
 // Fired whenever a series is written into the cache (local or other tab) so
 // UI that renders from the cache can refresh live. Same shape as the status bus.
 function publishBoundaryCacheChanged() {
@@ -211,11 +202,6 @@ function publishBoundaryCacheChanged() {
   } else {
     localStorage.setItem(`${BOUNDARY_CACHE_KEY}_tick`, String(postId));
   }
-}
-
-export function subscribeBoundaryCacheChanged(fn) {
-  cacheListeners.add(fn);
-  return () => cacheListeners.delete(fn);
 }
 
 // Wire the cross-tab channel when running in a browser.
@@ -303,20 +289,12 @@ export function boardToId(board) {
   return null;
 }
 
-export function boardIdToName(id) {
-  return BOARD_IDS[String(id).toLowerCase()] || String(id);
-}
-
 export function qualToId(qual) {
   const q = String(qual || "").trim().toLowerCase();
   if (q.includes("gcse")) return "gcse";
   if (q.includes("a-level") || q.includes("a level") || q.includes("alevel")) return "alevel";
   if (q === "as" || q === "a/s") return "as";
   return null;
-}
-
-export function qualIdToName(id) {
-  return QUAL_IDS[String(id).toLowerCase()] || String(id);
 }
 
 // Tracker series words -> exam-board month code (cache entries are stored by
@@ -447,38 +425,6 @@ export function listCachedCourses(cache) {
     a.qual.localeCompare(b.qual) ||
     (a.title || "").localeCompare(b.title || "")
   );
-}
-
-// High-confidence single match used to tentatively auto-link a subject node
-// from its existing free-text exam board + qualification. Returns the course
-// only when exactly one distinct cached course matches, else null.
-export function matchOfficialCourse(cache, { board, qual, title, code } = {}) {
-  const b = boardToId(board);
-  const q = qualToId(qual);
-  if (!b || !q) return null;
-  const normTitle = normalizeTitle(title);
-  const normCode = singleCode(code);
-  const matches = listCachedCourses(cache).filter((c) => {
-    if (c.board !== b || c.qual !== q) return false;
-    if (normCode && singleCode(c.code) === normCode) return true;
-    // Bare code (8300) must find its tier-suffixed cached rows (8300F/8300H).
-    if (normCode && baseCourseCode(c.code) === baseCourseCode(normCode) && singleCode(c.code) !== normCode) return true;
-    if (normTitle && c.title && normalizeTitle(c.title) === normTitle) return true;
-    return false;
-  });
-  if (matches.length === 1) return matches[0];
-  // Multiple same-code rows (e.g. Foundation + Higher): prefer the tier named
-  // by the title; otherwise prefer the Higher row (9-1) instead of treating
-  // the query as ambiguous — Foundation-only matches still survive below.
-  if (matches.length > 1 && normTitle) {
-    const tiered = matches.filter((c) => normalizeTitle(c.title) === normTitle);
-    if (tiered.length === 1) return tiered[0];
-  }
-  if (matches.length > 1) {
-    const higher = matches.filter((c) => courseTierOf(c) === "H");
-    if (higher.length === 1) return higher[0];
-  }
-  return null;
 }
 
 // ---- Tolerant course resolution ---------------------------------------------
@@ -835,52 +781,6 @@ export function resolveBoundaryDecision(cache, course, year, seriesWord, sitting
   const index = buildExamIndex(cache || {});
   const repo = openExamRepository(index);
   return deriveBoundaryDecision(repo, course, year, seriesWord, sitting || {});
-}
-
-// Union of canonical grade labels for a course across EVERY cached series for
-// that board+qual — so the target-grade picker reflects all usable data, not
-// just whichever series is "most recent". Only labels that actually carry a
-// mark in the tier's row are included (AQA Foundation rows list 9..1 in the
-// header but only hold 5..1 marks, so an F course must NOT offer 9-6 chips).
-// Sorted numeric-desc, then letters.
-export function courseGradeLabels(cache, course) {
-  const boardId = boardToId(course && course.board);
-  const qualId = qualToId(course && course.qual);
-  if (!boardId || !qualId) return [];
-  const labels = [];
-  const seen = new Set();
-  const push = (subject) => {
-    const marks = subject.grades && typeof subject.grades === "object" ? subject.grades : {};
-    const order = Array.isArray(subject.gradesInOrder) && subject.gradesInOrder.length
-      ? subject.gradesInOrder
-      : Object.keys(marks);
-    for (const value of order) {
-      const key = canonicalGradeKey(value);
-      if (!key || key === "U" || seen.has(key)) continue;
-      const present =
-        marks[value] != null || marks[key] != null ||
-        Object.keys(marks).some((k) => canonicalGradeKey(k) === key);
-      if (!present) continue;
-      seen.add(key);
-      labels.push(key);
-    }
-  };
-  for (const entry of Object.values((cache && cache.entries) || {})) {
-    if (String(entry.board || "").toLowerCase() !== boardId) continue;
-    if (String(entry.qual || "").toLowerCase() !== qualId) continue;
-    const subject = findSubjectInEntry(entry, course);
-    if (!subject) continue;
-    push(subject);
-  }
-  labels.sort((a, b) => {
-    const na = Number(a);
-    const nb = Number(b);
-    if (Number.isFinite(na) && Number.isFinite(nb)) return nb - na;
-    if (Number.isFinite(na)) return -1;
-    if (Number.isFinite(nb)) return 1;
-    return a.localeCompare(b);
-  });
-  return labels;
 }
 
 // Every cached series that actually resolves a row for this course, newest
@@ -1654,11 +1554,4 @@ function sweepReentryOld(seriesKey, now) {
   const ts = status.attemptedFailed && status.attemptedFailed[seriesKey];
   if (!ts) return false;
   return now - ts < RETRY_WINDOW_MS;
-}
-
-// Whether a canonical "board:MONTH-YEAR:qual" series key was recently attempted
-// and failed (used by the tracker's targeted auto-warm so a dead series isn't
-// re-fetched on every render — same policy the full sweep already applies).
-export function seriesRecentlyAttempted(seriesKey) {
-  return sweepReentryOld(seriesKey, Date.now());
 }

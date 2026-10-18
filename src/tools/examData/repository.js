@@ -11,12 +11,10 @@
 import {
   courseKey,
   parseCourseKey,
-  normalizeTitle,
   monthFromWord,
   seriesLabel,
   qualName,
-  boardName,
-  singleCode
+  boardName
 } from "./schema.js";
 import { resolveCourseIdentity } from "./identity.js";
 
@@ -305,43 +303,4 @@ export function deriveBoundaryDecision(repo, enrollment, year, seriesWord, sitti
 export function markForDecisionGrade(decision, label) {
   if (!decision || !decision.hasTable) return null;
   return findGradeMarkIn(decision.table, label);
-}
-
-// Scheduler-satisfaction predicate (execution-spec #35-#38): a requirement is
-// satisfied when the repository already holds the exact course+series record —
-// boundary or papers — and it isn't in a failed verification state. Absence
-// and failure keep the requirement open; nothing is ever "good enough" by
-// approximation.
-export function boundarySatisfies(repo, requirement) {
-  if (!repo || !repo.index || !requirement) return false;
-  const ck = requirement.courseKey;
-  if (!ck) return false;
-  const sid = requirement.seriesId || seriesKeySafe(requirement.series);
-  if (!sid) {
-    // month-less year: only satisfied when a boundary exists for that year and
-    // the year resolves unambiguously (single series) — matching pickBoundary.
-    const forYear = [...repo.index.boundaries.values()]
-      .filter((b) => b.courseKey === ck && Number(b.series.year) === Number(requirement.series && requirement.series.year));
-    if (!forYear.length) return false;
-    const distinct = new Set(forYear.map((b) => b.seriesId));
-    return distinct.size === 1;
-  }
-  const target = `${ck}|${sid}`;
-  if (requirement.type === "papers") {
-    for (const b of repo.index.boundaries.values()) {
-      if (b.courseKey === ck && (b.seriesId === sid) && Array.isArray(b.papers) && b.papers.length) return true;
-    }
-    return false;
-  }
-  const b = repo.index.boundaries.get(target);
-  if (!b) return false;
-  const v = b.provenance && b.provenance.verification;
-  return v !== "failed" && v !== "conflicting";
-}
-
-function seriesKeySafe(series) {
-  if (!series) return null;
-  const m = String(series.month || "").trim().toUpperCase();
-  const y = Number(series.year);
-  return m && Number.isFinite(y) ? `${m}-${y}` : series.id || null;
 }

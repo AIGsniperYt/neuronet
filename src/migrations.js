@@ -153,33 +153,3 @@ export function createQuoteNode(quoteText, sourceId, start, end, subject, sectio
     updatedAt: Date.now(),
   };
 }
-
-/**
- * Utility: Create a new analysis node with optional quote references
- * @param {string} subject - Subject name
- * @param {string} title - Analysis title/topic
- * @param {string} analysis - Analysis commentary
- * @param {Array} quoteRefs - Array of quote references [{quoteId, section, quote}, ...]
- * @param {Array} tags - Tags for the analysis
- * @returns {Object} Analysis node object
- */
-export function createAnalysisNode(subject, title, analysis, quoteRefs = [], tags = []) {
-  return {
-    id: crypto.randomUUID(),
-    type: "analysis",
-    subject: subject,
-    section: null,
-    title: title,
-    content: "",
-    analysis: analysis,
-    quoteRefs: quoteRefs,
-    meta: {
-      globalScope: true,
-      tags: tags,
-      confidence: 0.5,
-      nextReview: null,
-    },
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  };
-}

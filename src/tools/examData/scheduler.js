@@ -35,39 +35,6 @@ export const JOB_PRIORITIES = Object.freeze({
   P5_ARCHIVE_SWEEP: "P5-archive-sweep"
 });
 
-// Legal transitions only. A job can never jump to arbitrary states — the
-// machine enforces intent (retryable re-queues; a failed job never becomes
-// succeeded; a succeeded job is terminal unless revalidated).
-const TRANSITIONS = Object.freeze({
-  [JOB_STATES.QUEUED]: [JOB_STATES.RUNNING],
-  [JOB_STATES.RUNNING]: [JOB_STATES.SUCCEEDED, JOB_STATES.RETRYABLE, JOB_STATES.PERMANENT_FAILURE, JOB_STATES.UNCERTAIN],
-  [JOB_STATES.RETRYABLE]: [JOB_STATES.QUEUED, JOB_STATES.RUNNING],
-  [JOB_STATES.SUCCEEDED]: [],
-  [JOB_STATES.PERMANENT_FAILURE]: [],
-  [JOB_STATES.UNCERTAIN]: []
-});
-
-export function transitionJob(job, next, { error, now = Date.now(), retryAt } = {}) {
-  if (!job || !job.id) return { ok: false, job: null, error: "no job" };
-  const cur = String(job.state || "").toLowerCase();
-  if (cur === next) return { ok: true, job };
-  const allowed = TRANSITIONS[cur] || [];
-  if (!allowed.includes(next)) {
-    return { ok: false, job, error: `illegal transition ${cur} -> ${next}` };
-  }
-  return {
-    ok: true,
-    job: {
-      ...job,
-      state: next,
-      attempts: (Number(job.attempts) || 0) + 1,
-      updatedAt: now,
-      lastError: error || job.lastError || null,
-      retryAt: retryAt || null
-    }
-  };
-}
-
 // Create a runnable job record from a requirement. Priority is fixed by the
 // caller (or derived by priorityFor); a job is idempotent on its deterministic
 // key so re-planning never duplicates work.
@@ -90,43 +57,6 @@ export function createJob(requirement, { priority = JOB_PRIORITIES.P1_SITTING, n
     lastError: null,
     retryAt: null
   };
-}
-
-// Map acquisition outcome to the machine state (deterministic per reason).
-// Transient/network-ish reasons retry; deterministic rejections are permanent
-// (the data does not exist as requested); anything else is uncertain.
-const RETRYABLE_REASONS = new Set([
-  "FETCH_FAILED", "RATE_LIMITED", "DISCOVERY_INCOMPLETE", "NO_EXACT_SOURCE", "UNKNOWN_METADATA"
-]);
-export function outcomeToState(reason) {
-  return RETRYABLE_REASONS.has(reason)
-    ? JOB_STATES.RETRYABLE
-    : JOB_STATES.PERMANENT_FAILURE;
-}
-
-// The next job to run: runnable (queued, or retryable past its backoff) sorted
-// by priority (lower = sooner), then oldest first. Returns null when idle.
-export function nextDueJob(jobs, now = Date.now()) {
-  const runnable = (jobs || []).filter((j) => {
-    if (!j) return false;
-    const s = String(j.state || "").toLowerCase();
-    if (s === JOB_STATES.QUEUED) return true;
-    if (s === JOB_STATES.RETRYABLE) return !j.retryAt || Number(j.retryAt) <= now;
-    return false;
-  });
-  if (!runnable.length) return null;
-  runnable.sort((a, b) => {
-    const pa = rankOfPriority(a.priority);
-    const pb = rankOfPriority(b.priority);
-    if (pa !== pb) return pa - pb;
-    return Number(a.createdAt) - Number(b.createdAt);
-  });
-  return runnable[0];
-}
-
-function rankOfPriority(p) {
-  const n = Number(String(p || "").match(/\d/)?.[0] || 5);
-  return Number.isFinite(n) ? n : 5;
 }
 
 // Priority decision (order-only heuristic; the caller can also override):

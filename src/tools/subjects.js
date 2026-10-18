@@ -52,12 +52,6 @@ function writeCache(boards) {
   } catch { /* quota */ }
 }
 
-export function clearSubjectCache() {
-  const s = storage();
-  if (!s) return;
-  try { s.removeItem(CACHE_KEY); } catch { /* ignore */ }
-}
-
 // ---------------------------------------------------------------------------
 // board publication endpoints
 // ---------------------------------------------------------------------------
@@ -186,16 +180,6 @@ export async function findSubjects({ board, year = 2025, series = "JUN" } = {}) 
     writeCache({ ...(cache && cache.boards), [b]: list });
   }
   return list.map((s) => ({ ...s, id: `${s.board}|${s.qual}|${s.code}|${s.tier || "_"}` }));
-}
-
-/**
- * Official courses across several boards, merged and de-duplicated.
- */
-export async function findAllSubjects({ boards = ["pearson", "aqa"], year = 2025 } = {}) {
-  const results = await Promise.all(boards.map((b) => findSubjects({ board: b, year })));
-  const seen = new Map();
-  for (const s of results.flat()) if (s.id) seen.set(s.id, s);
-  return [...seen.values()];
 }
 
 // ---------------------------------------------------------------------------

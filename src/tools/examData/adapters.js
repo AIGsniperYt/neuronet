@@ -3,7 +3,7 @@
 // not proof that every board can acquire data. Tracker acquisition uses the
 // real exact-PDF path in ../boundaries.js (AQA + Pearson GCSE only).
 
-import { boardId, qualId, currentExamYear } from "./schema.js";
+import { boardId, currentExamYear } from "./schema.js";
 
 export const EXAM_BOARDS = [
   {
@@ -39,17 +39,6 @@ export function adapterFor(board) {
   const id = boardId(board);
   if (!id) return null;
   return EXAM_BOARDS.find((b) => b.id === id) || null;
-}
-
-export function listAdapters() {
-  return EXAM_BOARDS.slice();
-}
-
-export function nativeQualification(board, qual) {
-  const a = adapterFor(board);
-  if (!a || !qual) return null;
-  const qid = qualId(qual);
-  return a.qualifications.includes(qid) ? qid : null;
 }
 
 export function defaultSeriesWindow(board, now = Date.now()) {

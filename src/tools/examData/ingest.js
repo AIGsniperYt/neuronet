@@ -196,5 +196,3 @@ export async function getForSitting(repo, enrollment, year, seriesWord, sitting 
   const decision = deriveBoundaryDecision(repo, enrollment, year, seriesWord, sitting);
   return gateDecisionForVerification(repo, enrollment, year, seriesWord, decision);
 }
-
-export { UNKNOWN_REASONS as REASONS };

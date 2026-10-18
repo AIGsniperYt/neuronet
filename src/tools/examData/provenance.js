@@ -42,51 +42,10 @@ export function provenanceOf({ kind, url, publishedAt, accessedAt, parsedAt, ver
   return out;
 }
 
-export function verificationLabel(v) {
-  return {
-    verified: "Verified",
-    uncertain: "Uncertain",
-    conflicting: "Conflicting",
-    failed: "Failed"
-  }[String(v || "")] || "Unverified";
-}
-
-// True only for provenance that may present as "official" without a manual
-// override. The standard is the verified state — a provenance that is merely
-// "uncertain" (official-family but not independently provable) must not render
-// its numbers as official; conflicting sources and parser failures never do.
-export function isPresentableOfficial(p) {
-  return Boolean(p) && p.kind === "official" && p.verification === VERIFY.VERIFIED;
-}
-
 export function provenanceLabel(p) {
   const k = p && p.kind;
   if (k === "official") return "Official";
   if (k === "manual") return "Stored (manual)";
   if (k === "inferred") return "Inferred";
   return "Unknown";
-}
-
-// Richer label carrying the verification state ("Official (Verified)") — used
-// only in diagnostics/detail surfaces, never in the stable label contract.
-export function provenanceLabelDetailed(p) {
-  const k = p && p.kind;
-  if (k === "official") return `Official (${verificationLabel(p && p.verification)})`;
-  return provenanceLabel(p);
-}
-
-export function provenanceDetail(p) {
-  if (!p) return "no provenance recorded";
-  const bits = [provenanceLabelDetailed(p)];
-  if (p.url) bits.push(p.url);
-  if (p.publishedAt) bits.push(`published ${new Date(p.publishedAt).toISOString().slice(0, 10)}`);
-  if (p.parsedAt) bits.push(`parsed ${new Date(p.parsedAt).toISOString().slice(0, 10)}`);
-  if (p.contentHash) bits.push(`sha256:${p.contentHash.slice(0, 12)}…`);
-  return bits.join(" · ");
-}
-
-// A value copied into a tracker sitting (gradeBoundary / gradeBoundaries) can
-// never prove its own origin — unless it carries provenance tags. Never assume.
-export function sittingProvenance(sitting) {
-  return provenanceOf((sitting && sitting._provenance) || { kind: "manual", reason: "stored-with-sitting" });
 }
