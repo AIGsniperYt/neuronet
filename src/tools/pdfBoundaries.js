@@ -510,13 +510,20 @@ function parsePearsonSections(lines, qual) {
 
     const first = toks[0];
     if (!isCode(first)) continue;
-    if (!toks.includes("Subject")) continue;
+    const subjIdx = toks.indexOf("Subject");
+    // Pearson's 2017 publications use "CODE Subject Tier Raw ..." without a
+    // literal "Subject" column token. Accept that shape too, otherwise the
+    // first two reformed GCSE series would be silently absent from the picker.
+    const legacyRawIdx = subjIdx < 0 ? toks.indexOf("Raw") : -1;
+    const hasSubject = subjIdx > 0;
+    const hasLegacyRaw = legacyRawIdx > 1;
+    if (!hasSubject && !hasLegacyRaw) continue;
     if (toks.includes("Paper(s)")) continue;
     if (!inSection && (qual === "as" || qual === "aLevel")) continue;
 
-    const subjIdx = toks.indexOf("Subject");
-    const title = toks.slice(1, subjIdx).join(" ");
-    const rest = toks.slice(subjIdx + 1);
+    const splitAt = hasSubject ? subjIdx : legacyRawIdx;
+    const title = toks.slice(1, splitAt).join(" ");
+    const rest = toks.slice(splitAt + 1);
     if (rest.length < 2) continue;
     const maxMark = parseInt(rest[0], 10);
     if (!isFinite(maxMark) || maxMark <= 0) continue;
@@ -534,11 +541,15 @@ function parsePearsonSections(lines, qual) {
         .map((c) => c.label);
     }
     if (!gradesInOrder.length) {
-      for (let g = 0; g < gradeLabels.length && g + 1 < rest.length; g++) {
+      const titleTier = tierFromTitle(title);
+      const labels = titleTier === "H" ? gradeLabels.slice(0, 7)
+        : titleTier === "F" ? gradeLabels.slice(4, 9)
+        : gradeLabels;
+      for (let g = 0; g < labels.length && g + 1 < rest.length; g++) {
         const v = parseInt(rest[g + 1], 10);
-        if (isFinite(v)) grades[gradeLabels[g]] = v;
+        if (isFinite(v)) grades[labels[g]] = v;
       }
-      gradesInOrder = gradeLabels;
+      gradesInOrder = labels.filter((label) => grades[label] !== undefined);
     }
 
     subjects.push({

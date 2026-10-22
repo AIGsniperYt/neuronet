@@ -844,6 +844,7 @@ const AQA_SERIES = [
 ];
 
 const AQA_FILE_BASE = "https://filestore.aqa.org.uk/over/stat_pdf";
+const AQA_ARCHIVE_URL = "https://www.aqa.org.uk/exams-administration/results-days/grade-boundaries/archive";
 const AQA_MONTHS = [
   ["January", "JAN"], ["February", "FEB"], ["March", "MAR"], ["April", "APR"],
   ["May", "MAY"], ["June", "JUN"], ["July", "JUL"], ["August", "AUG"],
@@ -887,17 +888,12 @@ const ENGINE_QR = {
 };
 
 const PEARSON_DAM = "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries";
-// Baseline = every series in the VERIFIED_CATALOGUE (real, hash-confirmed PDFs)
-// plus the live landing-page trails. June 2022 (2206-…pdf) is genuinely
-// acquirable; the old pattern-URL for it was a dead guess.
-const PEARSON_BASELINE = [
-  { month: "JUN", year: 2022, label: "June 2022" },
-  { month: "JUN", year: 2023, label: "June 2023" },
-  { month: "JUN", year: 2024, label: "June 2024" },
-  { month: "NOV", year: 2024, label: "November 2024" },
-  { month: "JUN", year: 2025, label: "June 2025" },
-  { month: "NOV", year: 2025, label: "November 2025" }
-];
+// Baseline = every series in VERIFIED_CATALOGUE (real, hash-confirmed PDFs).
+// Deriving it avoids a second hand-maintained list drifting out of sync with
+// what the scraper can actually fetch.
+const PEARSON_BASELINE = VERIFIED_CATALOGUE
+  .filter((r) => r.qual === "gcse")
+  .map((r) => ({ month: r.month, year: r.year, label: `${monthAbbrevToFull(r.month)} ${r.year}` }));
 // Verified official url per "MONTH-YEAR:qual" (content-hash confirmed).
 const PEARSON_VERIFIED = new Map(VERIFIED_CATALOGUE.map((r) => [`${r.month}-${r.year}:${r.qual}`, r.url]));
 
@@ -952,9 +948,18 @@ async function fetchBoundaryResource(url) {
   // status included: boards (filestore.aqa.org.uk etc.) send no CORS headers,
   // so a direct browser fetch can never succeed here — firing a second request
   // after a proxy 404/5xx is pure waste.
+  const attempt = async (target) => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 20000);
+    try {
+      return await fetch(target, { signal: ctrl.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
   let proxied;
   try {
-    proxied = await fetch(boundaryProxyUrl(url));
+    proxied = await attempt(boundaryProxyUrl(url));
     if (proxied.ok) return proxied;
     throw new Error(`HTTP ${proxied.status} via proxy for ${url}`);
   } catch (e) {
@@ -962,7 +967,7 @@ async function fetchBoundaryResource(url) {
     // through to the direct request, which *might* work when the board allows
     // cross-origin reads. Otherwise rethrow the original proxy error.
     try {
-      const direct = await fetch(url);
+      const direct = await attempt(url);
       if (direct.ok) return direct;
     } catch {
       /* direct fetch has no CORS access either */
@@ -1019,12 +1024,59 @@ function legacyAqaSeriesUrl(qual, series) {
   return `${AQA_FILE_BASE}/${qual.filePrefix}-${series.month}-${series.year}${legacyExt}`;
 }
 
-function aqaSeriesFormat(qual, series) {
-  return discovered.aqa.get(`${seriesKey(series)}:${qual.id}`)?.format || series.format || "xlsx";
+// AQA moved recent grade-boundary files to its CMS (cdn.sanity.io) and the
+// old filestore URLs now redirect to a 404 page. The archive page embeds the
+// published file list, so read the real URL for each series from there.
+function parseAqaArchiveFiles(html) {
+  const out = new Map();
+  const pairRe = /originalFilename\\?"\s*:\s*\\?"(AQA-[^"\\]+?\.(?:XLSX|XLS|PDF))\\?"[\s\S]{0,4000}?url\\?"\s*:\s*\\?"(https:\/\/cdn\.sanity\.io\/files\/[^"\\]+)\\?"/gi;
+  const qualByPrefix = { GCSE: "gcse", "A-LEVEL": "aLevel", AS: "as" };
+  let m;
+  while ((m = pairRe.exec(html)) !== null) {
+    const parsed = /^AQA-(GCSE|A-LEVEL|AS)-.+-([A-Z]{3,9})-(\d{4})\.(XLSX|XLS|PDF)$/i.exec(m[1]);
+    if (!parsed) continue;
+    const qualId = qualByPrefix[parsed[1].toUpperCase()];
+    const month = parsed[2].slice(0, 3).toUpperCase();
+    const year = Number(parsed[3]);
+    if (!qualId || !year) continue;
+    const key = `${month}-${year}:${qualId}`;
+    const format = parsed[4].toLowerCase() === "pdf" ? "pdf" : "xlsx";
+    const existing = out.get(key);
+    if (existing && (existing.format === "xlsx" || format === "pdf")) continue;
+    out.set(key, { url: m[2], format });
+  }
+  return out;
 }
 
-function aqaSeriesUrl(qual, series) {
-  return discovered.aqa.get(`${seriesKey(series)}:${qual.id}`)?.url || legacyAqaSeriesUrl(qual, series);
+let aqaArchivePromise = null;
+async function aqaArchiveIndex() {
+  if (!aqaArchivePromise) {
+    aqaArchivePromise = (async () => {
+      try {
+        const res = await fetchBoundaryResource(AQA_ARCHIVE_URL);
+        return parseAqaArchiveFiles(await res.text());
+      } catch {
+        return new Map();
+      }
+    })();
+  }
+  const files = await aqaArchivePromise;
+  if (files.size === 0) aqaArchivePromise = null; // retry on the next series
+  return files;
+}
+
+async function aqaSeriesUrl(qual, series) {
+  const month = String(series.month || "").slice(0, 3).toUpperCase();
+  const key = `${month}-${series.year}:${qual.id}`;
+  const known = discovered.aqa.get(key);
+  if (known?.url) return known.url;
+  const files = await aqaArchiveIndex();
+  const found = files.get(key);
+  if (found) {
+    discovered.aqa.set(key, found);
+    return found.url;
+  }
+  return legacyAqaSeriesUrl(qual, series);
 }
 
 function pearsonSeriesUrl(qual, series) {
@@ -1104,8 +1156,8 @@ export async function fetchBoundarySubjects(board, qual, series, onProgress) {
   let url;
   let fileType;
   if (bId === "aqa") {
-    url = aqaSeriesUrl(qual, series);
-    fileType = aqaSeriesFormat(qual, series);
+    url = await aqaSeriesUrl(qual, series);
+    fileType = /\.pdf(?:\?|$)/i.test(url) ? "pdf" : "xlsx";
   } else if (bId === "ocr") {
     url = discovered.ocr.get(`${seriesKey(series)}:${qual.id}`);
     fileType = "pdf";

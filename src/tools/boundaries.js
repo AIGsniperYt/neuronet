@@ -71,7 +71,8 @@ function splitCodeTier(code, tier) {
 }
 
 export function monthId(series) {
-  const s = String(series || "").trim().toLowerCase();
+  const raw = series && typeof series === "object" ? series.month : series;
+  const s = String(raw || "").trim().toLowerCase();
   if (!s) return null;
   const map = {
     jan: "JAN", january: "JAN",
@@ -91,7 +92,9 @@ export function boundaryKey({ board, qual, code, tier, year, series }) {
   const q = qualId(qual);
   const m = monthId(series);
   const { code: c, tier: t } = splitCodeTier(code, tier);
-  const y = year == null ? null : Number(year);
+  let y = null;
+  if (year != null) y = Number(year);
+  else if (series && typeof series === "object" && series.year != null) y = Number(series.year);
   if (!b || !q || !c || !m || !Number.isInteger(y)) return null;
   return `${b}|${q}|${c}|${t || "_"}|${m}|${y}`;
 }
@@ -196,35 +199,45 @@ async function pdfTextFromBytes(bytes) {
 // board sources
 // ---------------------------------------------------------------------------
 
-// Pearson Edexcel publishes one PDF per series containing every GCSE subject.
-// The filename convention is stable enough to construct for June from 2023
-// onward; earlier years are reached through the archive catalogue below.
+// Pearson Edexcel publishes one PDF per series containing every GCSE subject
+// (Maths and English are split into their own PDF for November). Filenames
+// changed over the years, so every series below is pinned to a document that
+// was fetched live and whose cover was parsed. A year with no entry is not
+// guessed: it was either cancelled (June 2020/2021) or is not on this list yet.
 const PEARSON_GCSE_9_1 = {
-  JUN: (y) => `https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/${y}06-gcse-9-1-subject-grade-boundaries.pdf`,
-  JUN_LEGACY: {
+  JUN: {
+    2026: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/grade-boundaries-june-2026-gcse.pdf",
     2025: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/grade-boundaries-june-2025-gcse.pdf",
     2024: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/grade-boundaries-june-2024-gcse.pdf",
     2023: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/2306-gcse-9-1-subject-grade-boundaries.pdf",
     2022: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/2206-gcse-9-1-subject-grade-boundaries.pdf",
-    NOV: {
-      2022: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/2211-gcse-9-1-subject-grade-boundaries-v1.pdf"
-    }
+    2019: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/1906-gcse-9-1-subject-grade-boundaries.pdf",
+    2018: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/1806-GCSE-9-1-Subject-Grade-Boundaries.pdf",
+    2017: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/1706-gcse-9-1-grade-boundaries-v1.pdf"
+  },
+  NOV: {
+    2025: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/grade-boundaries-november-2025-gcse.pdf",
+    2024: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/grade-boundaries-november-2024-gcse.pdf",
+    2023: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/2311-gcse-9-1-subject-grade-boundaries.pdf",
+    2022: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/2211-gcse-9-1-subject-grade-boundaries-v1.pdf",
+    2021: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/2111_GCSE_9-1_Maths_and_Eng_Subject_Grade_Boundaries.pdf",
+    2020: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/grade-boundaries-nov-2020-gcse-9-1-maths-eng.pdf",
+    2019: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/1911-gcse-9-1-subject-grade-boundaries.pdf",
+    2018: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/1811-GCSE-9-1-Subject-Grade-Boundaries.pdf",
+    2017: "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries/GCSE/1711-gcse-9-1-grade-boundaries.pdf"
   }
 };
 
 export function pearsonSeriesUrl(year, month) {
   const y = Number(year);
-  if (month === "JUN") {
-    const legacy = PEARSON_GCSE_9_1.JUN_LEGACY[y];
-    if (legacy && typeof legacy === "string") return legacy;
-    if (y >= 2023) return PEARSON_GCSE_9_1.JUN(y);
-  }
-  if (month === "NOV") {
-    const nov = PEARSON_GCSE_9_1.JUN_LEGACY.NOV[y];
-    if (nov) return nov;
-    if (y >= 2023) return PEARSON_GCSE_9_1.JUN(y).replace("06-", "11-");
-  }
-  return null;
+  const byYear = month === "JUN" ? PEARSON_GCSE_9_1.JUN
+    : month === "NOV" ? PEARSON_GCSE_9_1.NOV
+    : null;
+  if (!byYear) return null;
+  // Pinned entries are authoritative. Do not construct a URL for an unseen
+  // year: Pearson used at least four filename shapes and a guess is a silent
+  // 404 presented to the user as "unavailable".
+  return byYear[y] || null;
 }
 
 // AQA publications sit behind hashed CDN paths that cannot be constructed from
@@ -284,6 +297,56 @@ export async function discoverAqaSeries(request = {}, options = {}) {
   return promise;
 }
 
+// AQA publishes one PDF per qualification per series, and the visible cards
+// are often labelled only by section. The archive page also carries the real
+// filename ("AQA-GCSE-GDE-BDY-JUN-2025.PDF") in its embedded CMS data; pair
+// that with the card anchors by file hash so the GCSE document is known before
+// any download and the parser does not walk every A-level/AS/ELC candidate.
+function aqaFileHash(value) {
+  const m = /\/files\/(?:[^/]+\/)?([a-f0-9]{40,64})(?:\.pdf)?(?:[?#]|$)/i.exec(String(value || ""));
+  return m ? m[1].toLowerCase() : "";
+}
+
+function aqaAnchorUrlsByHash(html) {
+  const out = new Map();
+  for (const m of html.matchAll(/<a\b[^>]*href=["']([^"']+\.pdf)["'][^>]*>/gi)) {
+    const href = m[1];
+    const absolute = /^https?:/i.test(href)
+      ? href
+      : `https://www.aqa.org.uk${href.startsWith("/") ? "" : "/"}${href}`;
+    const hash = aqaFileHash(absolute);
+    if (hash && !out.has(hash)) out.set(hash, absolute);
+  }
+  return out;
+}
+
+function aqaArchiveCandidatesFromJson(html, year, series, anchors) {
+  const out = [];
+  const pairRe = /originalFilename\\?"\s*:\s*\\?"(AQA-[^"\\]+?\.(?:PDF|XLSX|XLS))\\?"[\s\S]{0,4000}?url\\?"\s*:\s*\\?"(https:\/\/cdn\.sanity\.io\/files\/[^"\\]+)\\?"/gi;
+  let m;
+  while ((m = pairRe.exec(html)) !== null) {
+    const file = m[1];
+    if (!/\.pdf$/i.test(file)) continue; // this engine parses PDFs only
+    const parsed = /^AQA-(.+?)-GDE-BDY-([A-Z]{3,9})-(\d{4})\.PDF$/i.exec(file);
+    if (!parsed) continue;
+    if (Number(parsed[3]) !== year) continue;
+    if (parsed[2].slice(0, 3).toUpperCase() !== series) continue;
+    const hash = aqaFileHash(m[2]);
+    const url = (hash && anchors.get(hash)) || m[2];
+    out.push({ url, title: `${parsed[1]} - Grade boundaries ${series} ${year}`, hash });
+  }
+  return out;
+}
+
+function aqaCandidateRank(candidate) {
+  const t = String((candidate && candidate.title) || "").toLowerCase();
+  if (t.includes("gcse")) return 0;
+  if (t.includes("a-level") || t.includes("a level")) return 3;
+  if (/\bas\b/.test(t)) return 4;
+  if (t.includes("elc") || t.includes("fcse")) return 2;
+  return 1;
+}
+
 async function discoverAqaSeriesUncached({ year, series, options = {} }) {
   const out = [];
   const seen = new Set();
@@ -293,6 +356,13 @@ async function discoverAqaSeriesUncached({ year, series, options = {} }) {
     // direct browser fetch cannot succeed and only logs a CORS error.
     const html = await fetchTextResource(page, options);
     if (!html) continue;
+    const anchors = aqaAnchorUrlsByHash(html);
+    const named = aqaArchiveCandidatesFromJson(html, year, series, anchors);
+    for (const candidate of named) {
+      if (!candidate.url || seen.has(candidate.url)) continue;
+      seen.add(candidate.url);
+      out.push(candidate);
+    }
     // Inline SVG carries no useful text and would drown the card labels.
     const clean = html.replace(/<svg[\s\S]*?<\/svg>/g, " ");
 
@@ -339,7 +409,16 @@ async function discoverAqaSeriesUncached({ year, series, options = {} }) {
     }
     if (out.length) break; // the live page wins; the archive is the fallback
   }
-  diag("B? ", "discoverAqaSeries result", { year: year, series: series, candidates: out.length, urls: out.map(function (f) { return f.url.slice(0, 80); }) });
+  // The GCSE publication is the one this engine parses. Put it first so a
+  // series costs one PDF download, not one per A-level/AS/ELC publication.
+  out.sort((a, b) => aqaCandidateRank(a) - aqaCandidateRank(b));
+  diag("B? ", "discoverAqaSeries result", {
+    year: year,
+    series: series,
+    candidates: out.length,
+    urls: out.map(function (f) { return f.url.slice(0, 80); }),
+    titles: out.map(function (f) { return f.title; })
+  });
   return out;
 }
 
@@ -367,8 +446,10 @@ const NINE_ONE_F = ["5", "4", "3", "2", "1"];
 export function parsePearsonGcseRow(lines, code, tier) {
   for (const line of lines) {
     if (!line.includes(code)) continue;
-    const isFoundation = /\(Foundation\)/i.test(line);
-    const isHigher = /\(Higher\)/i.test(line);
+    // Older Pearson PDFs print "Mathematics Higher" rather than
+    // "Mathematics (Higher)"; both are the same tier row.
+    const isFoundation = /\(Foundation\)/i.test(line) || /\bFoundation\b/i.test(line);
+    const isHigher = /\(Higher\)/i.test(line) || /\bHigher\b/i.test(line);
     if (isFoundation && tier !== "F") continue;
     if (isHigher && tier !== "H") continue;
     if (tier === "F" && !isFoundation) continue;
@@ -660,9 +741,15 @@ export function endWork(ok = true) {
  *   the published table, or null when it cannot be satisfied exactly.
  */
 export async function getBoundaries({ board, qual, code, tier, year, series } = {}, options = {}) {
-  const key = boundaryKey({ board, qual, code, tier, year, series });
-  diag("B? ", "getBoundaries called", { board: board, qual: qual, code: code, tier: tier, year: year, series: series, key: key });
-  if (!key) { diag("B? ", "NULL: boundaryKey rejected the request", { board: board, qual: qual, code: code, tier: tier, year: year, series: series }); return null; }
+  // The engine's acquisition request carries `series` as { month, year },
+  // while direct callers pass a series word plus a separate year. Both address
+  // the same publication; normalize before identity so an object can never be
+  // stringified into "[object Object]" and silently fail closed.
+  const seriesValue = series && typeof series === "object" ? series.month : series;
+  const yearValue = (year == null && series && typeof series === "object") ? series.year : year;
+  const key = boundaryKey({ board, qual, code, tier, year: yearValue, series: seriesValue });
+  diag("B? ", "getBoundaries called", { board: board, qual: qual, code: code, tier: tier, year: yearValue, series: seriesValue, key: key });
+  if (!key) { diag("B? ", "NULL: boundaryKey rejected the request", { board: board, qual: qual, code: code, tier: tier, year: yearValue, series: seriesValue }); return null; }
 
   const cached = cachedBoundary(key);
   if (cached && isOfficialSourceUrl(cached.source && cached.source.url, boardId(board))
@@ -676,8 +763,8 @@ export async function getBoundaries({ board, qual, code, tier, year, series } = 
   }
 
   const b = boardId(board);
-  const month = monthId(series);
-  const y = Number(year);
+  const month = monthId(seriesValue);
+  const y = Number(yearValue);
   const { code: c, tier: t } = splitCodeTier(code, tier);
 
   // Until a parser for a board/qualification is verified, fail closed rather
@@ -747,7 +834,12 @@ function isOfficialSourceUrl(value, board) {
     const url = new URL(String(value || ""));
     if (url.protocol !== "https:") return false;
     const host = url.hostname.toLowerCase();
-    if (board === "aqa") return host === "aqa.org.uk" || host.endsWith(".aqa.org.uk");
+    if (board === "aqa") {
+      if (host === "aqa.org.uk" || host.endsWith(".aqa.org.uk")) return true;
+      // AQA's CMS serves the same published files from its own Sanity project;
+      // accept that project only, never Sanity at large.
+      return host === "cdn.sanity.io" && url.pathname.startsWith("/files/p28bar15/green/");
+    }
     if (board === "pearson") return host === "pearson.com" || host.endsWith(".pearson.com");
     return false;
   } catch {
@@ -760,6 +852,35 @@ async function sha256Digest(bytes) {
   if (!subtle || typeof subtle.digest !== "function") return null;
   const digest = await subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+// Verified AQA GCSE publications, parsed and row-checked. Recent series are
+// served from AQA's own Sanity project; these content-addressed URLs are
+// stable. Discovery below still covers every other series and acts as a
+// fallback if a pinned file ever disappears.
+const AQA_VERIFIED_GCSE = {
+  "JUN-2024": "https://cdn.sanity.io/files/p28bar15/green/fc6e25026a0ec5cc438923039fd8b0bae581c285.pdf",
+  "JUN-2025": "https://cdn.sanity.io/files/p28bar15/green/ae1e25e87bcd136c90d5db0577ff92ffce552c7b.pdf"
+};
+
+async function tryAqaDocument(url, year, month, codeUp, tierNorm, options) {
+  const bytes = await fetchBoardResource(url, options);
+  if (!bytes) { diag("B? ", "AQA candidate fetch failed", { url: url.slice(0, 80) }); return null; }
+  if (!isPdfBytes(bytes)) { diag("B? ", "AQA candidate is not a PDF", { url: url.slice(0, 80) }); return null; }
+  let lines;
+  try {
+    lines = await pdfTextFromBytes(bytes);
+  } catch (e) {
+    diag("B? ", "AQA candidate parse threw", { url: url.slice(0, 80), error: String(e && e.message) });
+    return null;
+  }
+  if (!documentDeclaresSeries(lines, year, month)) {
+    diag("B? ", "AQA candidate series mismatch", { url: url.slice(0, 80), year, month });
+    return null;
+  }
+  const match = parseAqaGcseRow(lines, codeUp, tierNorm);
+  diag("B? ", "AQA candidate check", { url: url.slice(0, 80), code: codeUp, tier: tierNorm, match: !!match });
+  return match ? { bytes, url } : null;
 }
 
 // The GCSE publication for a series, found once and then reused. Resolving it
@@ -790,6 +911,15 @@ async function loadSeriesDocument(board, year, month, code, tier, options = {}) 
       return documentDeclaresSeries(lines, year, month) ? { bytes, url } : null;
     }
     if (board === "aqa") {
+      const codeUp = String(code).trim().toUpperCase();
+      const tierNorm = tierId(tier);
+      const verified = AQA_VERIFIED_GCSE[`${month}-${Number(year)}`];
+      if (verified) {
+        diag("B? ", "AQA verified series URL", { url: verified.slice(0, 80) });
+        const hit = await tryAqaDocument(verified, year, month, codeUp, tierNorm, options);
+        if (hit) return hit;
+        diag("B? ", "AQA verified URL rejected; falling back to discovery", { code: codeUp, tier: tierNorm });
+      }
       // AQA's archive lists several PDFs per series (GCSE, Mathematical Studies,
       // ELC, AS, A-level) whose labels are easy to confuse, so the document is
       // chosen by parsing it, never by its filename or card label. The GCSE
@@ -797,20 +927,12 @@ async function loadSeriesDocument(board, year, month, code, tier, options = {}) 
       const urls = await aqaSeriesUrls(year, month, options);
       diag("B? ", "AQA candidate URLs", { count: urls.length, urls: urls.map(function (u) { return u.slice(0, 80); }) });
       for (const url of urls) {
-        const bytes = await fetchBoardResource(url, options);
-        if (!bytes) { diag("B? ", "AQA candidate fetch failed", { url: url.slice(0, 80) }); continue; }
-        if (!isPdfBytes(bytes)) { diag("B? ", "AQA candidate is not a PDF", { url: url.slice(0, 80) }); continue; }
-        let lines;
-        try { lines = await pdfTextFromBytes(bytes); } catch (e) { diag("B? ", "AQA candidate parse threw", { url: url.slice(0, 80), error: String(e && e.message) }); continue; }
-        if (!documentDeclaresSeries(lines, year, month)) { diag("B? ", "AQA candidate series mismatch", { url: url.slice(0, 80), year, month }); continue; }
-        const codeUp = String(code).trim().toUpperCase();
-        const tierNorm = tierId(tier);
-        const match = parseAqaGcseRow(lines, codeUp, tierNorm);
-        diag("B? ", "AQA candidate check", { url: url.slice(0, 80), code: codeUp, tier: tierNorm, match: !!match });
+        if (url === verified) continue;
+        const hit = await tryAqaDocument(url, year, month, codeUp, tierNorm, options);
         // Accept the candidate only if it really contains the requested
         // course. This is what keeps A-level and AS documents from being
         // mistaken for the GCSE one.
-        if (match) return { bytes, url };
+        if (hit) return hit;
       }
       diag("B? ", "AQA: no candidate document matched", { code: code, tier: tier });
       return null;
@@ -847,8 +969,13 @@ function documentDeclaresSeries(lines, year, month) {
   const text = (lines || []).join(" ").replace(/\s+/g, " ");
   const monthWord = MONTH_WORDS[month];
   if (!monthWord || !Number.isInteger(Number(year))) return false;
+  // pdf.js sometimes emits a year with a gap inside it ("June 202 3") when the
+  // PDF uses tighter kerning. Allow whitespace between the digits so the
+  // document's own cover still proves its series without loosening the match
+  // into a cross-year one.
+  const yearPattern = String(Number(year)).split("").join("\\s*");
   const aliases = [monthWord, monthWord.slice(0, 3)];
-  return aliases.some((word) => new RegExp(`\\b${word}\\.?[\\s-]+${Number(year)}\\b`, "i").test(text));
+  return aliases.some((word) => new RegExp(`\\b${word}\\.?[\\s-]+${yearPattern}\\b`, "i").test(text));
 }
 
 /**

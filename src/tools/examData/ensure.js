@@ -72,7 +72,12 @@ function sourcesValidFor(boundary, snap) {
       const url = new URL(source.url);
       if (url.protocol !== "https:") return false;
       const host = url.hostname.toLowerCase();
-      if (courseBoard === "aqa") return host === "aqa.org.uk" || host.endsWith(".aqa.org.uk");
+      if (courseBoard === "aqa") {
+        if (host === "aqa.org.uk" || host.endsWith(".aqa.org.uk")) return true;
+        // AQA publishes recent series from its own Sanity project; accept that
+        // project only, never Sanity at large.
+        return host === "cdn.sanity.io" && url.pathname.startsWith("/files/p28bar15/green/");
+      }
       if (courseBoard === "pearson") return host === "pearson.com" || host.endsWith(".pearson.com");
       return false;
     } catch {
@@ -156,7 +161,16 @@ export async function ensureExamData({
     result.boundary = boundary2;
     result.sourcesValid = sourcesValidFor(boundary2, snap2);
     result.acquired = env;
-    if (boundary2 && result.sourcesValid) result.status = ENSURE_STATUS.COMPLETE;
+    if (boundary2 && result.sourcesValid) {
+      result.status = ENSURE_STATUS.COMPLETE;
+      result.reason = "acquired";
+    } else {
+      // The acquisition outcome is the authoritative reason a read model has no
+      // table. Do not keep the request-shaped placeholder: it hides the real
+      // fetch/parse failure from the tracker and from diagnostics.
+      result.reason = (env && env.reason) || UNKNOWN_REASONS.NO_EXACT_SOURCE;
+      result.missing = ["boundary"];
+    }
   } else {
     result.queue = [
       createJob({

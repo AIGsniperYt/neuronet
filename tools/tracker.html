@@ -63,6 +63,8 @@
     #trackerToolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 18px; flex-wrap: wrap; }
     #trackerToolbar #trackerTableInfo { font-size: 0.88rem; color: var(--text-muted); white-space: nowrap; }
     #trackerToolbar #trackerTableInfo b { color: var(--accent); }
+    #trackerToolbar #trackerWarmStatus { font-size: 0.82rem; color: var(--accent); }
+    #trackerToolbar #trackerWarmStatus[hidden] { display: none; }
     .tracker-add-pill { order: 99; }
     #trackerDropBtn { margin-left: auto; }
     #trackerToolbar input[type="text"] {
@@ -496,11 +498,11 @@
     <div id="trackerPapers">
       <div class="tracker-page-head">
         <h2>Papers</h2>
-        <p>Each entry is one sitting (a paper taken in a given year &amp; series), with per-paper scores and retakes. Grade boundaries come straight from the fetched subject pack.</p>
       </div>
       <div id="trackerToolbar">
         <datalist id="trackerSubjectList"></datalist>
         <span id="trackerTableInfo"></span>
+        <span id="trackerWarmStatus" hidden></span>
         <div id="trackerLinkArea" class="tracker-link-area">
           <span id="trackerLinkPill"></span>
           <div id="trackerLinkPop" hidden>

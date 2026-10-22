@@ -227,6 +227,15 @@ try {
     "badges=" + JSON.stringify(allBnd));
   check("2025 row renders official 217", allBnd.some((b) => b.includes("9 ≥ 217")),
     "badges=" + JSON.stringify(allBnd));
+  // Default display is top/middle/lowest, deliberately, so a repeated top
+  // threshold (real for several boards/years) is visibly backed by distinct
+  // lower thresholds rather than looking like a duplicated row.
+  check("default boundary shows top/middle/lowest, not just top",
+    rows.some((r) =>
+      r.badges.some((b) => b.text.includes("9 ≥ 197")) &&
+      r.badges.some((b) => b.text.includes("6 ≥ 105")) &&
+      r.badges.some((b) => b.text.includes("3 ≥ 26"))),
+    JSON.stringify(rows.map((r) => r.badges.map((b) => b.text))));
   const projected = rows.find((r) => r.session === "") ||
     rows.find((r) => r.badges.some((b) => b.cls.includes("bnd-proj")));
   check("undated row labelled projected (bnd-proj)",

@@ -2,6 +2,7 @@
 import assert from "node:assert";
 import { Exam, sync } from "../../src/tools/examData/app.js";
 import * as storage from "../../src/tools/examData/storage.js";
+import { boundaryKey, pearsonSeriesUrl, parsePearsonGcseRow } from "../../src/tools/boundaries.js";
 
 async function seedBoundary(board, code, tier, year, grades, gradesInOrder) {
   const courseKey = `${board}:gcse:${code}${tier ? `:${tier}` : ""}`;
@@ -30,6 +31,49 @@ async function seedBoundary(board, code, tier, year, grades, gradesInOrder) {
 export async function run() {
   let count = 0;
   console.log("Running boundaries.mjs tests...");
+
+  // Test 0: the acquisition path supplies `series` as { month, year }, while
+  // direct callers supply a word plus a year. Both must key identically; the
+  // object form previously stringified to "[object Object]" and failed closed.
+  const objectKey = boundaryKey({ board: "aqa", qual: "gcse", code: "8461", tier: "H", series: { month: "JUN", year: 2025 } });
+  const wordKey = boundaryKey({ board: "aqa", qual: "gcse", code: "8461", tier: "H", year: 2025, series: "June" });
+  assert.strictEqual(objectKey, "aqa|gcse|8461|H|JUN|2025");
+  assert.strictEqual(wordKey, objectKey);
+  count += 2;
+
+  // Test 0b: Pearson's legacy series URLs are pinned official documents, not
+  // filename guesses. June 2020/2021 were cancelled and must stay null.
+  assert.ok(pearsonSeriesUrl(2017, "JUN").includes("1706-gcse-9-1-grade-boundaries-v1.pdf"));
+  assert.ok(pearsonSeriesUrl(2017, "NOV").includes("1711-gcse-9-1-grade-boundaries.pdf"));
+  assert.ok(pearsonSeriesUrl(2018, "JUN").includes("1806-GCSE-9-1-Subject-Grade-Boundaries.pdf"));
+  assert.ok(pearsonSeriesUrl(2018, "NOV").includes("1811-GCSE-9-1-Subject-Grade-Boundaries.pdf"));
+  assert.ok(pearsonSeriesUrl(2019, "JUN").includes("1906-gcse-9-1-subject-grade-boundaries.pdf"));
+  assert.ok(pearsonSeriesUrl(2019, "NOV").includes("1911-gcse-9-1-subject-grade-boundaries.pdf"));
+  assert.ok(pearsonSeriesUrl(2020, "NOV").includes("grade-boundaries-nov-2020-gcse-9-1-maths-eng.pdf"));
+  assert.ok(pearsonSeriesUrl(2021, "NOV").includes("2111_GCSE_9-1_Maths_and_Eng_Subject_Grade_Boundaries.pdf"));
+  assert.ok(pearsonSeriesUrl(2023, "NOV").includes("2311-gcse-9-1-subject-grade-boundaries.pdf"));
+  assert.ok(pearsonSeriesUrl(2026, "JUN").includes("grade-boundaries-june-2026-gcse.pdf"));
+  assert.strictEqual(pearsonSeriesUrl(2020, "JUN"), null);
+  assert.strictEqual(pearsonSeriesUrl(2021, "JUN"), null);
+  // Unlisted years must fail closed, not get a constructed fake filename.
+  assert.strictEqual(pearsonSeriesUrl(2026, "NOV"), null);
+  assert.strictEqual(pearsonSeriesUrl(2027, "JUN"), null);
+  count += 13;
+
+  // Test 0c: the 2017 rows print "Higher"/"Foundation" without parentheses;
+  // both shapes must yield the exact official table.
+  const legacyH = parsePearsonGcseRow(
+    ["1MA1 Mathematics Higher Raw 240 190 157 124 96 68 41 27 0"], "1MA1", "H");
+  assert.deepStrictEqual(legacyH.grades, ["9", "8", "7", "6", "5", "4", "3", "U"]);
+  assert.deepStrictEqual(legacyH.marks, [190, 157, 124, 96, 68, 41, 27, 0]);
+  const legacyF = parsePearsonGcseRow(
+    ["1MA1 Mathematics Foundation Raw 240 158 122 90 58 26 0"], "1MA1", "F");
+  assert.deepStrictEqual(legacyF.grades, ["5", "4", "3", "2", "1", "U"]);
+  assert.deepStrictEqual(legacyF.marks, [158, 122, 90, 58, 26, 0]);
+  const modernH = parsePearsonGcseRow(
+    ["Mathematics (Higher) 1MA1 Subject 240 202 170 139 109 79 50 35 0"], "1MA1", "H");
+  assert.strictEqual(modernH.marks[0], 202);
+  count += 4;
 
   await storage.clearSnapshotCache();
   await storage.clearAllStores();

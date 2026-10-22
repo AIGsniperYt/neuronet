@@ -212,7 +212,11 @@ function isVerifiedBoardUrl(value, board) {
     const url = new URL(String(value || ""));
     if (url.protocol !== "https:") return false;
     const host = url.hostname.toLowerCase();
-    if (board === "aqa") return host === "aqa.org.uk" || host.endsWith(".aqa.org.uk");
+    if (board === "aqa") {
+      if (host === "aqa.org.uk" || host.endsWith(".aqa.org.uk")) return true;
+      // AQA publishes recent series from its own Sanity project.
+      return host === "cdn.sanity.io" && url.pathname.startsWith("/files/p28bar15/green/");
+    }
     if (board === "pearson") return host === "pearson.com" || host.endsWith(".pearson.com");
     return false;
   } catch {
