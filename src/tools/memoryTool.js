@@ -29,7 +29,7 @@ export async function initMemoryTool(deps, context = {}) {
     escapeHtml
   } = deps;
 
-  const { subject: contextSubject } = context;
+  const { subject: contextSubject, createDeck } = context;
 
   const SIDEBAR_MODES = {
     FOCUS: "focus",
@@ -340,6 +340,7 @@ export async function initMemoryTool(deps, context = {}) {
       renderUI();
       attachEventListeners();
       attachKeyboardShortcuts();
+      if (createDeck) openDeckBuilder();
       document.addEventListener("db-change", handleDBChange);
     } catch (error) {
       console.error("Failed to initialize memory tool:", error);
@@ -3879,6 +3880,8 @@ export async function initMemoryTool(deps, context = {}) {
     if (builderTitle) builderTitle.textContent = "Create New Deck";
     if (deckBuilderModal) deckBuilderModal.style.display = "flex";
     showDeckBuilderStep(1);
+    // A quick-action launch should be ready to type immediately.
+    requestAnimationFrame(() => deckNameInput?.focus());
   }
 
   async function openDeckEditor(subject) {

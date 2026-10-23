@@ -1044,17 +1044,12 @@ async function renderQuickActions() {
     };
   }
 
-  const addSubBtn = document.getElementById("dashAddSubject");
-  if (addSubBtn) {
-    addSubBtn.onclick = async () => {
-      const name = await dialog.prompt("New subject name:", "");
-      const clean = (name || "").trim();
-      if (!clean) return;
-      const existing = await getSubjects();
-      if (existing.includes(clean)) return;
-      await addSubject(clean);
-      await renderDashboard();
-      await renderSidebarSubjects();
+  const makeFlashcardsBtn = document.getElementById("dashMakeFlashcards");
+  if (makeFlashcardsBtn) {
+    makeFlashcardsBtn.onclick = () => {
+      // Jump straight into the deck builder rather than the Memory launchpad.
+      loadTool("memory", { subject: currentSubject || "", createDeck: true })
+        .catch((error) => console.error("Could not open the flashcard builder:", error));
     };
   }
 }
