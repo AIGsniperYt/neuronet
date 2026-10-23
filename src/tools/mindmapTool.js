@@ -40,6 +40,7 @@ const state = {
     isPanning: false,
     panStartPos: { x: 0, y: 0 },
     simulationRunning: true,
+    viewMode: "graph",
     sidebarView: "content",
     layerNodes: [],
     userInteracted: false,
@@ -76,6 +77,9 @@ const state = {
   const canvas = document.getElementById("mindmapCanvas");
   const ctx = canvas?.getContext("2d");
   const blueprintArea = document.getElementById("blueprintArea");
+  const gridView = document.getElementById("mindmapGridView");
+  const gridContainer = document.getElementById("mindmapGrid");
+  const viewToggle = document.getElementById("mindmapViewToggle");
   const emptyState = document.getElementById("emptyState");
   const nodeSidebar = document.getElementById("nodeSidebar");
   const sidebarTitle = document.getElementById("sidebarTitle");

@@ -341,6 +341,350 @@
     max-width: 250px;
   }
 
+  /* Grid view */
+  .mindmap-grid-view {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 14px 16px 28px;
+    background: linear-gradient(180deg, rgba(7, 18, 13, 0.58), rgba(7, 18, 13, 0.84));
+    overscroll-behavior: contain;
+    animation: gridViewIn 0.28s ease both;
+  }
+
+  .mindmap-grid-view[hidden] {
+    display: none;
+  }
+
+  @keyframes gridViewIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  .mindmap-grid-legend {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    max-width: 1600px;
+    margin: 0 auto 14px;
+    padding: 8px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    background: rgba(7, 18, 13, 0.92);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
+  }
+
+  .grid-legend-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .grid-legend-title {
+    font-size: 0.64rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .grid-legend-note {
+    font-size: 0.66rem;
+    color: rgba(230, 255, 245, 0.42);
+  }
+
+  .grid-legend-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    border: 2px solid currentColor;
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .grid-legend-swatch.swatch-1 { color: #9aa4ad; }
+  .grid-legend-swatch.swatch-2 { color: #4ba3ff; }
+  .grid-legend-swatch.swatch-3 { color: #3fd07d; }
+  .grid-legend-swatch.swatch-4 { color: #ff9b39; }
+  .grid-legend-swatch.swatch-5 { color: #ff4d4d; }
+
+  .grid-legend-chip,
+  .grid-legend-badge {
+    font-size: 0.62rem;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: rgba(230, 255, 245, 0.58);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .grid-legend-chip.recall-strong {
+    color: #2cffb3;
+    border-color: rgba(44, 255, 179, 0.3);
+    background: rgba(44, 255, 179, 0.09);
+  }
+
+  .grid-legend-chip.recall-medium {
+    color: #ffd166;
+    border-color: rgba(255, 209, 102, 0.3);
+    background: rgba(255, 209, 102, 0.08);
+  }
+
+  .grid-legend-chip.recall-weak {
+    color: #ff6b6b;
+    border-color: rgba(255, 107, 107, 0.3);
+    background: rgba(255, 107, 107, 0.08);
+  }
+
+  .mindmap-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    max-width: 1600px;
+    margin: 0 auto;
+  }
+
+  .mindmap-grid-subject {
+    border: 1px solid rgba(255, 107, 107, 0.16);
+    border-radius: 14px;
+    background: rgba(10, 30, 22, 0.62);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+    overflow: hidden;
+    animation: gridSubjectIn 0.32s ease both;
+  }
+
+  @keyframes gridSubjectIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .mindmap-grid-subject-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 11px 14px;
+    background: linear-gradient(90deg, rgba(255, 107, 107, 0.12), rgba(255, 107, 107, 0.02) 55%, transparent);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .mindmap-grid-subject-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #ff6b6b;
+    box-shadow: 0 0 10px rgba(255, 107, 107, 0.55);
+  }
+
+  .mindmap-grid-subject h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text-main);
+  }
+
+  .mindmap-grid-subject-meta {
+    margin-left: auto;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+  }
+
+  .mindmap-grid-group {
+    padding: 11px 14px 14px;
+  }
+
+  .mindmap-grid-group + .mindmap-grid-group {
+    border-top: 1px solid rgba(255, 255, 255, 0.045);
+  }
+
+  .mindmap-grid-group-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(230, 255, 245, 0.52);
+  }
+
+  .mindmap-grid-group-head::before {
+    content: "";
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: rgba(44, 255, 179, 0.55);
+  }
+
+  .mindmap-grid-group-count {
+    font-weight: 500;
+    color: rgba(230, 255, 245, 0.32);
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  .mindmap-grid-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 9px;
+  }
+
+  .mindmap-grid-card {
+    --importance-color: rgba(255, 255, 255, 0.14);
+    --recall-fill: rgba(255, 255, 255, 0.025);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    min-height: 116px;
+    padding: 10px 11px 9px;
+    border: 1px solid rgba(255, 255, 255, 0.075);
+    border-left: 3px solid var(--importance-color);
+    border-radius: 9px;
+    background: linear-gradient(135deg, var(--recall-fill), rgba(10, 30, 22, 0.88) 62%);
+    color: var(--text-main);
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+    transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+    animation: gridCardIn 0.34s ease both;
+  }
+
+  @keyframes gridCardIn {
+    from { opacity: 0; transform: translateY(7px) scale(0.985); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  .mindmap-grid-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--importance-color);
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.3);
+  }
+
+  .mindmap-grid-card.selected {
+    border-color: var(--importance-color);
+    box-shadow: 0 0 0 1px var(--importance-color), 0 8px 18px rgba(0, 0, 0, 0.3);
+  }
+
+  .mindmap-grid-card:focus-visible {
+    outline: 2px solid rgba(44, 255, 179, 0.55);
+    outline-offset: 2px;
+  }
+
+  .mindmap-grid-card.recall-strong { --recall-fill: rgba(44, 255, 179, 0.1); }
+  .mindmap-grid-card.recall-medium { --recall-fill: rgba(255, 209, 102, 0.1); }
+  .mindmap-grid-card.recall-weak { --recall-fill: rgba(255, 107, 107, 0.1); }
+  .mindmap-grid-card.recall-unknown { --recall-fill: rgba(255, 255, 255, 0.025); }
+
+  .mindmap-grid-card-top {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    font-size: 0.64rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(230, 255, 245, 0.52);
+  }
+
+  .mindmap-grid-card-icon {
+    font-size: 0.8rem;
+    line-height: 1;
+  }
+
+  .mindmap-grid-card-type {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mindmap-grid-accuracy {
+    margin-left: auto;
+    flex: 0 0 auto;
+    font-size: 0.64rem;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: none;
+    padding: 2px 6px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: rgba(230, 255, 245, 0.58);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .mindmap-grid-accuracy.high {
+    color: #2cffb3;
+    border-color: rgba(44, 255, 179, 0.3);
+    background: rgba(44, 255, 179, 0.09);
+  }
+
+  .mindmap-grid-accuracy.mid {
+    color: #ffd166;
+    border-color: rgba(255, 209, 102, 0.3);
+    background: rgba(255, 209, 102, 0.08);
+  }
+
+  .mindmap-grid-accuracy.low {
+    color: #ff6b6b;
+    border-color: rgba(255, 107, 107, 0.3);
+    background: rgba(255, 107, 107, 0.08);
+  }
+
+  .mindmap-grid-card-title {
+    font-size: 0.84rem;
+    font-weight: 600;
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .mindmap-grid-card-preview {
+    font-size: 0.73rem;
+    line-height: 1.45;
+    color: rgba(230, 255, 245, 0.58);
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .mindmap-grid-card-footer {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: auto;
+  }
+
+  .mindmap-grid-tag {
+    font-size: 0.62rem;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: rgba(241, 250, 140, 0.08);
+    border: 1px solid rgba(241, 250, 140, 0.18);
+    color: rgba(241, 250, 140, 0.8);
+  }
+
+  .mindmap-grid-priority {
+    margin-left: auto;
+    font-size: 0.62rem;
+    font-weight: 700;
+    color: var(--importance-color);
+    opacity: 0.9;
+  }
+
   /* Header Actions */
   .header-actions {
     grid-area: actions;
@@ -354,6 +698,54 @@
 
   .header-actions .btn {
     flex: 0 0 auto;
+  }
+
+  /* Graph / Grid view switch */
+  .view-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 999px;
+    flex: 0 0 auto;
+  }
+
+  .view-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 0;
+    background: transparent;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 6px 10px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+  }
+
+  .view-toggle-btn i {
+    font-size: 0.78rem;
+  }
+
+  .view-toggle-btn:hover {
+    color: var(--text-main);
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .view-toggle-btn.active {
+    color: var(--accent);
+    background: rgba(44, 255, 179, 0.16);
+    box-shadow: inset 0 0 0 1px rgba(44, 255, 179, 0.28);
+  }
+
+  .view-toggle-btn:focus-visible {
+    outline: 2px solid rgba(44, 255, 179, 0.55);
+    outline-offset: 2px;
   }
 
   .dropdown {
@@ -634,6 +1026,12 @@
     .mindmap-header h2 { font-size: 1.1rem; }
     .mindmap-header p { display: none; }
     .header-actions { justify-content: flex-start; flex-wrap: wrap; }
+    .view-toggle-btn { padding: 6px 8px; }
+    .view-toggle-btn .view-toggle-label { display: none; }
+    .mindmap-grid-view { padding: 10px 10px 22px; }
+    .mindmap-grid-legend { gap: 6px 12px; padding: 7px 9px; }
+    .mindmap-grid-cards { grid-template-columns: 1fr; }
+    .mindmap-grid-subject-meta { margin-left: 0; width: 100%; }
     .stats-bar { width: 100%; flex-wrap: nowrap; overflow-x: auto; }
     .stat-pill { font-size: 0.75rem; padding: 5px 10px; }
     .node-sidebar {
@@ -679,6 +1077,14 @@
     </div>
 
     <div class="header-actions">
+      <div class="view-toggle" id="mindmapViewToggle" role="group" aria-label="Mindmap view">
+        <button type="button" class="view-toggle-btn active" data-view="graph" aria-pressed="true" title="Graph view" aria-label="Graph view">
+          <i class="fa-solid fa-diagram-project" aria-hidden="true"></i><span class="view-toggle-label">Graph</span>
+        </button>
+        <button type="button" class="view-toggle-btn" data-view="grid" aria-pressed="false" title="Grid view" aria-label="Grid view">
+          <i class="fa-solid fa-table-cells-large" aria-hidden="true"></i><span class="view-toggle-label">Grid</span>
+        </button>
+      </div>
       <button id="connectNodesBtn" class="btn btn-header">Connect Nodes</button>
       <div class="dropdown" id="newNodeDropdown">
         <button class="btn btn-header primary dropdown-toggle">New Node ▾</button>
@@ -729,6 +1135,34 @@
   <div class="blueprint-area" id="blueprintArea">
     <div id="connectingOverlay" class="connecting-overlay">Select target node to connect...</div>
     <canvas id="mindmapCanvas"></canvas>
+
+    <div id="mindmapGridView" class="mindmap-grid-view" hidden>
+      <div class="mindmap-grid-legend" aria-label="Grid signal legend">
+        <div class="grid-legend-group">
+          <span class="grid-legend-title">Border</span>
+          <span class="grid-legend-swatch swatch-1" title="Priority 1"></span>
+          <span class="grid-legend-swatch swatch-2" title="Priority 2"></span>
+          <span class="grid-legend-swatch swatch-3" title="Priority 3"></span>
+          <span class="grid-legend-swatch swatch-4" title="Priority 4"></span>
+          <span class="grid-legend-swatch swatch-5" title="Priority 5"></span>
+          <span class="grid-legend-note">importance</span>
+        </div>
+        <div class="grid-legend-group">
+          <span class="grid-legend-title">Fill</span>
+          <span class="grid-legend-chip recall-strong">Strong</span>
+          <span class="grid-legend-chip recall-medium">Partial</span>
+          <span class="grid-legend-chip recall-weak">Weak</span>
+          <span class="grid-legend-note">recall</span>
+        </div>
+        <div class="grid-legend-group">
+          <span class="grid-legend-title">Badge</span>
+          <span class="grid-legend-badge">70%</span>
+          <span class="grid-legend-note">accuracy</span>
+        </div>
+        <span class="grid-legend-note">— = no data yet</span>
+      </div>
+      <div id="mindmapGrid" class="mindmap-grid"></div>
+    </div>
 
     <div id="emptyState" class="empty-state">
       <div class="empty-state-icon">🕸️</div>
