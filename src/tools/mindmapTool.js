@@ -45,7 +45,13 @@ const state = {
     userInteracted: false,
     hasDragged: false,
     isConnecting: false,
-    connectingSourceId: null
+    connectingSourceId: null,
+    // Subject scope. `null` is the global view; a string focuses one subject
+    // and fades every other subject out of the canvas.
+    focusSubject: String(contextSubject || "").trim() || null,
+    focusSubjectId: null,
+    scopeNodeIds: new Set(),
+    nodeVisibility: new Map()
   };
 
   const physicsConfig = {
@@ -222,6 +228,75 @@ const state = {
 
   function makeLayerId(subject, l1 = "", l2 = "", l3 = "") {
     return `layer|${String(subject || "").trim()}|${String(l1 || "").trim()}|${String(l2 || "").trim()}|${String(l3 || "").trim()}`;
+  }
+
+  function normalizeSubjectName(value) {
+    return String(value || "").trim().toLowerCase();
+  }
+
+  function getItemSubject(item) {
+    if (!item) return "";
+    if (item.type === "subject") return item.subject || item.title || "";
+    return item.subject || item?.meta?.subject || "";
+  }
+
+  function resolveFocusSubject(value) {
+    const wanted = normalizeSubjectName(value);
+    if (!wanted) return null;
+
+    const items = getAllItems();
+    const subjectNode = items.find((item) =>
+      item.type === "subject" && normalizeSubjectName(item.subject || item.title) === wanted
+    );
+    if (subjectNode) return String(subjectNode.subject || subjectNode.title || "").trim();
+
+    const subjectItem = items.find((item) => normalizeSubjectName(getItemSubject(item)) === wanted);
+    if (subjectItem) return String(getItemSubject(subjectItem) || "").trim();
+
+    return String(value || "").trim() || null;
+  }
+
+  function findFocusSubjectNodeId() {
+    const wanted = normalizeSubjectName(state.focusSubject);
+    if (!wanted) return null;
+    const subjectNode = getAllItems().find((item) =>
+      item.type === "subject" && normalizeSubjectName(item.subject || item.title) === wanted
+    );
+    return subjectNode?.id || null;
+  }
+
+  function isNodeInScope(id) {
+    return !state.focusSubject || state.scopeNodeIds.has(id);
+  }
+
+  function recomputeScope() {
+    state.focusSubjectId = findFocusSubjectNodeId();
+    const wanted = normalizeSubjectName(state.focusSubject);
+
+    if (!wanted) {
+      state.scopeNodeIds = new Set(state.graph.nodes.keys());
+      return;
+    }
+
+    const scoped = new Set();
+    state.graph.nodes.forEach((node, id) => {
+      if (normalizeSubjectName(getItemSubject(node.data)) === wanted) scoped.add(id);
+    });
+    if (state.focusSubjectId) scoped.add(state.focusSubjectId);
+
+    // Tags are shared across subjects, so keep only the ones attached to a
+    // node that belongs to the focused subject.
+    state.graph.nodes.forEach((node, id) => {
+      if (node.type !== "tag") return;
+      for (const neighborId of node.connections) {
+        if (scoped.has(neighborId)) {
+          scoped.add(id);
+          break;
+        }
+      }
+    });
+
+    state.scopeNodeIds = scoped;
   }
 
   function getSourceLayerParts(source) {
@@ -762,6 +837,17 @@ const state = {
     });
 
     state.graph = graph;
+    recomputeScope();
+
+    // New nodes always fade in from zero. Existing nodes keep their current
+    // alpha so a database refresh does not flash the whole canvas.
+    for (const id of graph.nodes.keys()) {
+      if (!state.nodeVisibility.has(id)) state.nodeVisibility.set(id, 0);
+    }
+    for (const id of state.nodeVisibility.keys()) {
+      if (!graph.nodes.has(id)) state.nodeVisibility.delete(id);
+    }
+
     return graph;
   }
 
@@ -806,7 +892,9 @@ const state = {
     });
 
     // 1. Global Repulsion & Angular Placement - Full O(n²) needed for fractal structure
-    const nodesArr = Array.from(graph.nodes.entries());
+    // Only the nodes inside the active subject scope participate, so hidden
+    // subjects cannot keep inflating the focused graph.
+    const nodesArr = Array.from(graph.nodes.entries()).filter(([id]) => isNodeInScope(id));
 
     for (let i = 0; i < nodesArr.length; i++) {
       const [idA, nodeA] = nodesArr[i];
@@ -909,6 +997,7 @@ const state = {
 
     // 2. Spring Attraction (Edges)
     graph.edges.forEach(edge => {
+      if (!isNodeInScope(edge.from) || !isNodeInScope(edge.to)) return;
       const posFrom = positions.get(edge.from);
       const posTo = positions.get(edge.to);
       if (!posFrom || !posTo) return;
@@ -951,6 +1040,7 @@ const state = {
 
     // 3. Very Weak Center Gravity (just to prevent infinite drifting)
     graph.nodes.forEach((node, id) => {
+      if (!isNodeInScope(id)) return;
       const pos = positions.get(id);
       if (!pos) return;
 
@@ -966,6 +1056,7 @@ const state = {
     // 4. Angular Sector Encouragement (Fractal Spreading)
     // This pushes children to spread out in a sector oriented AWAY from their grandparent
     graph.nodes.forEach((node, id) => {
+      if (!isNodeInScope(id)) return;
       const parents = nodeParents.get(id);
       if (!parents || parents.size === 0) return;
 
@@ -1032,10 +1123,30 @@ const state = {
     // Lower damping (more friction) to prevent bouncing, allowing a soft settling
     const damping = 0.78;
     const maxVelocity = 20;
+    const width = canvas?.width || canvas?.parentElement?.clientWidth || 800;
+    const height = canvas?.height || canvas?.parentElement?.clientHeight || 600;
+    const centerX = width / 2;
+    const centerY = height / 2;
 
     state.graph.nodes.forEach((node, id) => {
       const pos = positions.get(id);
       if (!pos) return;
+
+      if (!isNodeInScope(id)) {
+        velocities.set(id, { x: 0, y: 0 });
+        return;
+      }
+
+      // The focused subject is the visual anchor: it glides to the exact
+      // centre and then stays there while its cluster settles around it.
+      if (id === state.focusSubjectId) {
+        pos.x += (centerX - pos.x) * 0.14;
+        pos.y += (centerY - pos.y) * 0.14;
+        if (Math.abs(centerX - pos.x) < 0.1) pos.x = centerX;
+        if (Math.abs(centerY - pos.y) < 0.1) pos.y = centerY;
+        velocities.set(id, { x: 0, y: 0 });
+        return;
+      }
 
       if (state.lockedNodes.has(id)) {
         velocities.set(id, { x: 0, y: 0 });
@@ -1117,13 +1228,22 @@ const state = {
     const centerX = containerWidth / 2;
     const centerY = containerHeight / 2;
     const graph = state.graph;
+    const focusId = state.focusSubjectId;
 
     // Exploding Cluster Layout: Start all nodes in a tiny cluster near the center.
     // The massive global repulsion will naturally explode them outward instantly,
     // and springs + grandparent-repulsion will smoothly unspool them into a perfect tree!
+    // In subject mode the focused subject is pinned to the exact centre and its
+    // cluster explodes outward from there, which gives the filter transition a
+    // clear "subject comes into focus" origin.
     graph.nodes.forEach((node, id) => {
+      if (id === focusId) {
+        state.nodePositions.set(id, { x: centerX, y: centerY });
+        state.velocities.set(id, { x: 0, y: 0 });
+        return;
+      }
       const angle = Math.random() * Math.PI * 2;
-      const r = Math.random() * 30; // 30px cluster
+      const r = Math.random() * (focusId ? 24 : 30);
       state.nodePositions.set(id, {
         x: centerX + Math.cos(angle) * r,
         y: centerY + Math.sin(angle) * r
@@ -1132,9 +1252,12 @@ const state = {
     });
   }
 
+  let lastCanvasSize = { width: 0, height: 0 };
+
   function initializePositions(containerWidth, containerHeight) {
     buildGraph();
     layoutRadial(containerWidth, containerHeight);
+    lastCanvasSize = { width: containerWidth, height: containerHeight };
   }
 
   function getAllItems() {
@@ -1160,7 +1283,76 @@ const state = {
     };
   }
 
+  function updateNodeVisibility() {
+    state.graph.nodes.forEach((node, id) => {
+      const target = isNodeInScope(id) ? 1 : 0;
+      const current = state.nodeVisibility.get(id) ?? 0;
+      let next = current + (target - current) * 0.16;
+      if (Math.abs(target - next) < 0.01) next = target;
+      state.nodeVisibility.set(id, next);
+    });
+  }
+
+  function seedIncomingNodes(previousScope = new Set()) {
+    // Returning to the global view keeps every node at its last global
+    // position, so the wider map fades back in where the user left it.
+    if (!state.focusSubject) return;
+
+    const width = canvas?.parentElement?.clientWidth || canvas?.width || 800;
+    const height = canvas?.parentElement?.clientHeight || canvas?.height || 600;
+    const center = { x: width / 2, y: height / 2 };
+    const focusId = state.focusSubjectId;
+
+    // A subject that was hidden materialises at the centre. This is also the
+    // anchor for its child cluster, so a subject switch assembles in place
+    // instead of snapping nodes across the screen.
+    if (focusId && !previousScope.has(focusId)) {
+      state.nodePositions.set(focusId, { x: center.x, y: center.y });
+      state.velocities.set(focusId, { x: 0, y: 0 });
+    }
+    const anchor = focusId ? (state.nodePositions.get(focusId) || center) : center;
+
+    state.graph.nodes.forEach((node, id) => {
+      if (!state.scopeNodeIds.has(id) || previousScope.has(id) || id === focusId) return;
+      if ((state.nodeVisibility.get(id) ?? 0) > 0.05) return;
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 18 + Math.random() * 30;
+      state.nodePositions.set(id, {
+        x: anchor.x + Math.cos(angle) * radius,
+        y: anchor.y + Math.sin(angle) * radius
+      });
+      state.velocities.set(id, { x: 0, y: 0 });
+    });
+  }
+
+  function setFocusSubject(nextSubject) {
+    const canonical = resolveFocusSubject(nextSubject);
+    if (normalizeSubjectName(canonical) === normalizeSubjectName(state.focusSubject)) {
+      return;
+    }
+
+    const previousScope = new Set(state.scopeNodeIds);
+    state.focusSubject = canonical || null;
+    recomputeScope();
+    state.userInteracted = false;
+    seedIncomingNodes(previousScope);
+
+    if (state.selectedNodeId && !state.scopeNodeIds.has(state.selectedNodeId)) {
+      closeSidebar();
+    }
+
+    if (canvas && window.__neuronetCanvas?.triggerRadialPulse) {
+      const rect = canvas.getBoundingClientRect();
+      window.__neuronetCanvas.triggerRadialPulse(
+        rect.left + rect.width / 2,
+        rect.top + rect.height / 2,
+        1.4
+      );
+    }
+  }
+
   let frameCount = 0;
+  let rafId = 0;
   function tick() {
     frameCount++;
     if (state.simulationRunning && !state.draggingNodeId) {
@@ -1173,74 +1365,108 @@ const state = {
         updatePositionsWithPhysics(forces);
       }
     }
+    updateNodeVisibility();
     fitCameraToGraph();
     render();
     logPerf();
-    requestAnimationFrame(tick);
+    rafId = requestAnimationFrame(tick);
   }
 
   function fitCameraToGraph() {
     if (state.graph.nodes.size === 0 || state.userInteracted || !canvas) return;
 
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    state.nodePositions.forEach(pos => {
-      minX = Math.min(minX, pos.x);
-      maxX = Math.max(maxX, pos.x);
-      minY = Math.min(minY, pos.y);
-      maxY = Math.max(maxY, pos.y);
+    const scopedPositions = [];
+    state.nodePositions.forEach((pos, id) => {
+      if (state.scopeNodeIds.has(id)) scopedPositions.push(pos);
     });
+    if (scopedPositions.length === 0) return;
 
-    if (minX === Infinity) return;
+    const viewportWidth = canvas.width || canvas.parentElement?.clientWidth || 800;
+    const viewportHeight = canvas.height || canvas.parentElement?.clientHeight || 600;
+    const centerX = viewportWidth / 2;
+    const centerY = viewportHeight / 2;
+    let targetZoom = state.zoom;
+    let targetPanX = state.panOffset.x;
+    let targetPanY = state.panOffset.y;
 
-    // Add padding around the graph
-    const padding = 150;
-    minX -= padding;
-    maxX += padding;
-    minY -= padding;
-    maxY += padding;
+    const focusPos = state.focusSubjectId ? state.nodePositions.get(state.focusSubjectId) : null;
 
-    const contentWidth = Math.max(100, maxX - minX);
-    const contentHeight = Math.max(100, maxY - minY);
+    if (focusPos) {
+      // Subject mode: the focused subject owns the centre of the screen and
+      // the camera frames its cluster, rather than the bounding box of every
+      // subject in the database.
+      let maxDistance = 80;
+      scopedPositions.forEach((pos) => {
+        const dx = pos.x - focusPos.x;
+        const dy = pos.y - focusPos.y;
+        maxDistance = Math.max(maxDistance, Math.sqrt(dx * dx + dy * dy));
+      });
+      const viewport = Math.max(240, Math.min(viewportWidth, viewportHeight));
+      targetZoom = Math.min(1.9, Math.max(config.minZoom, (viewport * 0.42) / (maxDistance + 80)));
+      targetPanX = -(focusPos.x - centerX) * targetZoom;
+      targetPanY = -(focusPos.y - centerY) * targetZoom;
+    } else {
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      scopedPositions.forEach((pos) => {
+        minX = Math.min(minX, pos.x);
+        maxX = Math.max(maxX, pos.x);
+        minY = Math.min(minY, pos.y);
+        maxY = Math.max(maxY, pos.y);
+      });
+      if (minX === Infinity) return;
 
-    const scaleX = canvas.width / contentWidth;
-    const scaleY = canvas.height / contentHeight;
-    const targetZoom = Math.min(config.maxZoom, Math.max(config.minZoom, Math.min(scaleX, scaleY)));
+      // Responsive padding: a fixed 150px gutter over-zooms small canvases
+      // and wastes a large monitor, so scale it to the viewport.
+      const padding = Math.min(160, Math.max(60, Math.min(viewportWidth, viewportHeight) * 0.12));
+      minX -= padding;
+      maxX += padding;
+      minY -= padding;
+      maxY += padding;
 
-    const centerOfMassX = (minX + maxX) / 2;
-    const centerOfMassY = (minY + maxY) / 2;
+      const contentWidth = Math.max(100, maxX - minX);
+      const contentHeight = Math.max(100, maxY - minY);
+      const scaleX = viewportWidth / contentWidth;
+      const scaleY = viewportHeight / contentHeight;
+      targetZoom = Math.min(config.maxZoom, Math.max(config.minZoom, Math.min(scaleX, scaleY)));
 
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2;
+      const centerOfMassX = (minX + maxX) / 2;
+      const centerOfMassY = (minY + maxY) / 2;
+      targetPanX = -(centerOfMassX - centerX) * targetZoom;
+      targetPanY = -(centerOfMassY - centerY) * targetZoom;
+    }
 
-    const targetPanX = -(centerOfMassX - centerX) * targetZoom;
-    const targetPanY = -(centerOfMassY - centerY) * targetZoom;
-
-    // Smooth camera interpolation
-    state.zoom += (targetZoom - state.zoom) * 0.05;
-    state.panOffset.x += (targetPanX - state.panOffset.x) * 0.05;
-    state.panOffset.y += (targetPanY - state.panOffset.y) * 0.05;
+    // Smooth camera interpolation. A slightly faster ease keeps subject
+    // switches feeling intentional without snapping.
+    state.zoom += (targetZoom - state.zoom) * 0.07;
+    state.panOffset.x += (targetPanX - state.panOffset.x) * 0.07;
+    state.panOffset.y += (targetPanY - state.panOffset.y) * 0.07;
   }
 
   function render() {
     if (!ctx || !canvas) return;
 
     const container = canvas.parentElement;
-    const width = container.clientWidth;
-    const height = container.clientHeight;
+    const width = Math.max(1, Math.round(container.clientWidth));
+    const height = Math.max(1, Math.round(container.clientHeight));
 
-    canvas.width = width;
-    canvas.height = height;
+    if (canvas.width !== width) canvas.width = width;
+    if (canvas.height !== height) canvas.height = height;
 
     ctx.clearRect(0, 0, width, height);
 
     const items = getAllItems();
     const edges = state.graph.edges;
+    const now = performance.now();
+    const focusId = state.focusSubjectId;
 
     edges.forEach(edge => {
       const fromPos = state.nodePositions.get(edge.from);
       const toPos = state.nodePositions.get(edge.to);
+      const fromVisibility = state.nodeVisibility.get(edge.from) ?? 0;
+      const toVisibility = state.nodeVisibility.get(edge.to) ?? 0;
+      const edgeVisibility = Math.min(fromVisibility, toVisibility);
 
-      if (fromPos && toPos) {
+      if (fromPos && toPos && edgeVisibility > 0.02) {
         const fromTrans = transformPoint(fromPos.x, fromPos.y);
         const toTrans = transformPoint(toPos.x, toPos.y);
         const isActive = state.selectedNodeId === edge.from || state.selectedNodeId === edge.to;
@@ -1248,7 +1474,9 @@ const state = {
         ctx.beginPath();
         ctx.moveTo(fromTrans.x, fromTrans.y);
         ctx.lineTo(toTrans.x, toTrans.y);
-        ctx.strokeStyle = isActive ? "rgba(44, 255, 179, 0.9)" : "rgba(44, 255, 179, 0.35)";
+        ctx.strokeStyle = isActive
+          ? `rgba(44, 255, 179, ${0.9 * edgeVisibility})`
+          : `rgba(44, 255, 179, ${0.35 * edgeVisibility})`;
         ctx.lineWidth = isActive ? 3 : 2;
         ctx.stroke();
       }
@@ -1258,11 +1486,36 @@ const state = {
       const pos = state.nodePositions.get(item.id);
       if (!pos) return;
 
+      const visibility = state.nodeVisibility.get(item.id) ?? 0;
+      if (visibility < 0.02) return;
+
       const posTrans = transformPoint(pos.x, pos.y);
       const isSelected = state.selectedNodeId === item.id;
       const isHovered = state.hoveredNodeId === item.id;
-      const radius = (isHovered || isSelected ? config.nodeHoverRadius : config.nodeRadius) * state.zoom;
+      const isFocusedSubject = item.id === focusId;
+      const baseRadius = isHovered || isSelected ? config.nodeHoverRadius : config.nodeRadius;
+      const revealScale = 0.55 + 0.45 * visibility;
+      const radius = baseRadius * state.zoom * revealScale * (isFocusedSubject ? 1.35 : 1);
       const color = getNodeColor(item.type);
+
+      ctx.globalAlpha = visibility;
+
+      // A focused subject gets a slow, breathing double halo so the eye
+      // immediately knows which node owns the centre of the view.
+      if (isFocusedSubject) {
+        const pulse = 1 + Math.sin(now / 420) * 0.08;
+        ctx.beginPath();
+        ctx.arc(posTrans.x, posTrans.y, radius * 2.1 * pulse, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(255, 107, 107, 0.32)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(posTrans.x, posTrans.y, radius * 3.0 * pulse, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(255, 107, 107, 0.12)";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
 
       ctx.beginPath();
       ctx.arc(posTrans.x, posTrans.y, radius, 0, Math.PI * 2);
@@ -1272,26 +1525,50 @@ const state = {
       ctx.lineWidth = isSelected ? 3 : 2;
       ctx.stroke();
 
-      // Hierarchical label visibility based on zoom level
-      const threshold = config.labelZoomThresholds[item.type] || 1.0;
-      if (state.zoom < threshold) return;
+      // Hierarchical label visibility based on zoom level. The focused
+      // subject is always labelled, even when the cluster is zoomed out.
+      // In a dense global map, only the structural labels stay visible until
+      // the user zooms in, otherwise 100+ quotes turn the overview into noise.
+      const isDenseGlobal = !state.focusSubject && state.graph.nodes.size > 70;
+      const structuralLabel = item.type === "subject" || item.type === "tag" || item.type?.startsWith("layer");
+      if (isDenseGlobal && !structuralLabel && state.zoom < 1.35) {
+        ctx.globalAlpha = 1;
+        return;
+      }
+      const densityBoost = isDenseGlobal ? 0.3 : 0;
+      const threshold = (config.labelZoomThresholds[item.type] || 1.0) + densityBoost;
+      if (state.zoom < threshold && !isFocusedSubject) {
+        ctx.globalAlpha = 1;
+        return;
+      }
 
-      ctx.font = `${12 * state.zoom}px Inter, system-ui, sans-serif`;
-      ctx.fillStyle = "rgba(230, 255, 245, 0.8)";
+      const fontSize = (isFocusedSubject ? 14 : 12) * Math.max(0.8, Math.min(1.6, state.zoom));
+      ctx.font = `${isFocusedSubject ? "700 " : ""}${fontSize}px Inter, system-ui, sans-serif`;
+      ctx.fillStyle = isFocusedSubject ? "rgba(255, 220, 220, 0.98)" : "rgba(230, 255, 245, 0.8)";
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
       const title = getNodeDisplayTitle(item);
-      const maxChars = Math.max(8, Math.floor(18 / state.zoom));
+      const maxChars = Math.max(8, Math.floor(18 / Math.max(0.35, state.zoom)));
       const displayTitle = title.length > maxChars ? title.substring(0, maxChars - 2) + "..." : title;
       ctx.fillText(displayTitle, posTrans.x, posTrans.y + config.labelOffset * state.zoom);
+      ctx.globalAlpha = 1;
     });
 
     updateStats();
 
-    if (items.length > 0) {
+    const visibleItems = items.filter((item) => (state.nodeVisibility.get(item.id) ?? 0) > 0.05);
+    if (visibleItems.length > 0) {
       if (emptyState) emptyState.style.display = "none";
     } else {
-      if (emptyState) emptyState.style.display = "flex";
+      if (emptyState) {
+        emptyState.style.display = "flex";
+        const copy = emptyState.querySelector("p");
+        if (copy) {
+          copy.textContent = state.focusSubject
+            ? `No nodes in ${state.focusSubject} yet. Add a source, quote, or analysis to grow this subject.`
+            : "No nodes yet. Add sources, quotes, and analyses to see your knowledge network.";
+        }
+      }
     }
   }
 
@@ -1320,6 +1597,8 @@ const state = {
 
     for (let i = items.length - 1; i >= 0; i--) {
       const item = items[i];
+      if (!isNodeInScope(item.id)) continue;
+      if ((state.nodeVisibility.get(item.id) ?? 0) < 0.35) continue;
       const pos = state.nodePositions.get(item.id);
       if (!pos) continue;
 
@@ -1401,10 +1680,10 @@ const state = {
     const totalTags = document.getElementById("totalTags");
     const totalConnections = document.getElementById("totalConnections");
 
-    const nodeItems = state.nodes || [];
-    const quoteItems = state.quotes || [];
-    const cueItems = state.cues || [];
-    const tagItems = state.tags || [];
+    const nodeItems = (state.nodes || []).filter((item) => isNodeInScope(item.id));
+    const quoteItems = (state.quotes || []).filter((item) => isNodeInScope(item.id));
+    const cueItems = (state.cues || []).filter((item) => isNodeInScope(item.id));
+    const tagItems = (state.tags || []).filter((item) => isNodeInScope(item.id));
 
     if (totalNodes) totalNodes.textContent = nodeItems.length + quoteItems.length + cueItems.length + tagItems.length;
     if (totalSubjects) totalSubjects.textContent = nodeItems.filter(i => i.type === "subject").length;
@@ -1422,20 +1701,36 @@ const state = {
       totalTags.parentElement.style.display = tagCount > 0 ? "flex" : "none";
     }
 
-    buildGraph();
-    const connections = state.graph.edges;
+    const connections = state.graph.edges.filter((edge) =>
+      isNodeInScope(edge.from) && isNodeInScope(edge.to)
+    );
     if (totalConnections) totalConnections.textContent = connections.length;
   }
 
   async function refreshData() {
-    const [nodes, quotes, cues, tags] = await Promise.all([getAllNodes(), getAllQuotes(), getAllCues(), getAllTags()]);
+    const [nodes, quotes, cues, tags] = await Promise.all([
+      getAllNodes(),
+      getAllQuotes(),
+      getAllCues(),
+      getAllTags()
+    ]);
     state.nodes = nodes;
     state.quotes = quotes;
     state.cues = cues;
     state.tags = tags;
     state.layerNodes = computeLayerNodesFromSources(nodes);
 
+    const hadFocus = Boolean(state.focusSubject);
+    state.focusSubject = resolveFocusSubject(state.focusSubject);
+
     buildGraph();
+
+    // A focused subject that was deleted (or renamed away) falls back to the
+    // global map rather than leaving an empty canvas.
+    if (hadFocus && state.focusSubject && state.scopeNodeIds.size === 0) {
+      state.focusSubject = null;
+      recomputeScope();
+    }
 
     const currentIds = new Set(state.graph.nodes.keys());
     for (const id of state.nodePositions.keys()) {
@@ -1445,11 +1740,14 @@ const state = {
       }
     }
 
-    layoutRadial(canvas?.parentElement?.clientWidth || 800, canvas?.parentElement?.clientHeight || 600);
+    const layoutWidth = canvas?.parentElement?.clientWidth || 800;
+    const layoutHeight = canvas?.parentElement?.clientHeight || 600;
+    layoutRadial(layoutWidth, layoutHeight);
+    lastCanvasSize = { width: layoutWidth, height: layoutHeight };
   }
 
   async function createNewNode(type) {
-    const subject = contextSubject || (await dialog.prompt("Enter subject for the new node:")) || "General";
+    const subject = state.focusSubject || contextSubject || (await dialog.prompt("Enter subject for the new node:")) || "General";
     const now = Date.now();
 
     try {
@@ -1915,9 +2213,16 @@ const state = {
   setupEventListeners();
   tick();
 
+  const setSubjectHandler = (subject) => setFocusSubject(subject);
+  window.__neuronetMindmapSetSubject = setSubjectHandler;
+
   window.__neuronetMindmapCleanup = () => {
     state.simulationRunning = false;
+    if (rafId) cancelAnimationFrame(rafId);
     document.removeEventListener("db-change", handleDBChange);
     window.removeEventListener("resize", handleResize);
+    if (window.__neuronetMindmapSetSubject === setSubjectHandler) {
+      window.__neuronetMindmapSetSubject = null;
+    }
   };
 }

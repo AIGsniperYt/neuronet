@@ -1569,7 +1569,11 @@ async function selectSidebarSubject(subject) {
   await renderSidebarSubjects();
 
   if (!subjectChanged) return;
-  if (currentToolName) {
+  if (currentToolName === "mindmap" && typeof window.__neuronetMindmapSetSubject === "function") {
+    // The mindmap animates between subject scopes in place; reloading the
+    // tool would destroy the canvas and lose the transition.
+    window.__neuronetMindmapSetSubject(next);
+  } else if (currentToolName) {
     loadTool(currentToolName, { subject: next });
   } else if (next) {
     enterSubjectWorkspace(next);

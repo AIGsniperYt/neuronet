@@ -22,12 +22,24 @@
 
   .mindmap-header {
     grid-column: 1 / -1;
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "title actions"
+      "stats stats";
     align-items: center;
-    gap: 16px;
-    padding: 12px 16px;
+    gap: 8px 14px;
+    padding: 10px 16px;
     background: rgba(10,30,22,0.85);
     border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+
+  .mindmap-title-block {
+    grid-area: title;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
   }
 
   .mindmap-header h2 {
@@ -35,19 +47,30 @@
     font-size: 1.3rem;
     font-weight: 700;
     margin: 0;
+    line-height: 1.15;
   }
 
   .mindmap-header p {
     color: var(--text-muted);
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     margin: 0;
-    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .stats-bar {
+    grid-area: stats;
     display: flex;
-    gap: 8px;
-    margin-left: auto;
+    gap: 6px;
+    margin-left: 0;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-wrap: nowrap;
+    padding-bottom: 2px;
+    scrollbar-width: none;
   }
 
   .stat-pill {
@@ -320,9 +343,17 @@
 
   /* Header Actions */
   .header-actions {
+    grid-area: actions;
     display: flex;
     gap: 8px;
     align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  .header-actions .btn {
+    flex: 0 0 auto;
   }
 
   .dropdown {
@@ -576,26 +607,76 @@
     color: var(--accent);
   }
 
+  @media (max-width: 1100px) {
+    .mindmap-header p { display: none; }
+  }
+
+  @media (max-width: 900px) {
+    .mindmap-header {
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        "title actions"
+        "stats stats";
+    }
+    .header-actions { justify-content: flex-start; }
+  }
+
   @media (max-width: 700px), (pointer: coarse) and (hover: none) {
     .mindmap-shell { position: relative; grid-template-columns: 1fr; min-height: 0; }
-    .mindmap-header { flex-wrap: wrap; gap: 10px; padding: 10px 12px; }
-    .mindmap-header p { flex-basis: 100%; }
-    .header-actions { margin-left: auto; flex-wrap: wrap; }
-    .stats-bar { width: 100%; margin-left: 0; flex-wrap: wrap; }
+    .mindmap-header {
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        "title actions"
+        "stats stats";
+      gap: 8px 10px;
+      padding: 8px 12px;
+    }
+    .mindmap-header h2 { font-size: 1.1rem; }
+    .mindmap-header p { display: none; }
+    .header-actions { justify-content: flex-start; flex-wrap: wrap; }
+    .stats-bar { width: 100%; flex-wrap: nowrap; overflow-x: auto; }
     .stat-pill { font-size: 0.75rem; padding: 5px 10px; }
-    .node-sidebar { position: absolute; top: 0; right: 0; bottom: 0; width: min(92vw, 400px); max-width: 100%; height: 100%; z-index: 50; }
-    .node-sidebar.open { width: min(92vw, 400px); }
+    .node-sidebar {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: min(92vw, 400px);
+      max-width: 100%;
+      height: 100%;
+      z-index: 50;
+      border-left-width: 0;
+      transform: translateX(100%);
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-left-width 0.3s;
+      pointer-events: none;
+    }
+    .node-sidebar.open {
+      width: min(92vw, 400px);
+      border-left-width: 1px;
+      transform: translateX(0);
+      pointer-events: auto;
+      box-shadow: -18px 0 40px rgba(0, 0, 0, 0.45);
+    }
     .sidebar-inner { width: 100%; max-width: 100%; min-width: 0; }
     .sidebar-content { min-width: 0; overflow-x: hidden; }
     .blueprint-area { min-height: 0; }
     .connecting-overlay { left: 12px; right: 12px; transform: none; width: auto; }
   }
+
+  @media (max-height: 640px) {
+    .mindmap-header { padding: 6px 12px; gap: 5px 10px; }
+    .mindmap-header h2 { font-size: 1.05rem; }
+    .mindmap-header p { display: none; }
+    .stat-pill { padding: 4px 9px; }
+  }
 </style>
 
 <div class="mindmap-shell">
   <div class="mindmap-header">
-    <h2><span class="tool-reference" title="Mindmap tool"><i class="fa-solid fa-diagram-project" aria-hidden="true"></i><code>Mindmap</code></span></h2>
-    <p>Visualize connections between your knowledge nodes</p>
+    <div class="mindmap-title-block">
+      <h2><span class="tool-reference" title="Mindmap tool"><i class="fa-solid fa-diagram-project" aria-hidden="true"></i><code>Mindmap</code></span></h2>
+      <p>Visualize connections between your knowledge nodes</p>
+    </div>
 
     <div class="header-actions">
       <button id="connectNodesBtn" class="btn btn-header">Connect Nodes</button>
