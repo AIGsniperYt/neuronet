@@ -140,7 +140,8 @@ const tools = {
       addNodes,
       deleteNode,
       getSubjects,
-      escapeHtml
+      escapeHtml,
+      activityToast
     }, context)
   },
   scraper: {
@@ -148,7 +149,8 @@ const tools = {
     file: "scraper.html",
     init: (context) => initScraperTool({
       getAllNodes,
-      escapeHtml
+      escapeHtml,
+      activityToast
     }, context)
   }
 };
@@ -472,6 +474,122 @@ async function removeCueEverywhere(id) {
 }
 
 // ---- toast notifications ----
+const activityToastRecords = new Map();
+
+function removeActivityToast(key) {
+  const rec = activityToastRecords.get(key);
+  if (!rec) return;
+  activityToastRecords.delete(key);
+  if (rec.timer) clearTimeout(rec.timer);
+  rec.el.classList.add("hide");
+  setTimeout(() => rec.el.remove(), 320);
+}
+
+// Persistent, app-native activity toast. It deliberately reuses the scraper
+// scratch-buffer language: a live green sweep while work is happening, then a
+// completion fill and a short glow when it lands. The caller owns the message;
+// this function only paints it, so the UI can never invent progress.
+function activityToast(message, {
+  key = "app-activity",
+  detail = "",
+  meta = "",
+  hint = "",
+  progress = null,
+  tone = "loading",
+  timeout = null
+} = {}) {
+  const root = document.getElementById("nnToastRoot");
+  if (!root) return null;
+
+  let rec = activityToastRecords.get(key);
+  if (!rec || !rec.el.isConnected) {
+    const el = document.createElement("div");
+    el.className = "nn-toast nn-toast-activity";
+    el.dataset.toastKey = key;
+    el.innerHTML = `
+      <div class="nn-toast-log">
+        <span class="nn-toast-text"></span>
+        <span class="nn-toast-detail"></span>
+        <span class="nn-toast-meta"></span>
+        <span class="nn-toast-hint"></span>
+      </div>
+    `;
+    root.appendChild(el);
+    rec = {
+      el,
+      text: el.querySelector(".nn-toast-text"),
+      detail: el.querySelector(".nn-toast-detail"),
+      meta: el.querySelector(".nn-toast-meta"),
+      hint: el.querySelector(".nn-toast-hint"),
+      tone: "",
+      timer: null
+    };
+    activityToastRecords.set(key, rec);
+  }
+
+  if (rec.timer) {
+    clearTimeout(rec.timer);
+    rec.timer = null;
+  }
+
+  const nextTone = tone === "done" || tone === "error" ? tone : "loading";
+  if (rec.tone !== nextTone) {
+    rec.el.classList.remove("is-loading", "is-done", "is-error");
+    void rec.el.offsetWidth; // restart the sweep/fill from frame zero
+    rec.el.classList.add(`is-${nextTone}`);
+    rec.tone = nextTone;
+  }
+
+  rec.el.setAttribute("role", nextTone === "error" ? "alert" : "status");
+  rec.el.setAttribute("aria-live", nextTone === "error" ? "assertive" : "polite");
+  rec.text.textContent = message;
+
+  let progressLabel = "";
+  if (progress && Number.isFinite(Number(progress.value)) && Number.isFinite(Number(progress.max)) && Number(progress.max) > 0) {
+    const value = Math.max(0, Math.min(Number(progress.max), Number(progress.value)));
+    progressLabel = `${Math.round(value)}/${Math.round(Number(progress.max))}`;
+  }
+  const detailText = [progressLabel, detail].filter(Boolean).join(" · ");
+  rec.detail.textContent = detailText;
+  rec.detail.hidden = !detailText;
+  rec.meta.textContent = meta;
+  rec.meta.hidden = !meta;
+  rec.hint.textContent = hint;
+  rec.hint.hidden = !hint;
+
+  // Match the sweep to the visible copy: longer lines get a longer pass, so
+  // the animation reads as deliberate intelligence rather than a hyper blur.
+  const visualLength = String(message || "").length + Math.min(24, detailText.length);
+  const sweep = Math.min(6.5, Math.max(2.4, 1.2 + visualLength * 0.045));
+  const fill = Math.min(6, Math.max(2.4, sweep * 0.85));
+  rec.el.style.setProperty("--nn-toast-sweep", `${sweep.toFixed(2)}s`);
+  rec.el.style.setProperty("--nn-toast-fill", `${fill.toFixed(2)}s`);
+
+  if (nextTone !== "loading") {
+    // Keep the toast up long enough for the slower completion fill to actually
+    // finish, then leave a beat of glow before dismissing. Otherwise a long
+    // line's fill would be cut off mid-animation.
+    const base = Number.isFinite(timeout) ? timeout : nextTone === "error" ? 9000 : 4200;
+    const delay = nextTone === "done" ? Math.max(base, Math.round(fill * 1000) + 1800) : base;
+    rec.timer = setTimeout(() => removeActivityToast(key), Math.max(0, delay));
+  }
+
+  return {
+    update(nextMessage, opts = {}) {
+      activityToast(nextMessage, { detail, meta, hint, progress, timeout, ...opts, key, tone: opts.tone || "loading" });
+    },
+    complete(nextMessage, opts = {}) {
+      activityToast(nextMessage, { detail, meta, hint, progress, timeout, ...opts, key, tone: "done" });
+    },
+    fail(nextMessage, opts = {}) {
+      activityToast(nextMessage, { detail, meta, hint, progress, timeout, ...opts, key, tone: "error" });
+    },
+    dismiss() {
+      removeActivityToast(key);
+    }
+  };
+}
+
 function toast(message, { sticky = false, action = null } = {}) {
   const root = document.getElementById("nnToastRoot");
   if (!root) return;

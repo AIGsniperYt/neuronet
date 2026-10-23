@@ -887,7 +887,6 @@ const ENGINE_QR = {
   as: { id: "as", name: "AS" }
 };
 
-const PEARSON_DAM = "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries";
 // Baseline = every series in VERIFIED_CATALOGUE (real, hash-confirmed PDFs).
 // Deriving it avoids a second hand-maintained list drifting out of sync with
 // what the scraper can actually fetch.
@@ -906,10 +905,6 @@ function seriesKey(series) {
 function monthAbbrevToFull(abbrev) {
   const m = AQA_MONTHS.find(([, abb]) => abb === abbrev);
   return m ? m[0] : abbrev;
-}
-
-function monthAbbrevToSlug(abbrev) {
-  return monthAbbrevToFull(abbrev).toLowerCase();
 }
 
 function monthIndex(abbrev) {
@@ -1083,11 +1078,9 @@ function pearsonSeriesUrl(qual, series) {
   const url = discovered.pearson.get(`${seriesKey(series)}:${qual.id}`)
     || PEARSON_VERIFIED.get(`${seriesKey(series)}:${qual.id}`);
   if (url) return url;
-  // GCSE: never invent a filename. A series with no discovered or verified
-  // official resource is simply not acquirable — return null (caller throws).
-  if (qual.id === "gcse") return null;
-  const slug = monthAbbrevToSlug(series.month);
-  return `${PEARSON_DAM}/A-level/grade-boundaries-${slug}-${series.year}-gce.pdf`;
+  // Never invent a filename for any qualification. A series with no discovered
+  // or verified official resource is not acquirable — return null (caller throws).
+  return null;
 }
 
 function parseAqaXlsx(wb, qual, fallbackGrades) {

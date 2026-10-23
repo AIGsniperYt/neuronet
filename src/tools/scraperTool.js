@@ -10,9 +10,10 @@ import {
   saveBoundaryCache
 } from "./gradeBoundaries.js";
 import { adapterFor, defaultSeriesWindow } from "./examData/adapters.js";
+import { VERIFIED_CATALOGUE } from "./examData/sources/PearsonSource.js";
 
 export function initScraperTool(deps, context = {}) {
-  const { escapeHtml, getAllNodes } = deps;
+  const { escapeHtml, getAllNodes, activityToast } = deps;
   const $ = (id) => document.getElementById(id);
 
   const el = {
@@ -126,20 +127,17 @@ export function initScraperTool(deps, context = {}) {
   const discoveredOcr = new Map();
 
   // ---------- Pearson / Edexcel registry ----------
-  // Pearson publishes PDFs under predictable DAM paths plus a current-series
-  // page (grade-boundaries.html) that embeds a hidden-asset list. Older series
-  // follow a stable filename pattern (like AQA's legacy filestore): the same
-  // path with a different month/year. We combine both: current from the page,
-  // historical from the verified pattern.
+  // Pearson publishes PDFs under a current-series page plus a long archive of
+  // differently-shaped filenames. The verified catalogue is the single source
+  // of truth for GCSE; discovered links may add current A-level assets. Never
+  // construct a Pearson filename for an unseen series.
   const PEARSON_PAGE = "https://qualifications.pearson.com/en/support/support-topics/results-certification/grade-boundaries.html";
-  const PEARSON_DAM = "https://qualifications.pearson.com/content/dam/pdf/Support/Grade-boundaries";
-  const PEARSON_BASELINE = [
-    { month: "JUN", year: 2023, label: "June 2023" },
-    { month: "JUN", year: 2024, label: "June 2024" },
-    { month: "NOV", year: 2024, label: "November 2024" },
-    { month: "JUN", year: 2025, label: "June 2025" },
-    { month: "NOV", year: 2025, label: "November 2025" }
-  ];
+  const PEARSON_VERIFIED = new Map(
+    VERIFIED_CATALOGUE.map((r) => [`${r.month}-${r.year}:${r.qual}`, r.url])
+  );
+  const PEARSON_BASELINE = VERIFIED_CATALOGUE
+    .filter((r) => r.qual === "gcse")
+    .map((r) => ({ month: r.month, year: r.year, label: `${monthAbbrevToFull(r.month)} ${r.year}` }));
   const discoveredPearson = new Map();
 
   // ---------- isolated boundary cache ----------
@@ -157,10 +155,6 @@ export function initScraperTool(deps, context = {}) {
   function monthAbbrevToFull(abbrev) {
     const m = AQA_MONTHS.find(([, abb]) => abb === abbrev);
     return m ? m[0] : abbrev;
-  }
-
-  function monthAbbrevToSlug(abbrev) {
-    return monthAbbrevToFull(abbrev).toLowerCase();
   }
 
   // ---------- persisted selection ----------
@@ -509,16 +503,14 @@ export function initScraperTool(deps, context = {}) {
     return { found: titles.length, kept };
   }
 
-  // Pearson DAM pattern for older series (predictable, verified for 2023-2025).
+  // Pearson URLs are pinned in the verified catalogue or discovered from the
+  // board's own page. Never build one from a filename pattern for an unseen
+  // series: Pearson changed the pattern several times, so a guess is a silent
+  // 404 presented to the user as "unavailable".
   function pearsonSeriesUrl(qual, series) {
-    const discovered = discoveredPearson.get(`${seriesKey(series)}:${qual.id}`);
-    if (discovered) return discovered;
-    const slug = monthAbbrevToSlug(series.month);
-    if (qual.id === "gcse") {
-      return `${PEARSON_DAM}/GCSE/grade-boundaries-${slug}-${series.year}-gcse.pdf`;
-    }
-    // AS + A-level share the "GCE" file.
-    return `${PEARSON_DAM}/A-level/grade-boundaries-${slug}-${series.year}-gce.pdf`;
+    return discoveredPearson.get(`${seriesKey(series)}:${qual.id}`)
+      || PEARSON_VERIFIED.get(`${seriesKey(series)}:${qual.id}`)
+      || null;
   }
 
   // ---------- status / scratch-buffer log helpers ----------
@@ -547,6 +539,37 @@ export function initScraperTool(deps, context = {}) {
   // placeholder reads as "loading" rather than "empty". Harmless & subtle.
   function setFieldShimmer(busy) {
     if (el.subjectInput) el.subjectInput.classList.toggle("scraper-shimmer-field", !!busy);
+  }
+
+  // Bottom-of-app mirror of the scratch-buffer line. The scraper log remains
+  // the detailed technical trace; this toast is the calm, glanceable version
+  // for someone who is watching the app rather than the log.
+  let fetchActivity = null;
+  let fetchActivityMeta = "";
+  let fetchActivityHint = "";
+  function startFetchActivity(message, detail = "", extra = {}) {
+    if (typeof activityToast !== "function") return;
+    fetchActivityMeta = "";
+    fetchActivityHint = "";
+    fetchActivity = activityToast(message, { key: "scraper-fetch", detail, ...extra });
+  }
+  function updateFetchActivity(message, detail = "", extra = {}) {
+    if (!fetchActivity) return;
+    fetchActivity.update(message, { detail, meta: fetchActivityMeta, hint: fetchActivityHint, ...extra });
+  }
+  function finishFetchActivity(message, detail = "", extra = {}) {
+    if (!fetchActivity) return;
+    fetchActivity.complete(message, { detail, meta: fetchActivityMeta, hint: fetchActivityHint, ...extra });
+    fetchActivity = null;
+    fetchActivityMeta = "";
+    fetchActivityHint = "";
+  }
+  function failFetchActivity(message, detail = "", extra = {}) {
+    if (!fetchActivity) return;
+    fetchActivity.fail(message, { detail, meta: fetchActivityMeta, hint: fetchActivityHint, ...extra });
+    fetchActivity = null;
+    fetchActivityMeta = "";
+    fetchActivityHint = "";
   }
 
   // Task-complete hook: fire a radial ripple on the app's background canvas so
@@ -952,6 +975,7 @@ export function initScraperTool(deps, context = {}) {
       setStatus("No series available yet — scan the site first.", "err");
       return;
     }
+    const boardName = board === "aqa" ? "AQA" : board === "ocr" ? "OCR" : "Pearson";
 
     // Serve from cache first (isolated boundary store; never user graph data).
     const cached = boundary.getCachedSubjects(board, qual.id, series);
@@ -963,6 +987,7 @@ export function initScraperTool(deps, context = {}) {
       return;
     }
 
+    startFetchActivity(`Preparing ${boardName} ${qual.name} boundaries`, `${series.label} · ${qual.name}`);
     let url;
     let fileType;
     if (board === "aqa") {
@@ -972,16 +997,32 @@ export function initScraperTool(deps, context = {}) {
       url = discoveredOcr.get(`${seriesKey(series)}:${qual.id}`);
       fileType = "pdf";
       if (!url) {
-        setStatus(`No OCR log found for ${qual.name} ${series.label} — scan the site first.`, "err");
+        const message = `No OCR log found for ${qual.name} ${series.label} — scan the site first.`;
+        setStatus(message, "err");
+        failFetchActivity("OCR source missing", `${boardName} ${qual.name} · ${series.label}`, {
+          meta: "ERROR: No official OCR link was discovered for this series.",
+          hint: "TRY: Run the OCR site scan, then fetch again."
+        });
         return;
       }
     } else if (board === "pearson") {
       url = pearsonSeriesUrl(qual, series);
       fileType = "pdf";
+      if (!url) {
+        const message = `No verified Pearson ${qual.name} document for ${series.label}. No URL was guessed.`;
+        setStatus(message, "err");
+        appendLog(message);
+        failFetchActivity("Verified Pearson source missing", `${boardName} ${qual.name} · ${series.label}`, {
+          meta: "ERROR: No verified catalogue entry for this series.",
+          hint: "No URL was guessed. Pick a verified series."
+        });
+        return;
+      }
     }
 
-    const boardName = board === "aqa" ? "AQA" : board === "ocr" ? "OCR" : "Pearson";
+    fetchActivityHint = `SOURCE: ${url}`;
     setStatus(`Fetching ${boardName} ${qual.name} ${series.label}...`, "busy");
+    updateFetchActivity(`Fetching ${boardName} ${qual.name} boundaries`, series.label);
     appendLog(`Board: ${boardName}`);
     const adapter = adapterFor(board);
     if (adapter) appendLog(`adapter: ${adapter.id} (${adapter.name}) — ${adapter.source}`);
@@ -998,7 +1039,10 @@ export function initScraperTool(deps, context = {}) {
       // URL this tool found during its own site scan but the shared engine
       // hasn't discovered — fall back to this tool's local engine untouched.
       try {
-        const shared = await ensureBoundarySeries(board, qual, series, (m) => scratch(m));
+        const shared = await ensureBoundarySeries(board, qual, series, (m) => {
+          scratch(m);
+          updateFetchActivity(m, series.label);
+        });
         if (shared && shared.length) {
           subjects = shared.map((s) => ({ ...s, board, qual: qual.id }));
           finishFetch(qual, series, true);
@@ -1009,15 +1053,25 @@ export function initScraperTool(deps, context = {}) {
         appendLog(`Shared engine unavailable (${e.message || String(e)}); using local engine.`);
       }
       if (fileType === "xlsx") {
-        await fetchAqaXlsx(url, board, qual, series, (m) => scratch(m));
+        await fetchAqaXlsx(url, board, qual, series, (m) => {
+          scratch(m);
+          updateFetchActivity(m, series.label);
+        });
       } else {
-        await fetchBoardPdf(url, board, qual, series, (m) => scratch(m));
+        await fetchBoardPdf(url, board, qual, series, (m) => {
+          scratch(m);
+          updateFetchActivity(m, series.label);
+        });
       }
     } catch (e) {
       setScratchBusy(false);
       setFieldShimmer(false);
       setStatus(e.message || String(e), "err");
       scratch("ERROR: " + (e.message || String(e)), false);
+      failFetchActivity("Boundary fetch failed", `${boardName} ${qual.name} · ${series.label}`, {
+        meta: `ERROR: ${e.message || String(e)}`,
+        hint: fetchActivityHint || "TRY: Retry, or pick another series."
+      });
       return;
     }
     setScratchBusy(false);
@@ -1073,6 +1127,10 @@ export function initScraperTool(deps, context = {}) {
     pulseTaskComplete();
     const boardName = currentBoardId() === "aqa" ? "AQA" : currentBoardId() === "ocr" ? "OCR" : "Pearson";
     setStatus(`${boardName} ${qual.name} ${series.label} loaded${fromCache ? " (cached)" : ""}`, "ok");
+    finishFetchActivity(
+      `${boardName} ${qual.name} boundaries ready`,
+      `${series.label}${fromCache ? " · cached" : ""}`
+    );
   }
 
   // ---------- adapter diagnostics + force refetch ----------

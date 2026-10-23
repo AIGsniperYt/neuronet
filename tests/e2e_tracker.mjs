@@ -100,22 +100,22 @@ const SEEDS = {
     },
     {
       id: "sit-2024", type: "pastpaper", subject: "Maths", year: 2024, series: "June",
-      results: [{ paper: "Paper 1", score: 72, maxMark: 80 }],
+      results: [{ paper: "Paper 1", score: 72, maxMarks: 80 }],
       createdAt: Date.now(), updatedAt: Date.now()
     },
     {
       id: "sit-2025", type: "pastpaper", subject: "Maths", year: 2025, series: "June",
-      results: [{ paper: "Paper 1", score: 75, maxMark: 80 }],
+      results: [{ paper: "Paper 1", score: 75, maxMarks: 80 }],
       createdAt: Date.now(), updatedAt: Date.now()
     },
     {
       id: "sit-undated", type: "pastpaper", subject: "Maths", year: null, series: "",
-      results: [{ paper: "Paper 1", score: 60, maxMark: 80 }],
+      results: [{ paper: "Paper 1", score: 60, maxMarks: 80 }],
       createdAt: Date.now(), updatedAt: Date.now()
     },
     {
       id: "sit-english", type: "pastpaper", subject: "English Literature", year: 2024, series: "June",
-      results: [{ paper: "Paper 1", score: 42, maxMark: 80 }],
+      results: [{ paper: "Paper 1", score: 42, maxMarks: 80 }],
       createdAt: Date.now(), updatedAt: Date.now()
     }
   ],
@@ -227,15 +227,24 @@ try {
     "badges=" + JSON.stringify(allBnd));
   check("2025 row renders official 217", allBnd.some((b) => b.includes("9 ≥ 217")),
     "badges=" + JSON.stringify(allBnd));
-  // Default display is top/middle/lowest, deliberately, so a repeated top
-  // threshold (real for several boards/years) is visibly backed by distinct
-  // lower thresholds rather than looking like a duplicated row.
-  check("default boundary shows top/middle/lowest, not just top",
+  // Default display is the highest classified grade only. Customise is
+  // opt-in, so no middle/lower grades should appear until the user picks them.
+  check("default boundary shows only the highest grade",
     rows.some((r) =>
-      r.badges.some((b) => b.text.includes("9 ≥ 197")) &&
-      r.badges.some((b) => b.text.includes("6 ≥ 105")) &&
-      r.badges.some((b) => b.text.includes("3 ≥ 26"))),
+      r.badges.length === 1 &&
+      r.badges[0].text.includes("9 ≥ 197")),
     JSON.stringify(rows.map((r) => r.badges.map((b) => b.text))));
+  const achievedCells = await page.$$eval(".row-main", (rows) =>
+    rows.map((row) => ({
+      grade: row.querySelector(".col-achieved .head-grade")?.textContent.trim() || "",
+      mixedIntoPapers: !!row.querySelector(".col-papers .head-grade")
+    })));
+  check("achieved grade has its own column",
+    achievedCells.some((r) => r.grade.length > 0),
+    JSON.stringify(achievedCells));
+  check("paper marks column no longer mixes in the achieved grade",
+    achievedCells.every((r) => !r.mixedIntoPapers),
+    JSON.stringify(achievedCells));
   const projected = rows.find((r) => r.session === "") ||
     rows.find((r) => r.badges.some((b) => b.cls.includes("bnd-proj")));
   check("undated row labelled projected (bnd-proj)",
@@ -272,6 +281,42 @@ try {
   }
   check("preview lists June 2025 group", preview.some((t) => t.includes("2025")), JSON.stringify(preview));
   check("preview lists June 2024 group", preview.some((t) => t.includes("2024")), JSON.stringify(preview));
+  const previewText = await page.$eval("#trackerBoundaryPreview", (el) =>
+    el.textContent.replace(/\s+/g, " ").trim());
+  check("customise preview defaults to the highest grade only",
+    previewText.includes("9 ≥ 197") &&
+      previewText.includes("9 ≥ 217") &&
+      !previewText.includes("6 ≥ 105") &&
+      !previewText.includes("3 ≥ 26"),
+    previewText);
+
+  // The picker must drive the rendered Boundary column, not just the preview.
+  const boundaryBadges = () => page.$$eval(".row-main .col-boundary .bnd", (els) =>
+    els.map((e) => e.textContent.trim()));
+  await page.$eval('#trackerBoundaryChips .tracker-grade-chip[data-g="6"]', (el) => el.click());
+  await page.waitForFunction(() => {
+    const badges = [...document.querySelectorAll(".row-main .col-boundary .bnd")]
+      .map((e) => e.textContent.trim());
+    return badges.length > 0 && badges.every((t) => t.startsWith("6 ≥"));
+  }, { timeout: 5000 });
+  const picked = await boundaryBadges();
+  check("customise picker shows exactly the selected grade",
+    picked.length > 0 && picked.every((t) => t.startsWith("6 ≥")) &&
+      picked.some((t) => t.includes("6 ≥ 105")),
+    JSON.stringify(picked));
+
+  await page.$eval('#trackerBoundaryChips .tracker-grade-chip[data-g="6"]', (el) => el.click());
+  await page.waitForFunction(() => {
+    const badges = [...document.querySelectorAll(".row-main .col-boundary .bnd")]
+      .map((e) => e.textContent.trim());
+    return badges.some((t) => t.includes("9 ≥ 197")) &&
+      !badges.some((t) => t.includes("6 ≥ 105"));
+  }, { timeout: 5000 });
+  const unpicked = await boundaryBadges();
+  check("clearing the picker restores the highest-grade default",
+    unpicked.some((t) => t.includes("9 ≥ 197")) &&
+      !unpicked.some((t) => t.includes("6 ≥ 105")),
+    JSON.stringify(unpicked));
 
   // ---- Phase D-3: confirmed course auto-suggests its discovered papers ----
   // (Only meaningful while a confirmed subject is focused: the Add action
@@ -375,7 +420,7 @@ try {
     await db.initDB();
     await db.addNode({
       id: "sit-2022", type: "pastpaper", subject: "Maths", year: 2022, series: "November",
-      results: [{ paper: "Paper 1", score: 70, maxMark: 80 }],
+      results: [{ paper: "Paper 1", score: 70, maxMarks: 80 }],
       createdAt: Date.now(), updatedAt: Date.now()
     });
   });

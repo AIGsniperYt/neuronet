@@ -12,7 +12,7 @@ import { findSubjects, matchSubjects } from "./subjects.js";
 import { diag } from "./diag.js";
 
 export function initTrackerTool(deps, context = {}) {
-  const { getAllNodes, addNode, addNodes, deleteNode, getSubjects, escapeHtml } = deps;
+  const { getAllNodes, addNode, addNodes, deleteNode, getSubjects, escapeHtml, activityToast } = deps;
   // ---- DOM refs ----
   const $ = (id) => document.getElementById(id);
   const el = {
@@ -77,10 +77,11 @@ export function initTrackerTool(deps, context = {}) {
   let subjectMeta = {}; // subject -> { examBoard, qualification, code } for auto resolution
   const COL_DEFS = [
     { id: "boundary", label: "Boundary" },
+    { id: "achieved", label: "Achieved grade" },
     { id: "sitting", label: "Sitting" },
     { id: "avg", label: "Average" }
   ];
-  const COL_DEFAULTS = { boundary: true, sitting: true, avg: true };
+  const COL_DEFAULTS = { boundary: true, achieved: true, sitting: true, avg: true };
   let cols = loadCols(); // visible table columns, persisted in localStorage
   let aimGrades = loadAim(); // subject -> boundary grade labels shown as thresholds in the Boundary column
   let chipTokens = new Set(); // toggled quick-filter chips in the link picker — level + board coexist
@@ -450,11 +451,8 @@ async function loadSubjectCatalogues() {
   }
 
   // Default Boundary-column answer when the user has not picked grades: the
-  // top, middle and bottom classified grades. Showing only the top grade made
-  // genuinely repeated top thresholds (e.g. AQA Biology 9 = 141 in both 2024
-  // and 2025) look like duplicated data. Three points make consecutive years
-  // visibly distinct without turning the cell into a full table; the tooltip
-  // still carries every grade.
+  // highest classified grade only. The full table stays in the badge tooltip;
+  // customise lets the user add or remove any grades they actually want.
   function defaultDisplayGrades(table) {
     const normalized = Exam.normalizeTable(table);
     if (!normalized) return [];
@@ -462,9 +460,7 @@ async function loadSubjectCatalogues() {
       ? normalized.gradesInOrder
       : Object.keys(normalized.grades || {}))
       .filter((g) => g && String(g).toUpperCase() !== "U" && Number.isFinite(normalized.grades[g]));
-    if (labels.length <= 3) return labels;
-    const middle = Math.floor((labels.length - 1) / 2);
-    return [...new Set([labels[0], labels[middle], labels[labels.length - 1]])];
+    return labels.length ? [labels[0]] : [];
   }
 
   function markForGrade(gb, label) {
@@ -525,8 +521,8 @@ async function loadSubjectCatalogues() {
   // The Boundary column shows the grade thresholds YOU want to aim for — picked
   // per subject from the fetched pack (the source of truth — the pack itself is
   // never edited here). Any number of grades: 9, 9+7, 9+4, 9+8+7, whatever.
-  // Nothing picked = top/middle/lowest, so consecutive years cannot masquerade
-  // as duplicate rows when only the top threshold happens to repeat.
+  // Nothing picked = highest grade, while Customise can add any grades the
+  // user wants without editing the fetched pack itself.
   function aimTable(subject) {
     const sitting = papers.find((p) => p.subject === subject && p.year != null);
     if (!sitting) return null;
@@ -664,7 +660,7 @@ async function loadSubjectCatalogues() {
     };
     const title = selected.length
       ? `Threshold per year fetched for this subject (shown in the Boundary column)`
-      : `Top/middle/lowest grades (default) per year fetched for this subject`;
+      : `Highest grade (default) per year fetched for this subject`;
     el.boundaryPreview.innerHTML =
       `<div class="tracker-cus-preview-title">${escapeHtml(title)}</div>` +
       `<div class="tracker-cus-preview-row">` +
@@ -1181,7 +1177,8 @@ async function loadSubjectCatalogues() {
     let header = `<tr>` + (showAll ? `<th class="col-subject">Subject</th>` : "");
     if (cols.sitting) header += `<th class="col-session">Sitting</th>`;
     header += `<th class="col-papers">Papers</th>`;
-    if (cols.boundary) header += `<th class="col-boundary" title="Default: top/middle/lowest grade thresholds. Use Customise to pick exact grades. Hover a badge for the full table.">Boundary</th>`;
+    if (cols.achieved) header += `<th class="col-achieved" title="Subject grade calculated from your entered paper marks; projected until every paper is complete">Achieved</th>`;
+    if (cols.boundary) header += `<th class="col-boundary" title="Default: the highest grade threshold. Use Customise to pick exact grades. Hover a badge for the full table.">Boundary</th>`;
     if (cols.avg) header += `<th class="col-avg">Avg</th>`;
     header += `<th class="col-actions"></th></tr>`;
     thead.innerHTML = header;
@@ -1226,6 +1223,123 @@ async function loadSubjectCatalogues() {
   let warmTimer = null;
   let warmRunning = false;
   const warnedBoundaryFailures = new Set();
+
+  // Human-readable warm-job labels double as the activity-toast copy. The
+  // toast is deliberately driven by the scheduler's real work only: it never
+  // advances progress for a cache hit or a requirement that was not queued.
+  const WARM_BOARD_NAMES = { aqa: "AQA", ocr: "OCR", pearson: "Pearson" };
+  const WARM_MONTH_NAMES = {
+    JAN: "January", FEB: "February", MAR: "March", APR: "April",
+    MAY: "May", JUN: "June", JUL: "July", AUG: "August",
+    SEP: "September", OCT: "October", NOV: "November", DEC: "December"
+  };
+  let warmActivity = null;
+  let warmActivityStats = null;
+  let warmConsecutiveFailures = 0;
+  let warmGaveUp = false;
+  let warmGaveUpUntil = 0;
+  const MAX_WARM_CONSECUTIVE_FAILURES = 3;
+  const WARM_RETRY_COOLDOWN_MS = 10 * 60 * 1000;
+
+  function warmJobLabel(r) {
+    const parsed = parseCourseKey(r.courseKey) || {};
+    const board = WARM_BOARD_NAMES[r.board] || String(r.board || "").toUpperCase();
+    const tier = parsed.tier && parsed.tier !== "_" ? String(parsed.tier) : "";
+    let title = "";
+    try {
+      const course = (Exam.courseList ? Exam.courseList() : []).find((c) =>
+        c.board === r.board &&
+        c.qual === r.qual &&
+        String(c.code || "") === String(parsed.code || "") &&
+        String(c.tier || "") === tier
+      );
+      title = course && course.title ? course.title : "";
+    } catch {
+      title = "";
+    }
+    const subject = title || `${parsed.code || "Boundaries"}${tier ? `/${tier}` : ""}`;
+    const month = WARM_MONTH_NAMES[String(r.series && r.series.month || "").toUpperCase()]
+      || (r.series && r.series.month) || "Series";
+    const year = r.series && r.series.year ? ` ${r.series.year}` : "";
+    return `${board} ${subject} · ${month}${year}`;
+  }
+
+  // Turn engine reason codes into a sentence the toast can actually explain.
+  // Raw codes stay in diagnostics; users get the cause and the next step.
+  const WARM_FAILURE_TEXT = {
+    NO_EXACT_SOURCE: "no exact official source published",
+    SOURCE_NOT_FOUND: "official source not found",
+    FETCH_FAILED: "download failed",
+    RATE_LIMITED: "board rate-limited the request",
+    PARSER_FAILED: "official document could not be parsed",
+    WRONG_DOCUMENT: "source did not match the requested series",
+    WRONG_YEAR: "source was for a different year",
+    WRONG_SERIES: "source was for a different series",
+    WRONG_QUALIFICATION: "source was for a different qualification",
+    TIER_MISMATCH: "source tier did not match",
+    CONFLICTING_SOURCES: "official sources conflict",
+    COURSE_UNRESOLVED: "course could not be resolved",
+    AMBIGUOUS: "course identity is ambiguous",
+    UNMAPPED_SERIES: "series could not be mapped",
+    IDENTITY_CONFLICT: "course identity conflicts with saved data",
+    DISCOVERY_INCOMPLETE: "board source discovery is incomplete",
+    UNKNOWN_METADATA: "board metadata is incomplete",
+    COMPONENT_BOUNDARY: "only component boundaries were found",
+    "mock-specimen": "mock/specimen has no official boundaries",
+    "series-not-fetched": "series has not been fetched",
+    "no-data": "no boundary data published"
+  };
+
+  function warmFailureReason(res, error) {
+    if (error) return String(error && error.message ? error.message : error);
+    if (res && res.__warmTimeout) return "timed out after 60s";
+    if (res && res.error) return String(res.error);
+    const code = res && (res.reason || (res.decision && res.decision.reason));
+    if (code && WARM_FAILURE_TEXT[code]) return WARM_FAILURE_TEXT[code];
+    if (code) return String(code).replace(/_/g, " ").toLowerCase();
+    return "no boundary table returned";
+  }
+
+  function warmFailureLine(label, reason) {
+    return `${label} — ${reason}`;
+  }
+
+  function ensureWarmActivity(total) {
+    if (warmActivityStats) return;
+    warmActivityStats = { total, finished: 0, loaded: 0, failed: 0, active: new Set() };
+    if (typeof activityToast !== "function") return;
+    warmActivity = activityToast("Fetching official grade boundaries", {
+      key: "boundary-warm",
+      detail: `${total} series queued`,
+      progress: { value: 0, max: total }
+    });
+  }
+
+  function paintWarmActivity(message = "Fetching official grade boundaries") {
+    if (!warmActivityStats || !warmActivity) return;
+    const labels = [...warmActivityStats.active];
+    const detail = labels.length === 1
+      ? labels[0]
+      : labels.length > 1
+        ? `${labels.length} series in flight · ${labels.slice(0, 2).join(" · ")}`
+        : `${Math.max(0, warmActivityStats.total - warmActivityStats.finished)} series remaining`;
+    warmActivity.update(message, {
+      detail,
+      progress: { value: warmActivityStats.finished, max: warmActivityStats.total }
+    });
+  }
+
+  function finishWarmActivity(message, options) {
+    if (warmActivity) warmActivity.complete(message, options);
+    warmActivity = null;
+    warmActivityStats = null;
+  }
+
+  function failWarmActivity(message, options) {
+    if (warmActivity) warmActivity.fail(message, options);
+    warmActivity = null;
+    warmActivityStats = null;
+  }
 
   // ---- planner-based warm path (examData scheduler) ----
   // Only the exam-data scheduler decides what work exists. This browser layer
@@ -1302,6 +1416,12 @@ async function loadSubjectCatalogues() {
   }
 
   function scheduleWarm() {
+    if (warmGaveUp) {
+      if (Date.now() < warmGaveUpUntil) return;
+      warmGaveUp = false;
+      warmGaveUpUntil = 0;
+      warmConsecutiveFailures = 0;
+    }
     if (warmRunning || warmTimer) return;
     warmTimer = setTimeout(() => {
       warmTimer = null;
@@ -1325,16 +1445,28 @@ async function loadSubjectCatalogues() {
     diag("R? ", "runWarmFlight", { reqCount: reqs.length, boundaryReqs: reqs.filter(function (r) { return r.type === REQUIREMENT_TYPES.BOUNDARY; }).length });
     if (reqs.length === 0) {
       setWarmStatus("");
+      if (warmActivityStats) {
+        const stats = warmActivityStats;
+        finishWarmActivity("Official grade boundaries ready", {
+          detail: `${stats.loaded} series loaded${stats.failed ? ` · ${stats.failed} unavailable` : ""}`,
+          progress: { value: stats.finished, max: stats.total }
+        });
+      }
       warmRunning = false;
       renderPapers();
       return;
     }
     let madeFetch = false;
-    const batch = reqs.filter((r) => r.type === REQUIREMENT_TYPES.BOUNDARY)
-      .filter((r) => !Exam.recentlyAttempted(r.key))
-      .slice(0, MAX_WARM_JOBS_PER_KICK);
+    const boundaryCandidates = reqs.filter((r) => r.type === REQUIREMENT_TYPES.BOUNDARY)
+      .filter((r) => !Exam.recentlyAttempted(r.key));
+    const boundaryRemaining = boundaryCandidates.length;
+    const batch = boundaryCandidates.slice(0, MAX_WARM_JOBS_PER_KICK);
     const total = batch.length;
     let finished = 0;
+    let batchLoaded = 0;
+    let batchFailed = 0;
+    const warmFailureNotes = [];
+    if (total > 0) ensureWarmActivity(boundaryRemaining);
     setWarmStatus(total ? `Fetching boundaries 0/${total}…` : "");
     console.info(`[NEURONET warm] start ${total} boundary job(s)`);
     await Promise.all(batch.map(async (r, i) => {
@@ -1342,8 +1474,14 @@ async function loadSubjectCatalogues() {
       const seriesWord = String(r.series.month);
       const tierText = parsed.tier && parsed.tier !== "_" ? `/${parsed.tier}` : "";
       const label = `${String(r.board || "").toUpperCase()} ${parsed.code || ""}${tierText} ${seriesWord} ${r.series && r.series.year}`;
+      const friendlyLabel = warmJobLabel(r);
+      let acquired = false;
       console.info(`[NEURONET warm] -> ${label} (${i + 1}/${total})`);
       setWarmStatus(`Fetching ${label} (${i + 1}/${total})…`);
+      if (warmActivityStats) {
+        warmActivityStats.active.add(friendlyLabel);
+        paintWarmActivity();
+      }
       diag("R? ", "runWarmFlight: acquiring", { board: r.board, qual: r.qual, code: parsed.code, tier: parsed.tier, year: r.series && r.series.year, series: seriesWord });
       try {
         const res = await Promise.race([
@@ -1359,7 +1497,8 @@ async function loadSubjectCatalogues() {
           new Promise((resolve) => setTimeout(() => resolve({ __warmTimeout: true }), 60000))
         ]);
         if (res && res.__warmTimeout) {
-          console.warn(`[NEURONET warm] TIMEOUT ${label} after 60s — moving on`);
+          console.info(`[NEURONET warm] TIMEOUT ${label} after 60s — moving on`);
+          warmFailureNotes.push(warmFailureLine(friendlyLabel, "timed out after 60s"));
           Exam.rememberAttempt(r.key);
           return;
         }
@@ -1367,22 +1506,44 @@ async function loadSubjectCatalogues() {
         console.info(`[NEURONET warm] <- ${label} status=${res && res.status} reason=${res && res.reason || "none"} decision=${res && res.decision && res.decision.kind || "none"}`);
         diag("R? ", "runWarmFlight: Exam.ensureForSitting result", { board: r.board, code: parsed.code, tier: parsed.tier, status: res && res.status, reason: res && res.reason || null, decision: res && res.decision && res.decision.kind });
         if (acquiredOfficially) {
+          acquired = true;
           madeFetch = true;
           return; // stored in canonical shape; the next read model sees it
         }
         // The verified engine is the single acquisition path. A missing exact
         // source is a settled result, not a reason to launch the old legacy
         // fetcher (which could leave the UI reporting "fetching" forever).
+        warmFailureNotes.push(warmFailureLine(friendlyLabel, warmFailureReason(res)));
         Exam.rememberAttempt(r.key);
       } catch (e) {
         console.warn(`[NEURONET warm] FAILED ${label}: ${String(e && e.message ? e.message : e)}`);
+        warmFailureNotes.push(warmFailureLine(friendlyLabel, warmFailureReason(null, e)));
         Exam.rememberAttempt(r.key);
         diag("R? ", "runWarmFlight: acquireBoundary THREW", { board: r.board, code: parsed.code, error: String(e && e.message ? e.message : e) });
       } finally {
         finished += 1;
+        if (acquired) batchLoaded += 1;
+        else batchFailed += 1;
+        if (warmActivityStats) {
+          warmActivityStats.finished += 1;
+          if (acquired) warmActivityStats.loaded += 1;
+          else warmActivityStats.failed += 1;
+          warmActivityStats.active.delete(friendlyLabel);
+          paintWarmActivity(acquired ? "Official boundary loaded" : "Boundary unavailable");
+        }
         setWarmStatus(finished < total ? `Fetched ${finished}/${total} boundary series…` : "");
       }
     }));
+    // Stop after a short run of batches that produced nothing. Failed series
+    // are already in the one-hour retry window; this guard additionally stops
+    // the scheduler from hammering the console/network when a board is down.
+    if (batchLoaded > 0) warmConsecutiveFailures = 0;
+    else warmConsecutiveFailures += batchFailed;
+    if (warmConsecutiveFailures >= MAX_WARM_CONSECUTIVE_FAILURES) {
+      warmGaveUp = true;
+      warmGaveUpUntil = Date.now() + WARM_RETRY_COOLDOWN_MS;
+      diag("R? ", "runWarmFlight: circuit opened", { warmConsecutiveFailures: warmConsecutiveFailures, batchFailed: batchFailed });
+    }
     setWarmStatus("");
     // The bridge normally emits Exam.onChanged(), but the production tool can
     // be opened while main.js is still replacing the tool DOM. Explicitly
@@ -1396,13 +1557,51 @@ async function loadSubjectCatalogues() {
     }
     // If this kick did real work and rows still need series, continue in a
     // fresh macrotask rather than recursively re-entering the flight.
-    const remaining = planWarmRequirements().length > 0;
-    diag("R? ", "runWarmFlight done", { madeFetch: madeFetch, remaining: remaining });
+    const remainingReqs = planWarmRequirements();
+    const remaining = remainingReqs.length > 0;
+    const remainingBoundary = remainingReqs
+      .filter((r) => r.type === REQUIREMENT_TYPES.BOUNDARY && !Exam.recentlyAttempted(r.key))
+      .length;
+    diag("R? ", "runWarmFlight done", { madeFetch: madeFetch, remaining: remaining, remainingBoundary: remainingBoundary });
     // Failed jobs are recorded with rememberAttempt() and removed by
     // planWarmRequirements(), so remaining work is always safe to continue.
-    // Gating on madeFetch stranded later subjects whenever an early batch was
-    // made entirely of unavailable/failed board documents.
-    const continueWarm = remaining;
+    // Only boundary requirements are fetchable here. If none remain we stop
+    // even when paper requirements do; otherwise the old loop re-entered
+    // forever and poured console output onto the main thread.
+    const continueWarm = remainingBoundary > 0 && !warmGaveUp;
+    if (warmGaveUp) {
+      const stats = warmActivityStats;
+      const failedCount = stats ? stats.failed : batchFailed;
+      const sample = warmFailureNotes.slice(0, 2).join(" · ");
+      failWarmActivity("Boundary fetch paused", {
+        detail: `${failedCount} failed in a row · retry in 10 min`,
+        meta: sample ? `ERROR: ${sample}` : "ERROR: repeated boundary fetch failures",
+        hint: "TRY: Refresh to retry now."
+      });
+      setWarmStatus("Boundary fetch paused after repeated failures.");
+    } else if (warmActivityStats) {
+      if (remainingBoundary > 0) {
+        paintWarmActivity("Fetching more official boundaries");
+      } else {
+        const stats = warmActivityStats;
+        const detail = stats.loaded > 0
+          ? `${stats.loaded} series loaded${stats.failed ? ` · ${stats.failed} unavailable` : ""}`
+          : `${stats.failed} series unavailable`;
+        if (stats.loaded > 0) {
+          finishWarmActivity("Official grade boundaries ready", {
+            detail,
+            progress: { value: stats.finished, max: stats.total }
+          });
+        } else {
+          const sample = warmFailureNotes.slice(0, 2).join(" · ");
+          failWarmActivity("No official boundaries found", {
+            detail: `${stats.failed} series checked`,
+            meta: sample ? `ERROR: ${sample}` : "ERROR: no boundary table returned",
+            hint: "TRY: Check the board/series, or retry when the source updates."
+          });
+        }
+      }
+    }
     // If only paper requirements remain (boundary records lack paper metadata)
     // there is nothing fetchable for them here yet — the paper catalogue seam
     // (Phase C-2) will own that work; do not busy-loop over it.
@@ -1501,6 +1700,7 @@ async function loadSubjectCatalogues() {
     const avgEl = avg !== null
       ? `<span style="color:${avg < 60 ? "#ff8c8c" : "var(--accent)"};font-weight:700;">${avg}%</span>`
       : `<span class="tracker-sitting-badge">&ndash;</span>`;
+    const achievedEl = subjectGradeChip(sitting, gb) || `<span class="tracker-sitting-badge">&ndash;</span>`;
 
     const tr = document.createElement("tr");
     tr.className = "row-main";
@@ -1518,8 +1718,13 @@ async function loadSubjectCatalogues() {
     if (cols.sitting) {
       cells.push(td(`<span class="sit-session">${sessionTitle(sitting)}</span>`, "col-session"));
     }
-    cells.push(td(`<div class="sit-papers">${scoreSummary(sitting)}${subjectGradeChip(sitting, gb)}</div>`, "col-papers"));
-    cells.push(td(boundaryBadges(sitting.subject, decision, boundarySitting), "col-boundary"));
+    cells.push(td(`<div class="sit-papers">${scoreSummary(sitting)}</div>`, "col-papers"));
+    if (cols.achieved) {
+      cells.push(td(achievedEl, "col-achieved"));
+    }
+    if (cols.boundary) {
+      cells.push(td(boundaryBadges(sitting.subject, decision, boundarySitting), "col-boundary"));
+    }
     if (cols.avg) {
       cells.push(td(avgEl, "col-avg"));
     }
@@ -1641,8 +1846,8 @@ async function loadSubjectCatalogues() {
         ).join("");
       }
     }
-    // No explicit aim: show top/middle/bottom so a repeated top threshold is
-    // visibly backed by a distinct lower table, not mistaken for a duplicate.
+    // No explicit aim: show only the highest grade. The full table is in the
+    // badge tooltip; lower grades are opt-in through Customise.
     const defaultPicks = table ? defaultDisplayGrades(table) : [];
     if (defaultPicks.length) {
       return defaultPicks.map((label) => {

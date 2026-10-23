@@ -699,6 +699,105 @@ canvas { position: fixed; inset:0; z-index:-1; }
 }
 .nn-toast .nn-toast-btn:hover { background: rgba(255,255,255,.16); }
 
+/* App-native activity toast. Mirrors the scraper's scratch-buffer line:
+   one live log line with the same green sweep, completion fill, and breathing
+   glow. It keeps the native toast shell (including its accent edge) so it
+   belongs beside the app's other toasts. */
+.nn-toast-activity {
+  pointer-events: none;
+  padding: 0;
+  overflow: hidden;
+  min-width: min(360px, calc(100vw - 32px));
+  max-width: min(620px, calc(100vw - 32px));
+  border-left: 3px solid var(--accent);
+  background: linear-gradient(135deg, var(--panel-strong, #262626), #1a1a1a);
+}
+.nn-toast-log {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+  padding: 10px 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: rgba(0, 0, 0, 0.25);
+}
+.nn-toast-text {
+  color: rgba(230, 255, 245, 0.55);
+  font-weight: 500;
+  background-size: 200% 100%;
+}
+.nn-toast-detail {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+.nn-toast-meta,
+.nn-toast-hint {
+  font-size: 0.68rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.nn-toast-meta { color: rgba(230, 255, 245, 0.68); }
+.nn-toast-hint { color: rgba(230, 255, 245, 0.42); }
+.nn-toast-detail[hidden],
+.nn-toast-meta[hidden],
+.nn-toast-hint[hidden] { display: none; }
+.nn-toast-activity.is-loading .nn-toast-text {
+  background-image: linear-gradient(100deg, rgba(230,255,245,0.55) 30%, rgba(44,255,179,0.95) 50%, rgba(230,255,245,0.55) 70%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  animation: nn-toast-shimmer var(--nn-toast-sweep, 3.4s) linear infinite;
+}
+.nn-toast-activity.is-done .nn-toast-text {
+  background-image: linear-gradient(
+    100deg,
+    rgba(44,255,179,0.95) 0%, rgba(44,255,179,0.95) 47%,
+    rgba(44,255,179,0.95) 49%, rgba(230,255,245,0.55) 51%,
+    rgba(230,255,245,0.55) 100%
+  );
+  background-size: 200% 100%;
+  background-position: 200% 0;
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  animation: nn-toast-fill var(--nn-toast-fill, 2.8s) cubic-bezier(0.22, 0.8, 0.36, 1) 1 forwards,
+             nn-toast-breathe 2.8s ease-in-out var(--nn-toast-fill, 2.8s) infinite;
+}
+.nn-toast-activity.is-error { border-left-color: #ff6b6b; }
+.nn-toast-activity.is-error .nn-toast-text {
+  color: #ffb0b0;
+  -webkit-text-fill-color: currentColor;
+}
+.nn-toast-activity.is-error .nn-toast-meta { color: #ff9b9b; }
+.nn-toast-activity.is-error .nn-toast-hint { color: rgba(255, 176, 176, 0.68); }
+@keyframes nn-toast-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@keyframes nn-toast-fill {
+  0% { background-position: 200% 0; }
+  100% { background-position: 0 0; }
+}
+@keyframes nn-toast-breathe {
+  0%, 100% { filter: drop-shadow(0 0 3px rgba(44,255,179,0.42)); }
+  50% { filter: drop-shadow(0 0 11px rgba(44,255,179,0.72)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nn-toast-activity.is-loading .nn-toast-text {
+    animation: none; color: var(--text-main); -webkit-text-fill-color: currentColor;
+    background: none;
+  }
+  .nn-toast-activity.is-done .nn-toast-text {
+    animation: none; color: var(--accent); -webkit-text-fill-color: currentColor;
+    background: none;
+  }
+}
+
 
 /* Launchpad styles */
 .launchpad {
