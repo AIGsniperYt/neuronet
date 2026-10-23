@@ -52,7 +52,7 @@
 
   .mindmap-header p {
     color: var(--text-muted);
-    font-size: 0.8rem;
+    font-size: var(--ui-label-size, 0.78rem);
     margin: 0;
     min-width: 0;
     white-space: nowrap;
@@ -91,7 +91,9 @@
 
   .stat-pill .stat-label {
     color: var(--text-muted);
-    font-size: 0.75rem;
+    font-size: var(--ui-micro-size, 0.66rem);
+    font-weight: var(--ui-label-weight, 600);
+    letter-spacing: 0.02em;
   }
 
   /* Color-coded stat pills */
@@ -143,6 +145,7 @@
     height: 100%;
     z-index: 10;
     cursor: default;
+    transition: opacity 0.22s ease;
   }
 
   .node-point.source {
@@ -226,7 +229,9 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 0.85rem;
+    font-size: var(--ui-label-size, 0.78rem);
+    font-weight: var(--ui-label-weight, 600);
+    letter-spacing: 0.01em;
     color: var(--accent);
   }
 
@@ -254,9 +259,10 @@
   }
 
   .content-label {
-    font-size: 0.75rem;
+    font-size: var(--ui-micro-size, 0.66rem);
+    font-weight: var(--ui-micro-weight, 700);
     text-transform: uppercase;
-    letter-spacing: 0.1em;
+    letter-spacing: var(--ui-micro-tracking, 0.08em);
     color: var(--text-muted);
     margin-bottom: 12px;
     flex-shrink: 0;
@@ -265,7 +271,8 @@
   .content-text {
     line-height: 1.7;
     color: rgba(230, 255, 245, 0.9);
-    font-size: 0.95rem;
+    font-family: var(--font-reading, "Literata", Georgia, "Times New Roman", serif);
+    font-size: 0.98rem;
     white-space: pre-wrap;
     word-break: break-word;
   }
@@ -389,15 +396,15 @@
   }
 
   .grid-legend-title {
-    font-size: 0.64rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
+    font-size: var(--ui-micro-size, 0.66rem);
+    font-weight: var(--ui-micro-weight, 700);
+    letter-spacing: var(--ui-micro-tracking, 0.08em);
     text-transform: uppercase;
     color: var(--text-muted);
   }
 
   .grid-legend-note {
-    font-size: 0.66rem;
+    font-size: var(--ui-micro-size, 0.66rem);
     color: rgba(230, 255, 245, 0.42);
   }
 
@@ -452,6 +459,29 @@
     margin: 0 auto;
   }
 
+  .mindmap-grid-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 50vh;
+    padding: 40px;
+    color: var(--text-muted);
+    text-align: center;
+  }
+
+  .mindmap-grid-empty-icon {
+    font-size: 2.5rem;
+    margin-bottom: 12px;
+    opacity: 0.35;
+  }
+
+  .mindmap-grid-empty p {
+    max-width: 420px;
+    font-size: 0.9rem;
+    line-height: 1.55;
+  }
+
   .mindmap-grid-subject {
     border: 1px solid rgba(255, 107, 107, 0.16);
     border-radius: 14px;
@@ -493,7 +523,9 @@
 
   .mindmap-grid-subject-meta {
     margin-left: auto;
-    font-size: 0.7rem;
+    font-size: var(--ui-micro-size, 0.66rem);
+    font-weight: var(--ui-label-weight, 600);
+    letter-spacing: 0.02em;
     color: var(--text-muted);
   }
 
@@ -510,9 +542,9 @@
     align-items: center;
     gap: 8px;
     margin-bottom: 8px;
-    font-size: 0.66rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
+    font-size: var(--ui-micro-size, 0.66rem);
+    font-weight: var(--ui-micro-weight, 700);
+    letter-spacing: var(--ui-micro-tracking, 0.08em);
     text-transform: uppercase;
     color: rgba(230, 255, 245, 0.52);
   }
@@ -585,14 +617,23 @@
   .mindmap-grid-card.recall-weak { --recall-fill: rgba(255, 107, 107, 0.1); }
   .mindmap-grid-card.recall-unknown { --recall-fill: rgba(255, 255, 255, 0.025); }
 
+  .mindmap-grid-card.is-context {
+    opacity: 0.84;
+  }
+
+  .mindmap-grid-card.is-context:hover,
+  .mindmap-grid-card.is-context.selected {
+    opacity: 1;
+  }
+
   .mindmap-grid-card-top {
     display: flex;
     align-items: center;
     gap: 6px;
     min-width: 0;
-    font-size: 0.64rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
+    font-size: var(--ui-micro-size, 0.66rem);
+    font-weight: var(--ui-micro-weight, 700);
+    letter-spacing: var(--ui-micro-tracking, 0.08em);
     text-transform: uppercase;
     color: rgba(230, 255, 245, 0.52);
   }
@@ -611,8 +652,8 @@
   .mindmap-grid-accuracy {
     margin-left: auto;
     flex: 0 0 auto;
-    font-size: 0.64rem;
-    font-weight: 700;
+    font-size: var(--ui-micro-size, 0.66rem);
+    font-weight: var(--ui-micro-weight, 700);
     letter-spacing: 0;
     text-transform: none;
     padding: 2px 6px;
@@ -669,7 +710,7 @@
   }
 
   .mindmap-grid-tag {
-    font-size: 0.62rem;
+    font-size: var(--ui-micro-size, 0.66rem);
     padding: 1px 6px;
     border-radius: 999px;
     background: rgba(241, 250, 140, 0.08);
@@ -679,8 +720,8 @@
 
   .mindmap-grid-priority {
     margin-left: auto;
-    font-size: 0.62rem;
-    font-weight: 700;
+    font-size: var(--ui-micro-size, 0.66rem);
+    font-weight: var(--ui-micro-weight, 700);
     color: var(--importance-color);
     opacity: 0.9;
   }
@@ -720,8 +761,9 @@
     background: transparent;
     color: var(--text-muted);
     font: inherit;
-    font-size: 0.78rem;
-    font-weight: 600;
+    font-size: var(--ui-label-size, 0.78rem);
+    font-weight: var(--ui-label-weight, 600);
+    letter-spacing: 0.01em;
     padding: 6px 10px;
     border-radius: 999px;
     cursor: pointer;
@@ -800,7 +842,9 @@
 
   .btn-header {
     padding: 8px 14px;
-    font-size: 0.85rem;
+    font-size: var(--ui-label-size, 0.78rem);
+    font-weight: var(--ui-label-weight, 600);
+    letter-spacing: 0.01em;
   }
 
   .btn.active {
@@ -848,11 +892,12 @@
     justify-content: space-between;
     align-items: center;
     cursor: pointer;
-    font-size: 0.8rem;
+    font-size: var(--ui-micro-size, 0.66rem);
+    font-weight: var(--ui-micro-weight, 700);
     color: rgba(230, 255, 245, 0.6);
     margin-bottom: 8px;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: var(--ui-micro-tracking, 0.08em);
   }
 
   #connectionsToggle {
@@ -936,11 +981,12 @@
   }
 
   .tags-header {
-    font-size: 0.8rem;
+    font-size: var(--ui-micro-size, 0.66rem);
+    font-weight: var(--ui-micro-weight, 700);
     color: rgba(230, 255, 245, 0.6);
     margin-bottom: 8px;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: var(--ui-micro-tracking, 0.08em);
   }
 
   .tags-list {

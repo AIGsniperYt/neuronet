@@ -124,6 +124,23 @@ const state = {
     }
   };
 
+  const GRID_CARD_TYPES = new Set(["analysis", "quote", "cue", "source", "pastpaper"]);
+  const GRID_TYPE_ORDER = { analysis: 0, quote: 1, cue: 2, source: 3, pastpaper: 4 };
+  const GRID_TYPE_LABELS = {
+    analysis: "Analysis",
+    quote: "Quote",
+    cue: "Cue",
+    source: "Source",
+    pastpaper: "Past paper"
+  };
+  const GRID_IMPORTANCE_COLORS = {
+    1: "#9aa4ad",
+    2: "#4ba3ff",
+    3: "#3fd07d",
+    4: "#ff9b39",
+    5: "#ff4d4d"
+  };
+
   // QuadTree implementation for efficient spatial indexing
   class QuadTree {
     constructor(boundary, capacity = 4) {
@@ -565,6 +582,460 @@ const state = {
     }
 
     return lines.join("\n");
+  }
+
+  function normalizePriority(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return Math.min(5, Math.max(1, Math.round(n)));
+  }
+
+  function getDirectPriority(item) {
+    return normalizePriority(item?.priority ?? item?.meta?.priority);
+  }
+
+  function getItemPriority(item, depth = 0) {
+    if (!item || depth > 4) return null;
+
+    const direct = getDirectPriority(item);
+    if (direct) return direct;
+
+    if (item.type === "analysis") {
+      const refs = Array.isArray(item.quoteRefs) ? item.quoteRefs : [];
+      const refPriorities = refs
+        .map((ref) => normalizePriority(ref?.priority))
+        .filter(Boolean);
+      if (refPriorities.length) return Math.max(...refPriorities);
+
+      const linkedPriorities = refs
+        .map((ref) => (ref?.quoteId ? findItemById(ref.quoteId) : null))
+        .filter(Boolean)
+        .map((quote) => getItemPriority(quote, depth + 1))
+        .filter(Boolean);
+      if (linkedPriorities.length) return Math.max(...linkedPriorities);
+      return null;
+    }
+
+    if (item.type === "cue") {
+      if (item.quoteId) {
+        const quote = findItemById(item.quoteId);
+        const priority = quote ? getItemPriority(quote, depth + 1) : null;
+        if (priority) return priority;
+      }
+      if (item.analysisId) {
+        const analysis = findItemById(item.analysisId);
+        const priority = analysis ? getItemPriority(analysis, depth + 1) : null;
+        if (priority) return priority;
+      }
+      return null;
+    }
+
+    if (item.type === "source") {
+      const priorities = (state.quotes || [])
+        .filter((quote) => quote?.link?.sourceId === item.id)
+        .map((quote) => getDirectPriority(quote))
+        .filter(Boolean);
+      if (priorities.length) return Math.max(...priorities);
+    }
+
+    return null;
+  }
+
+  function getItemRecall(item, depth = 0) {
+    const meta = item?.meta || {};
+
+    const lastGrade = String(meta.lastGrade || "").toLowerCase();
+    if (lastGrade === "easy") return { level: "strong", label: "Strong", derived: false };
+    if (lastGrade === "kinda") return { level: "medium", label: "Partial", derived: false };
+    if (lastGrade === "didnt_know" || lastGrade === "didntknow") {
+      return { level: "weak", label: "Weak", derived: false };
+    }
+
+    const phase = String(meta.L_phase || "").toLowerCase();
+    if (phase === "mastered" || phase === "stable") {
+      return { level: "strong", label: "Strong", derived: false };
+    }
+    if (phase === "stabilising" || phase === "warming") {
+      return { level: "medium", label: "Partial", derived: false };
+    }
+
+    const rawS = meta.S;
+    const rawU = meta.U;
+    const hasS = rawS !== undefined && rawS !== null && rawS !== "" && Number.isFinite(Number(rawS));
+    const hasU = rawU !== undefined && rawU !== null && rawU !== "" && Number.isFinite(Number(rawU));
+    const stability = hasS ? Number(rawS) : 0;
+    const uncertainty = hasU ? Number(rawU) : 0;
+
+    if (hasS && hasU) {
+      if (uncertainty <= 0.4 && stability >= 0.9) return { level: "strong", label: "Strong", derived: false };
+      if (uncertainty <= 0.7 || stability >= 0.5) return { level: "medium", label: "Partial", derived: false };
+      return { level: "weak", label: "Weak", derived: false };
+    }
+    if (hasU) {
+      if (uncertainty <= 0.4) return { level: "strong", label: "Strong", derived: false };
+      if (uncertainty <= 0.7) return { level: "medium", label: "Partial", derived: false };
+      return { level: "weak", label: "Weak", derived: false };
+    }
+    if (hasS) {
+      if (stability >= 1.5) return { level: "strong", label: "Strong", derived: false };
+      if (stability >= 0.5) return { level: "medium", label: "Partial", derived: false };
+      return { level: "weak", label: "Weak", derived: false };
+    }
+
+    if (depth < 4 && item?.type === "analysis") {
+      const refs = Array.isArray(item.quoteRefs) ? item.quoteRefs : [];
+      const linked = refs
+        .map((ref) => (ref?.quoteId ? findItemById(ref.quoteId) : null))
+        .filter(Boolean)
+        .map((quote) => getItemRecall(quote, depth + 1))
+        .filter((recall) => recall.level !== "unknown");
+      if (linked.length) {
+        const rank = { strong: 0, medium: 1, weak: 2 };
+        const weakest = linked.reduce((worst, recall) =>
+          rank[recall.level] > rank[worst.level] ? recall : worst
+        );
+        return { ...weakest, derived: true };
+      }
+    }
+
+    if (depth < 4 && item?.type === "cue") {
+      const candidates = [
+        item.quoteId ? findItemById(item.quoteId) : null,
+        item.analysisId ? findItemById(item.analysisId) : null
+      ].filter(Boolean);
+      for (const linkedItem of candidates) {
+        const recall = getItemRecall(linkedItem, depth + 1);
+        if (recall.level !== "unknown") return { ...recall, derived: true };
+      }
+    }
+
+    return { level: "unknown", label: "No recall data", derived: false };
+  }
+
+  function normalizeAccuracy(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n < 0) return null;
+    const ratio = n > 1 ? n / 100 : n;
+    return Math.min(1, Math.max(0, ratio));
+  }
+
+  function getItemAccuracy(item) {
+    const meta = item?.meta || {};
+
+    const accuracy = normalizeAccuracy(meta.accuracy);
+    if (accuracy !== null) return accuracy;
+
+    const confidence = normalizeAccuracy(meta.confidence);
+    if (confidence !== null) return confidence;
+
+    if (Array.isArray(meta.recentGrades) && meta.recentGrades.length) {
+      const gradeScores = { easy: 1, kinda: 0.6, didnt_know: 0.2, didntknow: 0.2 };
+      const scores = meta.recentGrades
+        .map((grade) => gradeScores[String(grade || "").toLowerCase()])
+        .filter((score) => score !== undefined);
+      if (scores.length) {
+        return scores.reduce((sum, score) => sum + score, 0) / scores.length;
+      }
+    }
+
+    if (item?.type === "pastpaper") {
+      const percentages = (item.results || []).map(bestAttemptPct).filter((pct) => pct !== null);
+      if (percentages.length) {
+        return percentages.reduce((sum, pct) => sum + pct, 0) / percentages.length / 100;
+      }
+    }
+
+    return null;
+  }
+
+  function getGridTags(item) {
+    const tags = Array.isArray(item?.meta?.tags) ? item.meta.tags : [];
+    return tags
+      .map((tag) => String(tag || "").trim())
+      .filter((tag) => tag && tag.toLowerCase() !== "custom-deck");
+  }
+
+  function getItemLayerParts(item, depth = 0) {
+    if (!item || depth > 4) {
+      return { subject: getItemSubject(item), l1: "", l2: "", l3: "" };
+    }
+
+    if (item.type === "source") return getSourceLayerParts(item);
+
+    if (item.type === "quote") {
+      const source = item.link?.sourceId ? findItemById(item.link.sourceId) : null;
+      if (source?.type === "source") return getSourceLayerParts(source);
+    }
+
+    if (item.type === "analysis") {
+      const refs = Array.isArray(item.quoteRefs) ? item.quoteRefs : [];
+      for (const ref of refs) {
+        const quote = ref?.quoteId ? findItemById(ref.quoteId) : null;
+        if (quote) {
+          const parts = getItemLayerParts(quote, depth + 1);
+          if (parts.l1) return parts;
+        }
+        if (ref?.section) {
+          const sectionParts = String(ref.section)
+            .split(">")
+            .map((part) => part.trim())
+            .filter(Boolean);
+          if (sectionParts.length) {
+            return {
+              subject: getItemSubject(item),
+              l1: sectionParts[0] || "",
+              l2: sectionParts[1] || "",
+              l3: sectionParts[2] || ""
+            };
+          }
+        }
+      }
+    }
+
+    if (item.type === "cue") {
+      const quote = item.quoteId ? findItemById(item.quoteId) : null;
+      if (quote) {
+        const parts = getItemLayerParts(quote, depth + 1);
+        if (parts.l1) return parts;
+      }
+      const analysis = item.analysisId ? findItemById(item.analysisId) : null;
+      if (analysis) {
+        const parts = getItemLayerParts(analysis, depth + 1);
+        if (parts.l1) return parts;
+      }
+    }
+
+    const raw = Array.isArray(item?.meta?.hierarchyPath)
+      ? item.meta.hierarchyPath
+      : [getItemSubject(item), ...(item?.section ? String(item.section).split(">") : [])];
+    const clean = raw.map((part) => String(part || "").trim());
+    return {
+      subject: clean[0] || getItemSubject(item),
+      l1: clean[1] || "",
+      l2: clean[2] || "",
+      l3: clean[3] || ""
+    };
+  }
+
+  function buildGridCard(item) {
+    const priority = getItemPriority(item);
+    const recall = getItemRecall(item);
+    const accuracy = getItemAccuracy(item);
+    const tags = getGridTags(item);
+    const preview = String(getNodePreview(item, 260) || "").replace(/\s+/g, " ").trim();
+
+    return {
+      id: item.id,
+      type: item.type,
+      typeLabel: GRID_TYPE_LABELS[item.type] || String(item.type || "node"),
+      icon: getNodeTypeIcon(item.type),
+      title: getNodeDisplayTitle(item),
+      preview,
+      priority,
+      recall,
+      accuracy,
+      tags
+    };
+  }
+
+  function buildGridData() {
+    const subjectMap = new Map();
+
+    getAllItems().forEach((item) => {
+      if (!GRID_CARD_TYPES.has(item?.type)) return;
+      if (!isNodeInScope(item.id)) return;
+
+      const subject = getItemSubject(item) || "Unsorted";
+      const parts = getItemLayerParts(item);
+      const groupName = parts.l1 || (item.type === "pastpaper" ? "Past Papers" : "Unsorted");
+
+      if (!subjectMap.has(subject)) subjectMap.set(subject, new Map());
+      const groupMap = subjectMap.get(subject);
+      if (!groupMap.has(groupName)) groupMap.set(groupName, []);
+      groupMap.get(groupName).push(buildGridCard(item));
+    });
+
+    return Array.from(subjectMap.entries())
+      .map(([subject, groupMap]) => {
+        const groups = Array.from(groupMap.entries())
+          .map(([name, cards]) => {
+            cards.sort((a, b) => {
+              const typeDelta = (GRID_TYPE_ORDER[a.type] ?? 9) - (GRID_TYPE_ORDER[b.type] ?? 9);
+              if (typeDelta !== 0) return typeDelta;
+              const priorityDelta = (b.priority || 0) - (a.priority || 0);
+              if (priorityDelta !== 0) return priorityDelta;
+              return a.title.localeCompare(b.title);
+            });
+            return { name, cards };
+          })
+          .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+
+        const count = groups.reduce((sum, group) => sum + group.cards.length, 0);
+        return { subject, groups, count };
+      })
+      .sort((a, b) => a.subject.localeCompare(b.subject, undefined, { sensitivity: "base" }));
+  }
+
+  function syncGridSelection() {
+    if (!gridContainer) return;
+    gridContainer.querySelectorAll(".mindmap-grid-card").forEach((card) => {
+      card.classList.toggle("selected", card.dataset.nodeId === state.selectedNodeId);
+    });
+  }
+
+  function renderGrid() {
+    if (!gridContainer) return;
+
+    const subjects = buildGridData();
+    updateStats();
+
+    if (!subjects.length) {
+      const message = state.focusSubject
+        ? `No knowledge cards in ${state.focusSubject} yet. Add a quote, analysis, cue, or source to grow this subject.`
+        : "No knowledge cards yet. Add sources, quotes, analyses, or cues to fill the grid.";
+      gridContainer.innerHTML = `
+        <div class="mindmap-grid-empty">
+          <div class="mindmap-grid-empty-icon" aria-hidden="true">🕸️</div>
+          <p>${escapeHtml(message)}</p>
+        </div>
+      `;
+      return;
+    }
+
+    let cardIndex = 0;
+    const html = subjects.map((section, subjectIndex) => {
+      const groups = section.groups.map((group) => {
+        const cards = group.cards.map((card) => {
+          const importanceColor = card.priority
+            ? GRID_IMPORTANCE_COLORS[card.priority]
+            : "rgba(255, 255, 255, 0.14)";
+          const accuracyClass = card.accuracy === null
+            ? ""
+            : card.accuracy >= 0.75
+              ? "high"
+              : card.accuracy >= 0.5
+                ? "mid"
+                : "low";
+          const accuracyLabel = card.accuracy === null ? "—" : `${Math.round(card.accuracy * 100)}%`;
+          const tagChips = card.tags
+            .slice(0, 3)
+            .map((tag) => `<span class="mindmap-grid-tag">#${escapeHtml(tag)}</span>`)
+            .join("");
+          const tagOverflow = card.tags.length > 3
+            ? `<span class="mindmap-grid-tag">+${card.tags.length - 3}</span>`
+            : "";
+          const delay = Math.min(cardIndex * 16, 360);
+          cardIndex += 1;
+          const isSelected = state.selectedNodeId === card.id;
+          const titleAttr = [
+            card.typeLabel,
+            card.priority ? `Priority ${card.priority}` : "No priority data",
+            card.accuracy !== null ? `${accuracyLabel} accuracy` : "No accuracy data",
+            card.recall.level !== "unknown"
+              ? `${card.recall.label} recall${card.recall.derived ? " (linked quotes)" : ""}`
+              : "No recall data"
+          ].join(" · ");
+
+          return `
+            <button type="button" class="mindmap-grid-card recall-${card.recall.level}${card.type === "source" || card.type === "pastpaper" ? " is-context" : ""}${isSelected ? " selected" : ""}" data-node-id="${escapeHtml(card.id)}" style="--importance-color: ${importanceColor}; animation-delay: ${delay}ms" title="${escapeHtml(titleAttr)}">
+              <span class="mindmap-grid-card-top">
+                <span class="mindmap-grid-card-icon" aria-hidden="true">${card.icon}</span>
+                <span class="mindmap-grid-card-type">${escapeHtml(card.typeLabel)}</span>
+                <span class="mindmap-grid-accuracy ${accuracyClass}">${accuracyLabel}</span>
+              </span>
+              <span class="mindmap-grid-card-title">${escapeHtml(card.title)}</span>
+              ${card.preview ? `<span class="mindmap-grid-card-preview">${escapeHtml(card.preview)}</span>` : ""}
+              <span class="mindmap-grid-card-footer">
+                ${tagChips}${tagOverflow}
+                ${card.priority ? `<span class="mindmap-grid-priority">P${card.priority}</span>` : ""}
+              </span>
+            </button>
+          `;
+        }).join("");
+
+        return `
+          <div class="mindmap-grid-group">
+            <div class="mindmap-grid-group-head">
+              ${escapeHtml(group.name)}
+              <span class="mindmap-grid-group-count">${group.cards.length}</span>
+            </div>
+            <div class="mindmap-grid-cards">${cards}</div>
+          </div>
+        `;
+      }).join("");
+
+      return `
+        <section class="mindmap-grid-subject" style="animation-delay: ${Math.min(subjectIndex * 40, 200)}ms">
+          <header class="mindmap-grid-subject-head">
+            <span class="mindmap-grid-subject-dot" aria-hidden="true"></span>
+            <h3>${escapeHtml(section.subject)}</h3>
+            <span class="mindmap-grid-subject-meta">${section.count} card${section.count === 1 ? "" : "s"} · ${section.groups.length} group${section.groups.length === 1 ? "" : "s"}</span>
+          </header>
+          ${groups}
+        </section>
+      `;
+    }).join("");
+
+    gridContainer.innerHTML = html;
+  }
+
+  function updateEmptyState() {
+    if (!emptyState) return;
+
+    if (state.viewMode === "grid") {
+      emptyState.style.display = "none";
+      return;
+    }
+
+    const visibleItems = getAllItems().filter(
+      (item) => (state.nodeVisibility.get(item.id) ?? 0) > 0.05
+    );
+
+    if (visibleItems.length > 0) {
+      emptyState.style.display = "none";
+      return;
+    }
+
+    emptyState.style.display = "flex";
+    const copy = emptyState.querySelector("p");
+    if (copy) {
+      copy.textContent = state.focusSubject
+        ? `No nodes in ${state.focusSubject} yet. Add a source, quote, or analysis to grow this subject.`
+        : "No nodes yet. Add sources, quotes, and analyses to see your knowledge network.";
+    }
+  }
+
+  function setViewMode(nextMode) {
+    const mode = nextMode === "grid" ? "grid" : "graph";
+    const changed = state.viewMode !== mode;
+    state.viewMode = mode;
+
+    if (viewToggle) {
+      viewToggle.querySelectorAll(".view-toggle-btn").forEach((button) => {
+        const isActive = button.dataset.view === mode;
+        button.classList.toggle("active", isActive);
+        button.setAttribute("aria-pressed", String(isActive));
+      });
+    }
+
+    if (gridView) gridView.hidden = mode !== "grid";
+    if (canvas) {
+      canvas.style.opacity = mode === "grid" ? "0" : "1";
+      canvas.style.pointerEvents = mode === "grid" ? "none" : "";
+    }
+
+    if (mode === "grid") {
+      if (state.isConnecting) {
+        state.isConnecting = false;
+        state.connectingSourceId = null;
+        document.getElementById("connectNodesBtn")?.classList.remove("active");
+        document.getElementById("connectingOverlay")?.classList.remove("visible");
+      }
+      renderGrid();
+    } else if (changed) {
+      state.userInteracted = false;
+      updateEmptyState();
+    }
   }
 
   function renderSidebar(selectedItem) {
@@ -1353,26 +1824,32 @@ const state = {
         1.4
       );
     }
+
+    if (state.viewMode === "grid") {
+      renderGrid();
+    }
   }
 
   let frameCount = 0;
   let rafId = 0;
   function tick() {
-    frameCount++;
-    if (state.simulationRunning && !state.draggingNodeId) {
-      if (state.graph.nodes.size === 0) {
-        buildGraph();
+    if (state.viewMode === "graph") {
+      frameCount++;
+      if (state.simulationRunning && !state.draggingNodeId) {
+        if (state.graph.nodes.size === 0) {
+          buildGraph();
+        }
+        // Only run physics every 2 frames (half rate)
+        if (frameCount % 2 === 0) {
+          const forces = computeForces();
+          updatePositionsWithPhysics(forces);
+        }
       }
-      // Only run physics every 2 frames (half rate)
-      if (frameCount % 2 === 0) {
-        const forces = computeForces();
-        updatePositionsWithPhysics(forces);
-      }
+      updateNodeVisibility();
+      fitCameraToGraph();
+      render();
+      logPerf();
     }
-    updateNodeVisibility();
-    fitCameraToGraph();
-    render();
-    logPerf();
     rafId = requestAnimationFrame(tick);
   }
 
@@ -1559,21 +2036,7 @@ const state = {
     });
 
     updateStats();
-
-    const visibleItems = items.filter((item) => (state.nodeVisibility.get(item.id) ?? 0) > 0.05);
-    if (visibleItems.length > 0) {
-      if (emptyState) emptyState.style.display = "none";
-    } else {
-      if (emptyState) {
-        emptyState.style.display = "flex";
-        const copy = emptyState.querySelector("p");
-        if (copy) {
-          copy.textContent = state.focusSubject
-            ? `No nodes in ${state.focusSubject} yet. Add a source, quote, or analysis to grow this subject.`
-            : "No nodes yet. Add sources, quotes, and analyses to see your knowledge network.";
-        }
-      }
-    }
+    updateEmptyState();
   }
 
   function getCanvasPos(e) {
@@ -1623,6 +2086,7 @@ const state = {
     if (!selectedItem) return;
 
     renderSidebar(selectedItem);
+    syncGridSelection();
 
     if (nodeSidebar) nodeSidebar.classList.add("open");
   }
@@ -1631,6 +2095,7 @@ const state = {
     if (nodeSidebar) nodeSidebar.classList.remove("open");
     state.selectedNodeId = null;
     state.sidebarView = "content";
+    syncGridSelection();
   }
 
   async function handleDeleteNode() {
@@ -1748,6 +2213,10 @@ const state = {
     const layoutHeight = canvas?.parentElement?.clientHeight || 600;
     layoutRadial(layoutWidth, layoutHeight);
     lastCanvasSize = { width: layoutWidth, height: layoutHeight };
+
+    if (state.viewMode === "grid") {
+      renderGrid();
+    }
   }
 
   async function createNewNode(type) {
@@ -1910,6 +2379,24 @@ const state = {
   }
 
   function setupEventListeners() {
+    if (viewToggle) {
+      viewToggle.querySelectorAll(".view-toggle-btn").forEach((button) => {
+        button.addEventListener("click", () => setViewMode(button.dataset.view));
+      });
+    }
+
+    if (gridContainer) {
+      gridContainer.addEventListener("click", (e) => {
+        const target = e.target instanceof Element ? e.target : null;
+        const card = target?.closest(".mindmap-grid-card");
+        if (!card?.dataset?.nodeId) return;
+        openNodeSidebar(card.dataset.nodeId);
+        if (window.__neuronetCanvas?.triggerRadialPulse) {
+          window.__neuronetCanvas.triggerRadialPulse(e.clientX, e.clientY, 1.0);
+        }
+      });
+    }
+
     if (canvas) {
       canvas.addEventListener("click", (e) => {
         if (state.hasDragged) {
