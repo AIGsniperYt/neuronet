@@ -42,6 +42,7 @@ const state = {
     simulationRunning: true,
     viewMode: "graph",
     sidebarView: "content",
+    selectedNodeId: null,
     layerNodes: [],
     userInteracted: false,
     hasDragged: false,
@@ -82,6 +83,7 @@ const state = {
   const viewToggle = document.getElementById("mindmapViewToggle");
   const emptyState = document.getElementById("emptyState");
   const nodeSidebar = document.getElementById("nodeSidebar");
+  const nodeSidebarBackdrop = document.getElementById("nodeSidebarBackdrop");
   const sidebarTitle = document.getElementById("sidebarTitle");
   const sidebarType = document.getElementById("sidebarType");
   const sidebarContentLabel = document.getElementById("sidebarContentLabel");
@@ -91,6 +93,13 @@ const state = {
   const editNodeBtn = document.getElementById("editNodeBtn");
   const sidebarClose = document.getElementById("sidebarClose");
   const toggleMetadataBtn = document.getElementById("toggleMetadataBtn");
+
+  // The tap that opens the tool can produce a delayed synthetic click on the
+  // freshly rendered canvas (notably in iPad standalone/Safari). Ignore canvas
+  // selections for a moment so Mindmap always starts on the graph, not on a
+  // node detail panel.
+  let ignoreCanvasClicksUntil = 0;
+  let headerResizeObserver = null;
 
   const config = {
     nodeRadius: 8,
@@ -1086,7 +1095,7 @@ const state = {
         });
 
         itemEl.addEventListener("click", () => {
-          selectNode(neighborId);
+          openNodeSidebar(neighborId);
         });
 
         connectionsItems.appendChild(itemEl);
@@ -1095,8 +1104,6 @@ const state = {
 
     // Render Tags
     renderSidebarTags(selectedItem);
-
-    nodeSidebar.classList.add("open");
   }
 
   function renderSidebarTags(item) {
@@ -2088,11 +2095,19 @@ const state = {
     renderSidebar(selectedItem);
     syncGridSelection();
 
-    if (nodeSidebar) nodeSidebar.classList.add("open");
+    if (nodeSidebar) {
+      nodeSidebar.classList.add("open");
+      nodeSidebar.setAttribute("aria-hidden", "false");
+    }
+    nodeSidebarBackdrop?.classList.add("visible");
   }
 
   function closeSidebar() {
-    if (nodeSidebar) nodeSidebar.classList.remove("open");
+    if (nodeSidebar) {
+      nodeSidebar.classList.remove("open");
+      nodeSidebar.setAttribute("aria-hidden", "true");
+    }
+    nodeSidebarBackdrop?.classList.remove("visible");
     state.selectedNodeId = null;
     state.sidebarView = "content";
     syncGridSelection();
@@ -2379,6 +2394,7 @@ const state = {
   }
 
   function setupEventListeners() {
+    document.addEventListener("keydown", handleSidebarEscape);
     if (viewToggle) {
       viewToggle.querySelectorAll(".view-toggle-btn").forEach((button) => {
         button.addEventListener("click", () => setViewMode(button.dataset.view));
@@ -2387,6 +2403,7 @@ const state = {
 
     if (gridContainer) {
       gridContainer.addEventListener("click", (e) => {
+        if (performance.now() < ignoreCanvasClicksUntil) return;
         const target = e.target instanceof Element ? e.target : null;
         const card = target?.closest(".mindmap-grid-card");
         if (!card?.dataset?.nodeId) return;
@@ -2399,6 +2416,7 @@ const state = {
 
     if (canvas) {
       canvas.addEventListener("click", (e) => {
+        if (performance.now() < ignoreCanvasClicksUntil) return;
         if (state.hasDragged) {
           state.hasDragged = false; // Reset it here just in case
           return;
@@ -2538,9 +2556,18 @@ const state = {
       });
     }
 
-    if (sidebarClose) {
-      sidebarClose.addEventListener("click", closeSidebar);
+    // Delegate the close action to the sidebar so it keeps working even if the
+    // header content is re-rendered while a node is selected.
+    if (nodeSidebar) {
+      nodeSidebar.addEventListener("click", (e) => {
+        const target = e.target instanceof Element ? e.target : null;
+        if (target?.closest("#sidebarClose")) {
+          e.preventDefault();
+          closeSidebar();
+        }
+      });
     }
+    nodeSidebarBackdrop?.addEventListener("click", closeSidebar);
 
     if (toggleMetadataBtn) {
       toggleMetadataBtn.addEventListener("click", () => {
@@ -2679,6 +2706,17 @@ const state = {
     }
   }
 
+  function handleSidebarEscape(event) {
+    if (event.key === "Escape") closeSidebar();
+  }
+
+  function syncHeaderHeight() {
+    const shell = document.querySelector(".mindmap-shell");
+    const header = document.querySelector(".mindmap-header");
+    if (!shell || !header) return;
+    shell.style.setProperty("--mindmap-header-height", `${header.offsetHeight}px`);
+  }
+
   function handleResize() {
     const container = canvas?.parentElement;
     if (!container) return;
@@ -2689,6 +2727,7 @@ const state = {
     if (state.nodePositions.size === 0) {
       initializePositions(width, height);
     }
+    syncHeaderHeight();
   }
 
   window.addEventListener("resize", handleResize);
@@ -2701,6 +2740,25 @@ const state = {
     initializePositions(container.clientWidth, container.clientHeight);
   }
 
+  syncHeaderHeight();
+  if (typeof ResizeObserver === "function") {
+    const header = document.querySelector(".mindmap-header");
+    if (header) {
+      headerResizeObserver = new ResizeObserver(syncHeaderHeight);
+      headerResizeObserver.observe(header);
+    }
+  }
+
+  // A tool load always starts with the detail panel closed. This also clears
+  // any stale state if the previous instance left a node selected.
+  nodeSidebar?.classList.remove("open");
+  nodeSidebar?.setAttribute("aria-hidden", "true");
+  nodeSidebarBackdrop?.classList.remove("visible");
+  state.selectedNodeId = null;
+
+  // Suppress the opening tap's delayed synthetic click on the canvas.
+  ignoreCanvasClicksUntil = performance.now() + 450;
+
   setupEventListeners();
   tick();
 
@@ -2711,7 +2769,10 @@ const state = {
     state.simulationRunning = false;
     if (rafId) cancelAnimationFrame(rafId);
     document.removeEventListener("db-change", handleDBChange);
+    document.removeEventListener("keydown", handleSidebarEscape);
     window.removeEventListener("resize", handleResize);
+    headerResizeObserver?.disconnect();
+    headerResizeObserver = null;
     if (window.__neuronetMindmapSetSubject === setSubjectHandler) {
       window.__neuronetMindmapSetSubject = null;
     }
