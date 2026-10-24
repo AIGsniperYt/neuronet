@@ -28,8 +28,8 @@
       "title actions"
       "stats stats";
     align-items: center;
-    gap: 8px 14px;
-    padding: 10px 16px;
+    gap: 10px 16px;
+    padding: 12px 18px;
     background: rgba(10,30,22,0.85);
     border-bottom: 1px solid rgba(255,255,255,0.08);
   }
@@ -38,21 +38,21 @@
     grid-area: title;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 3px;
     min-width: 0;
   }
 
   .mindmap-header h2 {
     color: var(--accent);
-    font-size: 1.3rem;
+    font-size: 1.35rem;
     font-weight: 700;
     margin: 0;
-    line-height: 1.15;
+    line-height: 1.2;
   }
 
   .mindmap-header p {
     color: var(--text-muted);
-    font-size: 0.8rem;
+    font-size: var(--text-sm, 0.85rem);
     margin: 0;
     min-width: 0;
     white-space: nowrap;
@@ -63,7 +63,7 @@
   .stats-bar {
     grid-area: stats;
     display: flex;
-    gap: 6px;
+    gap: 8px;
     margin-left: 0;
     min-width: 0;
     overflow-x: auto;
@@ -76,22 +76,23 @@
   .stat-pill {
     display: flex;
     align-items: baseline;
-    gap: 6px;
-    padding: 6px 12px;
+    gap: 7px;
+    padding: 7px 13px;
     background: rgba(255,255,255,0.04);
     border: 1px solid rgba(255,255,255,0.08);
     border-radius: 999px;
-    font-size: 0.8rem;
+    font-size: var(--text-sm, 0.85rem);
   }
 
   .stat-pill strong {
-    font-size: 1rem;
+    font-size: 1.05rem;
     line-height: 1;
+    font-variant-numeric: tabular-nums;
   }
 
   .stat-pill .stat-label {
     color: var(--text-muted);
-    font-size: 0.75rem;
+    font-size: var(--text-xs, 0.8rem);
   }
 
   /* Color-coded stat pills */
@@ -171,13 +172,13 @@
   .node-label {
     position: absolute;
     pointer-events: none;
-    font-size: 0.75rem;
-    color: rgba(230, 255, 245, 0.7);
+    font-size: 0.8rem;
+    color: rgba(230, 255, 245, 0.76);
     white-space: nowrap;
     transform: translate(-50%, -30px);
     z-index: 5;
     text-shadow: 0 1px 3px rgba(0,0,0,0.8);
-    max-width: 120px;
+    max-width: 140px;
     overflow: hidden;
     text-overflow: ellipsis;
   }
@@ -196,19 +197,19 @@
   }
 
   .node-sidebar.open {
-    width: 400px;
+    width: 420px;
     border-left-width: 1px;
   }
 
   .sidebar-inner {
-    width: 400px;
+    width: 420px;
     height: 100%;
     display: flex;
     flex-direction: column;
   }
 
   .sidebar-header {
-    padding: 16px 20px;
+    padding: 18px 22px;
     border-bottom: 1px solid rgba(255,255,255,0.08);
     display: flex;
     justify-content: space-between;
@@ -217,28 +218,29 @@
   }
 
   .sidebar-title {
-    font-size: 1.1rem;
+    font-size: 1.2rem;
     font-weight: 600;
+    line-height: 1.35;
     color: var(--text-main);
-    margin-bottom: 4px;
+    margin-bottom: 5px;
   }
 
   .sidebar-type {
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-size: 0.85rem;
+    gap: 7px;
+    font-size: 0.9rem;
     color: var(--accent);
   }
 
   .sidebar-close {
-    width: 32px;
-    height: 32px;
+    width: 36px;
+    height: 36px;
     border: none;
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
-    font-size: 1.2rem;
+    font-size: 1.3rem;
     border-radius: 6px;
     transition: all 0.2s ease;
   }
@@ -251,29 +253,29 @@
   .sidebar-content {
     flex: 1;
     overflow-y: auto;
-    padding: 16px 20px;
+    padding: 20px 22px;
   }
 
   .content-label {
-    font-size: 0.75rem;
+    font-size: var(--text-xs, 0.8rem);
     text-transform: uppercase;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.09em;
     color: var(--text-muted);
-    margin-bottom: 12px;
+    margin-bottom: 14px;
     flex-shrink: 0;
   }
 
   .content-text {
-    line-height: 1.7;
+    line-height: 1.75;
     color: rgba(230, 255, 245, 0.9);
     font-family: var(--font-reading, "Literata", Georgia, "Times New Roman", serif);
-    font-size: 0.98rem;
+    font-size: 1.05rem;
     white-space: pre-wrap;
     word-break: break-word;
   }
 
   .sidebar-actions {
-    padding: 16px 20px;
+    padding: 18px 22px;
     border-top: 1px solid rgba(255,255,255,0.08);
     display: flex;
     flex-shrink: 0;
@@ -339,8 +341,9 @@
   }
 
   .empty-state p {
-    font-size: 0.9rem;
-    max-width: 250px;
+    font-size: 1rem;
+    line-height: 1.6;
+    max-width: 280px;
   }
 
   /* Grid view */
@@ -372,12 +375,12 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 8px 18px;
+    gap: 9px 20px;
     max-width: 1600px;
-    margin: 0 auto 14px;
-    padding: 8px 12px;
+    margin: 0 auto 16px;
+    padding: 10px 14px;
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 10px;
+    border-radius: 11px;
     background: rgba(7, 18, 13, 0.92);
     backdrop-filter: blur(10px);
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
@@ -386,21 +389,21 @@
   .grid-legend-group {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 7px;
     min-width: 0;
   }
 
   .grid-legend-title {
-    font-size: 0.72rem;
+    font-size: var(--text-xs, 0.8rem);
     font-weight: 600;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.04em;
     text-transform: uppercase;
     color: var(--text-muted);
   }
 
   .grid-legend-note {
-    font-size: 0.72rem;
-    color: rgba(230, 255, 245, 0.42);
+    font-size: var(--text-xs, 0.8rem);
+    color: rgba(230, 255, 245, 0.55);
   }
 
   .grid-legend-swatch {
@@ -419,12 +422,12 @@
 
   .grid-legend-chip,
   .grid-legend-badge {
-    font-size: 0.62rem;
-    font-weight: 700;
-    padding: 2px 7px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 3px 8px;
     border-radius: 999px;
     border: 1px solid rgba(255, 255, 255, 0.12);
-    color: rgba(230, 255, 245, 0.58);
+    color: rgba(230, 255, 245, 0.66);
     background: rgba(255, 255, 255, 0.03);
   }
 
@@ -449,7 +452,7 @@
   .mindmap-grid {
     display: flex;
     flex-direction: column;
-    gap: 18px;
+    gap: 20px;
     max-width: 1600px;
     margin: 0 auto;
   }
@@ -472,9 +475,9 @@
   }
 
   .mindmap-grid-empty p {
-    max-width: 420px;
-    font-size: 0.9rem;
-    line-height: 1.55;
+    max-width: 460px;
+    font-size: 1rem;
+    line-height: 1.6;
   }
 
   .mindmap-grid-subject {
@@ -496,7 +499,7 @@
     align-items: center;
     gap: 10px;
     flex-wrap: wrap;
-    padding: 11px 14px;
+    padding: 13px 16px;
     background: linear-gradient(90deg, rgba(255, 107, 107, 0.12), rgba(255, 107, 107, 0.02) 55%, transparent);
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   }
@@ -511,19 +514,19 @@
 
   .mindmap-grid-subject h3 {
     margin: 0;
-    font-size: 1rem;
+    font-size: 1.05rem;
     font-weight: 700;
     color: var(--text-main);
   }
 
   .mindmap-grid-subject-meta {
     margin-left: auto;
-    font-size: 0.75rem;
+    font-size: var(--text-xs, 0.8rem);
     color: var(--text-muted);
   }
 
   .mindmap-grid-group {
-    padding: 11px 14px 14px;
+    padding: 13px 16px 16px;
   }
 
   .mindmap-grid-group + .mindmap-grid-group {
@@ -534,12 +537,12 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-bottom: 8px;
-    font-size: 0.72rem;
+    margin-bottom: 10px;
+    font-size: var(--text-xs, 0.8rem);
     font-weight: 600;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.04em;
     text-transform: uppercase;
-    color: rgba(230, 255, 245, 0.52);
+    color: rgba(230, 255, 245, 0.62);
   }
 
   .mindmap-grid-group-head::before {
@@ -552,15 +555,15 @@
 
   .mindmap-grid-group-count {
     font-weight: 500;
-    color: rgba(230, 255, 245, 0.32);
+    color: rgba(230, 255, 245, 0.48);
     letter-spacing: 0;
     text-transform: none;
   }
 
   .mindmap-grid-cards {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-    gap: 9px;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 12px;
   }
 
   .mindmap-grid-card {
@@ -569,12 +572,12 @@
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 7px;
-    min-height: 116px;
-    padding: 10px 11px 9px;
+    gap: 9px;
+    min-height: 132px;
+    padding: 14px 15px 13px;
     border: 1px solid rgba(255, 255, 255, 0.075);
     border-left: 3px solid var(--importance-color);
-    border-radius: 9px;
+    border-radius: 11px;
     background: linear-gradient(135deg, var(--recall-fill), rgba(10, 30, 22, 0.88) 62%);
     color: var(--text-main);
     text-align: left;
@@ -624,15 +627,15 @@
     align-items: center;
     gap: 6px;
     min-width: 0;
-    font-size: 0.72rem;
+    font-size: var(--text-xs, 0.8rem);
     font-weight: 600;
-    letter-spacing: 0.02em;
+    letter-spacing: 0.03em;
     text-transform: uppercase;
-    color: rgba(230, 255, 245, 0.52);
+    color: rgba(230, 255, 245, 0.62);
   }
 
   .mindmap-grid-card-icon {
-    font-size: 0.8rem;
+    font-size: 0.85rem;
     line-height: 1;
   }
 
@@ -645,14 +648,14 @@
   .mindmap-grid-accuracy {
     margin-left: auto;
     flex: 0 0 auto;
-    font-size: 0.7rem;
+    font-size: 0.8rem;
     font-weight: 600;
     letter-spacing: 0;
     text-transform: none;
-    padding: 2px 6px;
+    padding: 3px 7px;
     border-radius: 999px;
     border: 1px solid rgba(255, 255, 255, 0.12);
-    color: rgba(230, 255, 245, 0.58);
+    color: rgba(230, 255, 245, 0.66);
     background: rgba(255, 255, 255, 0.03);
   }
 
@@ -675,9 +678,9 @@
   }
 
   .mindmap-grid-card-title {
-    font-size: 0.84rem;
+    font-size: 1rem;
     font-weight: 600;
-    line-height: 1.3;
+    line-height: 1.35;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
@@ -685,9 +688,9 @@
   }
 
   .mindmap-grid-card-preview {
-    font-size: 0.73rem;
-    line-height: 1.45;
-    color: rgba(230, 255, 245, 0.58);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: rgba(230, 255, 245, 0.68);
     display: -webkit-box;
     -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
@@ -698,13 +701,13 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: 5px;
     margin-top: auto;
   }
 
   .mindmap-grid-tag {
-    font-size: 0.7rem;
-    padding: 1px 6px;
+    font-size: 0.8rem;
+    padding: 2px 7px;
     border-radius: 999px;
     background: rgba(241, 250, 140, 0.08);
     border: 1px solid rgba(241, 250, 140, 0.18);
@@ -713,7 +716,7 @@
 
   .mindmap-grid-priority {
     margin-left: auto;
-    font-size: 0.7rem;
+    font-size: 0.8rem;
     font-weight: 600;
     color: var(--importance-color);
     opacity: 0.9;
@@ -754,17 +757,17 @@
     background: transparent;
     color: var(--text-muted);
     font: inherit;
-    font-size: 0.78rem;
+    font-size: 0.85rem;
     font-weight: 600;
     letter-spacing: 0.01em;
-    padding: 6px 10px;
+    padding: 7px 12px;
     border-radius: 999px;
     cursor: pointer;
     transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
   }
 
   .view-toggle-btn i {
-    font-size: 0.78rem;
+    font-size: 0.85rem;
   }
 
   .view-toggle-btn:hover {
@@ -834,8 +837,8 @@
   }
 
   .btn-header {
-    padding: 8px 14px;
-    font-size: 0.85rem;
+    padding: 9px 15px;
+    font-size: 0.9rem;
   }
 
   .btn.active {
@@ -883,11 +886,11 @@
     justify-content: space-between;
     align-items: center;
     cursor: pointer;
-    font-size: 0.8rem;
-    color: rgba(230, 255, 245, 0.6);
-    margin-bottom: 8px;
+    font-size: 0.85rem;
+    color: rgba(230, 255, 245, 0.7);
+    margin-bottom: 9px;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.06em;
   }
 
   #connectionsToggle {
@@ -907,8 +910,8 @@
   .connections-items {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    max-height: 200px;
+    gap: 8px;
+    max-height: 220px;
     overflow-y: auto;
   }
 
@@ -916,11 +919,11 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 6px 10px;
+    padding: 8px 11px;
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 6px;
-    font-size: 0.85rem;
+    border-radius: 7px;
+    font-size: 0.9rem;
     transition: all 0.2s ease;
   }
 
@@ -965,17 +968,17 @@
 
   /* Tags Section */
   .tags-section {
-    margin-top: 16px;
+    margin-top: 18px;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
-    padding-top: 12px;
+    padding-top: 14px;
   }
 
   .tags-header {
-    font-size: 0.8rem;
-    color: rgba(230, 255, 245, 0.6);
-    margin-bottom: 8px;
+    font-size: 0.85rem;
+    color: rgba(230, 255, 245, 0.7);
+    margin-bottom: 9px;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.06em;
   }
 
   .tags-list {
@@ -989,8 +992,8 @@
     border: 1px solid rgba(241, 250, 140, 0.3);
     color: #f1fa8c;
     border-radius: 999px;
-    padding: 2px 10px;
-    font-size: 0.8rem;
+    padding: 3px 11px;
+    font-size: 0.85rem;
     display: flex;
     align-items: center;
     gap: 4px;
@@ -1020,10 +1023,10 @@
   .tag-add-pill {
     background: rgba(255, 255, 255, 0.05);
     border: 1px dashed rgba(255, 255, 255, 0.2);
-    color: rgba(255, 255, 255, 0.6);
+    color: rgba(255, 255, 255, 0.66);
     border-radius: 999px;
-    padding: 2px 10px;
-    font-size: 0.8rem;
+    padding: 3px 11px;
+    font-size: 0.85rem;
     cursor: pointer;
     transition: all 0.2s ease;
   }
@@ -1058,17 +1061,17 @@
       gap: 8px 10px;
       padding: 8px 12px;
     }
-    .mindmap-header h2 { font-size: 1.1rem; }
+    .mindmap-header h2 { font-size: 1.2rem; }
     .mindmap-header p { display: none; }
     .header-actions { justify-content: flex-start; flex-wrap: wrap; }
-    .view-toggle-btn { padding: 6px 8px; }
+    .view-toggle-btn { padding: 7px 9px; }
     .view-toggle-btn .view-toggle-label { display: none; }
-    .mindmap-grid-view { padding: 10px 10px 22px; }
-    .mindmap-grid-legend { gap: 6px 12px; padding: 7px 9px; }
+    .mindmap-grid-view { padding: 12px 12px 24px; }
+    .mindmap-grid-legend { gap: 7px 14px; padding: 8px 10px; }
     .mindmap-grid-cards { grid-template-columns: 1fr; }
     .mindmap-grid-subject-meta { margin-left: 0; width: 100%; }
     .stats-bar { width: 100%; flex-wrap: nowrap; overflow-x: auto; }
-    .stat-pill { font-size: 0.75rem; padding: 5px 10px; }
+    .stat-pill { font-size: 0.8rem; padding: 6px 11px; }
     .node-sidebar {
       position: absolute;
       top: 0;
@@ -1097,10 +1100,10 @@
   }
 
   @media (max-height: 640px) {
-    .mindmap-header { padding: 6px 12px; gap: 5px 10px; }
-    .mindmap-header h2 { font-size: 1.05rem; }
+    .mindmap-header { padding: 8px 14px; gap: 6px 12px; }
+    .mindmap-header h2 { font-size: 1.15rem; }
     .mindmap-header p { display: none; }
-    .stat-pill { padding: 4px 9px; }
+    .stat-pill { padding: 5px 10px; }
   }
 </style>
 

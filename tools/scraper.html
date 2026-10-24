@@ -12,8 +12,8 @@
       display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
     }
     #scraperHeader h1 { font-size: 1.5rem; font-weight: 600; color: var(--accent); margin: 0; }
-    #scraperHeader .sub { color: var(--text-muted); font-size: 0.85rem; }
-    #scraperVersion { color: var(--text-muted); font-size: 0.75rem; }
+    #scraperHeader .sub { color: var(--text-muted); font-size: 0.9rem; }
+    #scraperVersion { color: var(--text-muted); font-size: 0.8rem; }
     #scraperContent { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 24px; gap: 16px; }
     #scraperContent > * { min-height: 0; }
 
@@ -26,18 +26,18 @@
     .scraper-btn {
       padding: 10px 16px; background: linear-gradient(130deg, rgba(44,255,179,0.24), rgba(44,255,179,0.11));
       border: 1px solid rgba(44,255,179,0.45); color: #e6fff5; border-radius: 999px; cursor: pointer;
-      font: inherit; font-size: 0.85rem; font-weight: 500; transition: all 0.2s ease;
+      font: inherit; font-size: 0.9rem; font-weight: 500; transition: all 0.2s ease;
     }
     .scraper-btn:hover:not(:disabled) { transform: translateY(-1px); background: linear-gradient(130deg, rgba(44,255,179,0.32), rgba(44,255,179,0.18)); }
     .scraper-btn:disabled { cursor: not-allowed; opacity: 0.6; }
 
-    .scraper-status { font-size: 0.85rem; color: var(--text-muted); }
+    .scraper-status { font-size: 0.9rem; color: var(--text-muted); }
     .scraper-status.ok { color: var(--accent); }
     .scraper-status.err { color: #ff8c8c; }
     .scraper-diag {
       width: 100%; margin: 0; padding: 8px 12px; border: 1px dashed var(--glass-border);
       border-radius: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 0.72rem; line-height: 1.5; color: var(--text-muted);
+      font-size: 0.8rem; line-height: 1.5; color: var(--text-muted);
       background: rgba(0,0,0,0.18); white-space: pre-wrap; word-break: break-word;
     }
     .scraper-status.busy {
@@ -48,9 +48,9 @@
       animation: scraper-shimmer-sweep 1.25s linear infinite;
     }
 
-    .scraper-pick { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--text-muted); position: relative; }
+    .scraper-pick { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: var(--text-muted); position: relative; }
     .scraper-pick select {
-      font: inherit; font-size: 0.85rem; color: var(--text-main);
+      font: inherit; font-size: 0.9rem; color: var(--text-main);
       background: rgba(0,0,0,0.25); border: 1px solid var(--glass-border); border-radius: 10px;
       padding: 8px 10px; cursor: pointer; outline: none;
     }
@@ -58,7 +58,7 @@
     .scraper-pick select option { background: var(--panel-bg); }
     .scraper-combo { position: relative; min-width: 260px; }
     .scraper-combo input {
-      font: inherit; font-size: 0.85rem; color: var(--text-main);
+      font: inherit; font-size: 0.9rem; color: var(--text-main);
       background: rgba(0,0,0,0.25); border: 1px solid var(--glass-border); border-radius: 10px;
       padding: 8px 10px; width: 100%; box-sizing: border-box; outline: none;
     }
@@ -81,7 +81,7 @@
     }
     .scraper-suggestion {
       padding: 8px 10px; border-radius: 8px; cursor: pointer; white-space: nowrap;
-      overflow: hidden; text-overflow: ellipsis; font-size: 0.82rem;
+      overflow: hidden; text-overflow: ellipsis; font-size: 0.9rem;
     }
     .scraper-suggestion:hover, .scraper-suggestion.active { background: rgba(44,255,179,0.12); }
     .scraper-suggestion .s-code { color: var(--accent); font-weight: 700; margin-right: 8px; }
@@ -93,7 +93,7 @@
 
     #scraperLog {
       flex: 1; overflow: hidden; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 0.72rem; line-height: 1.5; color: var(--text-muted);
+      font-size: 0.8rem; line-height: 1.5; color: var(--text-muted);
       background: rgba(0,0,0,0.25); border: 1px solid var(--glass-border); border-radius: 12px; padding: 12px;
       white-space: pre-wrap; word-break: break-word;
       display: flex; flex-direction: column; justify-content: center;
@@ -177,12 +177,12 @@
 
     #scraperResult { flex: 1; overflow: auto; }
     .card-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
-    .card-code { font-weight: 700; color: var(--accent); background: rgba(44,255,179,0.1); border: 1px solid rgba(44,255,179,0.25); border-radius: 999px; padding: 3px 10px; font-size: 0.85rem; }
+    .card-code { font-weight: 700; color: var(--accent); background: rgba(44,255,179,0.1); border: 1px solid rgba(44,255,179,0.25); border-radius: 999px; padding: 3px 10px; font-size: 0.9rem; }
     .card-title { font-weight: 600; font-size: 1.05rem; }
-    .card-max { color: var(--text-muted); font-size: 0.8rem; margin-left: auto; }
+    .card-max { color: var(--text-muted); font-size: 0.85rem; margin-left: auto; }
     .card-copy {
       padding: 6px 12px; background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border);
-      color: var(--text-main); border-radius: 999px; cursor: pointer; font: inherit; font-size: 0.75rem;
+      color: var(--text-main); border-radius: 999px; cursor: pointer; font: inherit; font-size: 0.8rem;
       transition: all 0.2s ease; white-space: nowrap;
     }
     .card-copy:hover { background: rgba(44,255,179,0.14); border-color: rgba(44,255,179,0.4); transform: translateY(-1px); }
