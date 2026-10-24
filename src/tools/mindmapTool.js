@@ -1,4 +1,5 @@
 import { dialog } from "./dialog.js";
+import { parse, render, domToMarkdown, renderMathWithKatex } from "../vendor/md-format/mdeditor.js";
 export async function initMindmapTool(deps, context = {}) {
   const {
     getAllNodes,
@@ -480,6 +481,48 @@ const state = {
     if (node.type === "cue") return node.cue || "";
     if (node.type === "pastpaper") return pastPaperSummary(node);
     return "";
+  }
+
+  /* Source reading uses the same first-party markdown pipeline as the Analysis
+   * tool, so the sidebar shows real headings, lists, quotes and maths instead
+   * of raw markup. Soft breaks follow the account-wide Analysis preference
+   * unless the document carries its own setting. */
+  const SOFT_BREAKS_KEY = "nn-analysis-soft-breaks";
+
+  function getSoftBreaksDefault() {
+    try { return localStorage.getItem(SOFT_BREAKS_KEY) !== "0"; } catch { return true; }
+  }
+
+  function sourceSoftBreaks(node) {
+    if (node && typeof node.meta?.softBreaks === "boolean") return node.meta.softBreaks;
+    return getSoftBreaksDefault();
+  }
+
+  function mdNormalize(md) {
+    if (!md) return md;
+    return md
+      .split("\n")
+      .filter((line) => !line.trim().match(/^>[\s>]*$/))
+      .join("\n")
+      .replace(/\n{4,}/g, "\n\n\n")
+      .replace(/^\s+/, "")
+      .replace(/\s+$/, "");
+  }
+
+  function htmlToMarkdown(html) {
+    if (!html) return "";
+    const div = document.createElement("div");
+    div.innerHTML = html;
+    return mdNormalize(domToMarkdown(div) || "");
+  }
+
+  function sourceMarkdown(node) {
+    if (!node) return "";
+    let md = "";
+    if (node.contentMarkdown) md = node.contentMarkdown;
+    else if (node.contentHtml) md = htmlToMarkdown(node.contentHtml);
+    else md = node.content || node.contentText || "";
+    return mdNormalize(md);
   }
 
   function getNodeType(node) {
@@ -1060,8 +1103,29 @@ const state = {
     if (fullContent) fullContent.style.display = isMeta ? "none" : "block";
     if (metaContent) metaContent.style.display = isMeta ? "block" : "none";
 
-    if (fullContent) fullContent.textContent = getNodeFullContent(selectedItem);
-    if (metaContent) metaContent.textContent = formatMetadataHumanReadable(selectedItem);
+    if (fullContent) {
+      const isSource = selectedItem.type === "source";
+      fullContent.classList.toggle("is-plain", !isSource);
+      if (isSource) {
+        const markdown = sourceMarkdown(selectedItem);
+        try {
+          fullContent.innerHTML = markdown.trim()
+            ? render(parse(markdown), "html", { softBreaks: sourceSoftBreaks(selectedItem) })
+            : "";
+          renderMathWithKatex(fullContent);
+        } catch (error) {
+          console.warn("mindmap: markdown render failed, falling back to plain text", error);
+          fullContent.classList.add("is-plain");
+          fullContent.textContent = getNodeFullContent(selectedItem);
+        }
+      } else {
+        fullContent.textContent = getNodeFullContent(selectedItem);
+      }
+    }
+    if (metaContent) {
+      metaContent.classList.add("is-plain");
+      metaContent.textContent = formatMetadataHumanReadable(selectedItem);
+    }
 
     // Render Connections
     const connectionsItems = document.getElementById("connectionsItems");
