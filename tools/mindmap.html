@@ -28,8 +28,8 @@
       "title actions"
       "stats stats";
     align-items: center;
-    gap: 10px 16px;
-    padding: 12px 18px;
+    gap: 8px 14px;
+    padding: 10px 16px;
     background: rgba(10,30,22,0.85);
     border-bottom: 1px solid rgba(255,255,255,0.08);
   }
@@ -44,7 +44,7 @@
 
   .mindmap-header h2 {
     color: var(--accent);
-    font-size: 1.35rem;
+    font-size: var(--text-xl, 1.28rem);
     font-weight: 700;
     margin: 0;
     line-height: 1.2;
@@ -52,7 +52,7 @@
 
   .mindmap-header p {
     color: var(--text-muted);
-    font-size: var(--text-sm, 0.85rem);
+    font-size: var(--text-sm, 0.87rem);
     margin: 0;
     min-width: 0;
     white-space: nowrap;
@@ -63,7 +63,7 @@
   .stats-bar {
     grid-area: stats;
     display: flex;
-    gap: 8px;
+    gap: 6px;
     margin-left: 0;
     min-width: 0;
     overflow-x: auto;
@@ -76,23 +76,23 @@
   .stat-pill {
     display: flex;
     align-items: baseline;
-    gap: 7px;
-    padding: 7px 13px;
+    gap: 6px;
+    padding: 6px 11px;
     background: rgba(255,255,255,0.04);
     border: 1px solid rgba(255,255,255,0.08);
     border-radius: 999px;
-    font-size: var(--text-sm, 0.85rem);
+    font-size: var(--text-sm, 0.87rem);
   }
 
   .stat-pill strong {
-    font-size: 1.05rem;
+    font-size: var(--text-md, 1.03rem);
     line-height: 1;
     font-variant-numeric: tabular-nums;
   }
 
   .stat-pill .stat-label {
     color: var(--text-muted);
-    font-size: var(--text-xs, 0.8rem);
+    font-size: var(--text-xs, 0.82rem);
   }
 
   /* Color-coded stat pills */
@@ -172,7 +172,7 @@
   .node-label {
     position: absolute;
     pointer-events: none;
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     color: rgba(230, 255, 245, 0.76);
     white-space: nowrap;
     transform: translate(-50%, -30px);
@@ -197,19 +197,19 @@
   }
 
   .node-sidebar.open {
-    width: 420px;
+    width: 380px;
     border-left-width: 1px;
   }
 
   .sidebar-inner {
-    width: 420px;
+    width: 380px;
     height: 100%;
     display: flex;
     flex-direction: column;
   }
 
   .sidebar-header {
-    padding: 18px 22px;
+    padding: 16px 20px;
     border-bottom: 1px solid rgba(255,255,255,0.08);
     display: flex;
     justify-content: space-between;
@@ -218,29 +218,29 @@
   }
 
   .sidebar-title {
-    font-size: 1.2rem;
+    font-size: var(--text-lg, 1.15rem);
     font-weight: 600;
     line-height: 1.35;
     color: var(--text-main);
-    margin-bottom: 5px;
+    margin-bottom: 4px;
   }
 
   .sidebar-type {
     display: flex;
     align-items: center;
-    gap: 7px;
-    font-size: 0.9rem;
+    gap: 6px;
+    font-size: var(--text-sm, 0.87rem);
     color: var(--accent);
   }
 
   .sidebar-close {
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
     border: none;
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
-    font-size: 1.3rem;
+    font-size: 1.2rem;
     border-radius: 6px;
     transition: all 0.2s ease;
   }
@@ -253,29 +253,29 @@
   .sidebar-content {
     flex: 1;
     overflow-y: auto;
-    padding: 20px 22px;
+    padding: 16px 20px;
   }
 
   .content-label {
-    font-size: var(--text-xs, 0.8rem);
+    font-size: var(--text-xs, 0.82rem);
     text-transform: uppercase;
     letter-spacing: 0.09em;
     color: var(--text-muted);
-    margin-bottom: 14px;
+    margin-bottom: 12px;
     flex-shrink: 0;
   }
 
   .content-text {
-    line-height: 1.75;
+    line-height: var(--leading-reading, 1.7);
     color: rgba(230, 255, 245, 0.9);
     font-family: var(--font-reading, "Literata", Georgia, "Times New Roman", serif);
-    font-size: 1.05rem;
+    font-size: var(--text-md, 1.03rem);
     white-space: pre-wrap;
     word-break: break-word;
   }
 
   .sidebar-actions {
-    padding: 18px 22px;
+    padding: 16px 20px;
     border-top: 1px solid rgba(255,255,255,0.08);
     display: flex;
     flex-shrink: 0;
@@ -295,7 +295,7 @@
     color: #e6fff5;
     cursor: pointer;
     font: inherit;
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
     font-weight: 500;
     transition: all 0.2s ease;
   }
@@ -341,7 +341,7 @@
   }
 
   .empty-state p {
-    font-size: 1rem;
+    font-size: var(--text-md, 1.03rem);
     line-height: 1.6;
     max-width: 280px;
   }
@@ -375,10 +375,10 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 9px 20px;
+    gap: 8px 18px;
     max-width: 1600px;
-    margin: 0 auto 16px;
-    padding: 10px 14px;
+    margin: 0 auto 14px;
+    padding: 8px 12px;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 11px;
     background: rgba(7, 18, 13, 0.92);
@@ -394,7 +394,7 @@
   }
 
   .grid-legend-title {
-    font-size: var(--text-xs, 0.8rem);
+    font-size: var(--text-xs, 0.82rem);
     font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -402,7 +402,7 @@
   }
 
   .grid-legend-note {
-    font-size: var(--text-xs, 0.8rem);
+    font-size: var(--text-xs, 0.82rem);
     color: rgba(230, 255, 245, 0.55);
   }
 
@@ -422,9 +422,9 @@
 
   .grid-legend-chip,
   .grid-legend-badge {
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     font-weight: 600;
-    padding: 3px 8px;
+    padding: 2px 7px;
     border-radius: 999px;
     border: 1px solid rgba(255, 255, 255, 0.12);
     color: rgba(230, 255, 245, 0.66);
@@ -452,7 +452,7 @@
   .mindmap-grid {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 18px;
     max-width: 1600px;
     margin: 0 auto;
   }
@@ -475,8 +475,8 @@
   }
 
   .mindmap-grid-empty p {
-    max-width: 460px;
-    font-size: 1rem;
+    max-width: 420px;
+    font-size: var(--text-md, 1.03rem);
     line-height: 1.6;
   }
 
@@ -499,7 +499,7 @@
     align-items: center;
     gap: 10px;
     flex-wrap: wrap;
-    padding: 13px 16px;
+    padding: 12px 14px;
     background: linear-gradient(90deg, rgba(255, 107, 107, 0.12), rgba(255, 107, 107, 0.02) 55%, transparent);
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   }
@@ -514,19 +514,19 @@
 
   .mindmap-grid-subject h3 {
     margin: 0;
-    font-size: 1.05rem;
+    font-size: var(--text-md, 1.03rem);
     font-weight: 700;
     color: var(--text-main);
   }
 
   .mindmap-grid-subject-meta {
     margin-left: auto;
-    font-size: var(--text-xs, 0.8rem);
+    font-size: var(--text-xs, 0.82rem);
     color: var(--text-muted);
   }
 
   .mindmap-grid-group {
-    padding: 13px 16px 16px;
+    padding: 12px 14px 14px;
   }
 
   .mindmap-grid-group + .mindmap-grid-group {
@@ -537,8 +537,8 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-bottom: 10px;
-    font-size: var(--text-xs, 0.8rem);
+    margin-bottom: 8px;
+    font-size: var(--text-xs, 0.82rem);
     font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -562,8 +562,8 @@
 
   .mindmap-grid-cards {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 10px;
   }
 
   .mindmap-grid-card {
@@ -572,12 +572,12 @@
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 9px;
-    min-height: 132px;
-    padding: 14px 15px 13px;
+    gap: 8px;
+    min-height: 124px;
+    padding: 12px 13px 11px;
     border: 1px solid rgba(255, 255, 255, 0.075);
     border-left: 3px solid var(--importance-color);
-    border-radius: 11px;
+    border-radius: 10px;
     background: linear-gradient(135deg, var(--recall-fill), rgba(10, 30, 22, 0.88) 62%);
     color: var(--text-main);
     text-align: left;
@@ -627,7 +627,7 @@
     align-items: center;
     gap: 6px;
     min-width: 0;
-    font-size: var(--text-xs, 0.8rem);
+    font-size: var(--text-xs, 0.82rem);
     font-weight: 600;
     letter-spacing: 0.03em;
     text-transform: uppercase;
@@ -635,7 +635,7 @@
   }
 
   .mindmap-grid-card-icon {
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     line-height: 1;
   }
 
@@ -648,11 +648,11 @@
   .mindmap-grid-accuracy {
     margin-left: auto;
     flex: 0 0 auto;
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     font-weight: 600;
     letter-spacing: 0;
     text-transform: none;
-    padding: 3px 7px;
+    padding: 2px 6px;
     border-radius: 999px;
     border: 1px solid rgba(255, 255, 255, 0.12);
     color: rgba(230, 255, 245, 0.66);
@@ -678,7 +678,7 @@
   }
 
   .mindmap-grid-card-title {
-    font-size: 1rem;
+    font-size: var(--text-md, 1.03rem);
     font-weight: 600;
     line-height: 1.35;
     display: -webkit-box;
@@ -688,7 +688,7 @@
   }
 
   .mindmap-grid-card-preview {
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     line-height: 1.5;
     color: rgba(230, 255, 245, 0.68);
     display: -webkit-box;
@@ -706,7 +706,7 @@
   }
 
   .mindmap-grid-tag {
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     padding: 2px 7px;
     border-radius: 999px;
     background: rgba(241, 250, 140, 0.08);
@@ -716,7 +716,7 @@
 
   .mindmap-grid-priority {
     margin-left: auto;
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     font-weight: 600;
     color: var(--importance-color);
     opacity: 0.9;
@@ -757,17 +757,17 @@
     background: transparent;
     color: var(--text-muted);
     font: inherit;
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     font-weight: 600;
     letter-spacing: 0.01em;
-    padding: 7px 12px;
+    padding: 6px 10px;
     border-radius: 999px;
     cursor: pointer;
     transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
   }
 
   .view-toggle-btn i {
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
   }
 
   .view-toggle-btn:hover {
@@ -814,7 +814,7 @@
     color: var(--text-main);
     text-align: left;
     cursor: pointer;
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
     transition: all 0.2s ease;
     display: flex;
     align-items: center;
@@ -837,8 +837,8 @@
   }
 
   .btn-header {
-    padding: 9px 15px;
-    font-size: 0.9rem;
+    padding: 8px 14px;
+    font-size: var(--text-base, 0.92rem);
   }
 
   .btn.active {
@@ -856,7 +856,7 @@
     color: #0a1e16;
     padding: 8px 20px;
     border-radius: 999px;
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
     font-weight: 600;
     z-index: 100;
     pointer-events: none;
@@ -886,9 +886,9 @@
     justify-content: space-between;
     align-items: center;
     cursor: pointer;
-    font-size: 0.85rem;
+    font-size: var(--text-xs, 0.82rem);
     color: rgba(230, 255, 245, 0.7);
-    margin-bottom: 9px;
+    margin-bottom: 8px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
   }
@@ -910,8 +910,8 @@
   .connections-items {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    max-height: 220px;
+    gap: 6px;
+    max-height: 200px;
     overflow-y: auto;
   }
 
@@ -919,11 +919,11 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 8px 11px;
+    padding: 6px 10px;
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid rgba(255, 255, 255, 0.05);
     border-radius: 7px;
-    font-size: 0.9rem;
+    font-size: var(--text-sm, 0.87rem);
     transition: all 0.2s ease;
   }
 
@@ -968,15 +968,15 @@
 
   /* Tags Section */
   .tags-section {
-    margin-top: 18px;
+    margin-top: 16px;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
-    padding-top: 14px;
+    padding-top: 12px;
   }
 
   .tags-header {
-    font-size: 0.85rem;
+    font-size: var(--text-xs, 0.82rem);
     color: rgba(230, 255, 245, 0.7);
-    margin-bottom: 9px;
+    margin-bottom: 8px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
   }
@@ -992,8 +992,8 @@
     border: 1px solid rgba(241, 250, 140, 0.3);
     color: #f1fa8c;
     border-radius: 999px;
-    padding: 3px 11px;
-    font-size: 0.85rem;
+    padding: 2px 10px;
+    font-size: var(--text-xs, 0.82rem);
     display: flex;
     align-items: center;
     gap: 4px;
@@ -1010,7 +1010,7 @@
     border: none;
     color: inherit;
     cursor: pointer;
-    font-size: 1rem;
+    font-size: var(--text-md, 1.03rem);
     padding: 0;
     line-height: 1;
     opacity: 0.6;
@@ -1025,8 +1025,8 @@
     border: 1px dashed rgba(255, 255, 255, 0.2);
     color: rgba(255, 255, 255, 0.66);
     border-radius: 999px;
-    padding: 3px 11px;
-    font-size: 0.85rem;
+    padding: 2px 10px;
+    font-size: var(--text-xs, 0.82rem);
     cursor: pointer;
     transition: all 0.2s ease;
   }
@@ -1066,18 +1066,18 @@
     .header-actions { justify-content: flex-start; flex-wrap: wrap; }
     .view-toggle-btn { padding: 7px 9px; }
     .view-toggle-btn .view-toggle-label { display: none; }
-    .mindmap-grid-view { padding: 12px 12px 24px; }
-    .mindmap-grid-legend { gap: 7px 14px; padding: 8px 10px; }
+    .mindmap-grid-view { padding: 10px 10px 22px; }
+    .mindmap-grid-legend { gap: 6px 12px; padding: 7px 9px; }
     .mindmap-grid-cards { grid-template-columns: 1fr; }
     .mindmap-grid-subject-meta { margin-left: 0; width: 100%; }
     .stats-bar { width: 100%; flex-wrap: nowrap; overflow-x: auto; }
-    .stat-pill { font-size: 0.8rem; padding: 6px 11px; }
+    .stat-pill { font-size: var(--text-xs, 0.82rem); padding: 5px 10px; }
     .node-sidebar {
       position: absolute;
       top: 0;
       right: 0;
       bottom: 0;
-      width: min(92vw, 400px);
+      width: min(92vw, 360px);
       max-width: 100%;
       height: 100%;
       z-index: 50;
@@ -1087,7 +1087,7 @@
       pointer-events: none;
     }
     .node-sidebar.open {
-      width: min(92vw, 400px);
+      width: min(92vw, 360px);
       border-left-width: 1px;
       transform: translateX(0);
       pointer-events: auto;
@@ -1100,10 +1100,92 @@
   }
 
   @media (max-height: 640px) {
-    .mindmap-header { padding: 8px 14px; gap: 6px 12px; }
+    .mindmap-header { padding: 6px 12px; gap: 6px 10px; }
     .mindmap-header h2 { font-size: 1.15rem; }
     .mindmap-header p { display: none; }
     .stat-pill { padding: 5px 10px; }
+  }
+</style>
+
+<style id="mindmap-sidebar-fixes">
+  /* Keep the detail panel out of the header row. On wide screens it docks
+     beside the canvas; at tablet/phone widths it becomes an overlay that
+     starts below the header instead of covering the title and stat pills. */
+  .mindmap-header { grid-column: 1; grid-row: 1; }
+  .blueprint-area { grid-column: 1; grid-row: 2; }
+  .node-sidebar { grid-column: 2; grid-row: 1 / span 2; }
+  .node-sidebar-backdrop { display: none; }
+
+  .sidebar-close {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 10px;
+    background: rgba(255,255,255,0.06);
+    color: var(--text-main);
+    font-size: 1.6rem;
+    line-height: 1;
+  }
+  .sidebar-close:hover {
+    background: rgba(255,255,255,0.12);
+    color: var(--text-main);
+  }
+
+  @media (max-width: 1100px), (pointer: coarse) and (hover: none) {
+    .mindmap-shell {
+      position: relative;
+      grid-template-columns: 1fr;
+      min-height: 0;
+    }
+    .mindmap-header { grid-column: 1; grid-row: 1; }
+    .blueprint-area { grid-column: 1; grid-row: 2; min-height: 0; }
+    .node-sidebar {
+      position: absolute;
+      top: var(--mindmap-header-height, 0px);
+      right: 0;
+      bottom: 0;
+      left: auto;
+      grid-column: auto;
+      grid-row: auto;
+      width: min(92vw, 380px);
+      max-width: 100%;
+      height: auto;
+      z-index: 50;
+      border-left-width: 0;
+      transform: translateX(100%);
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-left-width 0.3s;
+      pointer-events: none;
+    }
+    .node-sidebar.open {
+      width: min(92vw, 380px);
+      border-left-width: 1px;
+      transform: translateX(0);
+      pointer-events: auto;
+      box-shadow: -18px 0 40px rgba(0, 0, 0, 0.45);
+    }
+    .node-sidebar-backdrop {
+      display: block;
+      position: absolute;
+      top: var(--mindmap-header-height, 0px);
+      right: 0;
+      bottom: 0;
+      left: 0;
+      z-index: 45;
+      background: rgba(0, 0, 0, 0.45);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+    .node-sidebar-backdrop.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .sidebar-inner { width: 100%; max-width: 100%; min-width: 0; }
+    .sidebar-content { min-width: 0; overflow-x: hidden; }
   }
 </style>
 
@@ -1208,14 +1290,16 @@
     </div>
   </div>
 
-  <div id="nodeSidebar" class="node-sidebar">
+  <div id="nodeSidebarBackdrop" class="node-sidebar-backdrop" aria-hidden="true"></div>
+
+  <div id="nodeSidebar" class="node-sidebar" aria-hidden="true">
     <div class="sidebar-inner">
       <div class="sidebar-header">
         <div>
           <div id="sidebarTitle" class="sidebar-title"></div>
           <div id="sidebarType" class="sidebar-type"></div>
         </div>
-        <button id="sidebarClose" class="sidebar-close">&times;</button>
+        <button id="sidebarClose" class="sidebar-close" type="button" aria-label="Close details">&times;</button>
       </div>
 
       <div id="connectionsContainer" class="connections-list">

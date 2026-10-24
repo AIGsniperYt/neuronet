@@ -40,7 +40,7 @@ html, body, * {
 .kicker {
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  font-size: 0.8rem;
+  font-size: var(--text-xs, 0.82rem);
   font-weight: 600;
   color: rgba(44, 255, 179, 0.82);
   margin-bottom: 8px;
@@ -89,7 +89,7 @@ html, body, * {
   color: #e6fff5;
   padding: 9px 12px;
   font: inherit;
-  font-size: 0.9rem;
+  font-size: var(--text-base, 0.92rem);
 }
 
 .inline-textarea {
@@ -119,7 +119,7 @@ html, body, * {
   padding: 9px 16px;
   cursor: pointer;
   font: inherit;
-  font-size: 0.9rem;
+  font-size: var(--text-base, 0.92rem);
   transition: all 0.2s ease;
   min-width: 60px;
   text-align: center;
@@ -185,7 +185,7 @@ html, body, * {
 }
 
 .subject-name {
-  font-size: 1rem;
+  font-size: var(--text-md, 1.03rem);
   font-weight: 600;
 }
 
@@ -326,14 +326,14 @@ html, body, * {
   max-width: 620px;
   margin: 8px 0 0;
   color: rgba(230, 255, 245, 0.7);
-  font-size: 0.9rem;
+  font-size: var(--text-base, 0.92rem);
   line-height: 1.55;
 }
 
 .source-library-head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .source-library-view > .source-navigator-toolbar { margin: 0; max-width: 920px; }
 .source-library-view > .source-navigator-list { flex: 1; min-height: 180px; max-width: 1040px; }
-.source-library-count { color: rgba(230, 255, 245, 0.62); font-size: 0.85rem; white-space: nowrap; }
+.source-library-count { color: rgba(230, 255, 245, 0.62); font-size: var(--text-sm, 0.87rem); white-space: nowrap; }
 
 .source-navigator-modal {
   position: fixed;
@@ -381,7 +381,7 @@ html, body, * {
   border-bottom: 1px solid rgba(145, 255, 213, 0.12);
 }
 .source-navigator-recent:empty { display: none; }
-.source-navigator-recent-label { margin-bottom: 8px; color: rgba(230, 255, 245, 0.62); font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; }
+.source-navigator-recent-label { margin-bottom: 8px; color: rgba(230, 255, 245, 0.62); font-size: var(--text-xs, 0.82rem); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; }
 .source-navigator-recent-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
 .source-navigator-recent-item {
   display: flex;
@@ -420,10 +420,10 @@ html, body, * {
 .source-navigator-file-icon { display: grid; flex: 0 0 auto; place-items: center; width: 28px; height: 28px; border-radius: 7px; background: rgba(44, 255, 179, 0.1); color: #8dffc2; }
 .source-navigator-file-icon svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .source-navigator-recent-copy { display: grid; min-width: 0; gap: 2px; }
-.source-navigator-recent-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.9rem; }
-.source-navigator-recent-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(230, 255, 245, 0.62); font-size: 0.8rem; }
+.source-navigator-recent-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-md, 1.03rem); }
+.source-navigator-recent-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(230, 255, 245, 0.62); font-size: var(--text-xs, 0.82rem); }
 .source-navigator-list { min-height: 0; overflow-y: auto; padding-right: 3px; }
-.source-navigator-list::before { content: "All sources"; display: block; margin: 0 0 9px; color: rgba(230, 255, 245, 0.62); font-size: 0.8rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+.source-navigator-list::before { content: "All sources"; display: block; margin: 0 0 9px; color: rgba(230, 255, 245, 0.62); font-size: var(--text-xs, 0.82rem); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
 .source-navigator-group + .source-navigator-group { margin-top: 14px; }
 .source-navigator-group-title {
   display: flex;
@@ -439,7 +439,7 @@ html, body, * {
   color: rgba(230, 255, 245, 0.72);
   cursor: pointer;
   font: inherit;
-  font-size: 0.8rem;
+  font-size: var(--text-xs, 0.82rem);
   text-align: left;
   text-transform: uppercase;
   letter-spacing: 0.07em;
@@ -458,7 +458,7 @@ html, body, * {
 }
 .source-navigator-group-count { color: rgba(230, 255, 245, 0.45); font-variant-numeric: tabular-nums; }
 .source-navigator-group .source-navigator-group { margin: 6px 0 0 14px; padding-left: 10px; border-left: 1px solid rgba(145, 255, 213, 0.12); }
-.source-navigator-level-0 > .source-navigator-group-title { font-size: 0.85rem; }
+.source-navigator-level-0 > .source-navigator-group-title { font-size: var(--text-sm, 0.87rem); }
 .source-navigator-group.is-open > .source-navigator-group-title {
   border-color: rgba(44, 255, 179, 0.28);
   background: rgba(44, 255, 179, 0.07);
@@ -500,8 +500,8 @@ html, body, * {
   text-align: left;
 }
 .source-navigator-item-copy { min-width: 0; }
-.source-navigator-item-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.source-navigator-item-path { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 3px; color: rgba(230,255,245,0.64); font-size: 0.85rem; }
+.source-navigator-item-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: var(--text-md, 1.03rem); }
+.source-navigator-item-path { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 3px; color: rgba(230,255,245,0.64); font-size: var(--text-sm, 0.87rem); }
 .source-navigator-item-actions { gap: 4px; }
 .source-navigator-item-actions .icon-btn { margin: 0; width: 30px; height: 30px; }
 .source-navigator-item-actions .icon-btn svg { display: block; width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -807,7 +807,7 @@ html, body, * {
   background: rgba(255, 255, 255, 0.04);
   padding: 13px 15px;
   color: rgba(230, 255, 245, 0.84);
-  font-size: 0.9rem;
+  font-size: var(--text-base, 0.92rem);
   line-height: 1.55;
 }
 
@@ -909,7 +909,7 @@ html, body, * {
 
 .reader-mode-label {
   color: rgba(230, 255, 245, 0.8);
-  font-size: 1rem;
+  font-size: var(--text-md, 1.03rem);
 }
 
 .study-column {
@@ -929,8 +929,8 @@ html, body, * {
   overflow-x: hidden;
   padding: 24px;
   font-family: var(--font-reading, "Literata", Georgia, "Times New Roman", serif);
-  font-size: 1.08rem;
-  line-height: 1.72;
+  font-size: var(--text-reading, 1.08rem);
+  line-height: var(--leading-reading, 1.7);
   color: rgba(237, 255, 248, 0.92);
   user-select: text !important;
   -webkit-user-select: text !important;
@@ -1062,7 +1062,7 @@ html, body, * {
 }
 
 .source-field-label {
-  font-size: 0.8rem;
+  font-size: var(--text-xs, 0.82rem);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -1119,7 +1119,7 @@ html, body, * {
   min-height: 40px;
   padding: 8px 11px;
   color: rgba(230, 255, 245, 0.82);
-  font-size: 0.85rem;
+  font-size: var(--text-sm, 0.87rem);
   font-weight: 650;
   cursor: pointer;
   list-style: none;
@@ -1129,7 +1129,7 @@ html, body, * {
 .source-organization summary::after {
   content: "＋";
   color: rgba(44, 255, 179, 0.75);
-  font-size: 1rem;
+  font-size: var(--text-md, 1.03rem);
   line-height: 1;
 }
 .source-organization[open] summary::after { content: "−"; }
@@ -1137,7 +1137,7 @@ html, body, * {
 .source-organization-hint {
   margin-left: auto;
   color: rgba(230, 255, 245, 0.55);
-  font-size: 0.8rem;
+  font-size: var(--text-xs, 0.82rem);
   font-weight: 500;
 }
 
@@ -1158,12 +1158,12 @@ html, body, * {
 .source-path-sep {
   color: rgba(230, 255, 245, 0.3);
   padding: 0 2px;
-  font-size: 0.85rem;
+  font-size: var(--text-sm, 0.87rem);
 }
 
 .form-error {
   color: #ff7a7a;
-  font-size: 0.85rem;
+  font-size: var(--text-sm, 0.87rem);
   line-height: 1.4;
 }
 
@@ -1189,7 +1189,7 @@ html, body, * {
   padding: 5px 10px;
   background: rgba(44, 255, 179, 0.16);
   border: 1px solid rgba(44, 255, 179, 0.26);
-  font-size: 0.85rem;
+  font-size: var(--text-sm, 0.87rem);
 }
 
 .analysis-item {
@@ -1240,7 +1240,7 @@ html, body, * {
   color: #e6fff5;
   cursor: pointer;
   font: inherit;
-  font-size: 1rem;
+  font-size: var(--text-md, 1.03rem);
   transition: all 0.2s ease;
 }
 
@@ -1267,7 +1267,7 @@ html, body, * {
   padding-left: 11px;
   color: #ecfff7;
   font-family: var(--font-reading, "Literata", Georgia, "Times New Roman", serif);
-  font-size: 1rem;
+  font-size: var(--text-md, 1.03rem);
   line-height: 1.65;
   word-wrap: break-word;
 }
@@ -1322,7 +1322,7 @@ button.analysis-quote-jump.active-quote,
 
 .quote-ref-origin {
   text-align: right;
-  font-size: 0.8rem;
+  font-size: var(--text-xs, 0.82rem);
   line-height: 1.4;
   color: rgba(168, 188, 178, 0.68);
   margin: 2px 0 10px 0;
@@ -1338,14 +1338,14 @@ button.analysis-quote-jump.active-quote,
 .analysis-item p {
   margin: 0;
   font-family: var(--font-reading, "Literata", Georgia, "Times New Roman", serif);
-  font-size: 1rem;
+  font-size: var(--text-md, 1.03rem);
   line-height: 1.6;
   color: rgba(230, 255, 245, 0.88);
 }
 
 .analysis-item .location {
   color: rgba(44, 255, 179, 0.82);
-  font-size: 0.9rem;
+  font-size: var(--text-base, 0.92rem);
 }
 
 [hidden] {
@@ -1544,7 +1544,7 @@ button.analysis-quote-jump.active-quote,
         <section class="panel">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
             <p class="kicker" style="margin: 0;">Analysis Nodes</p>
-            <button id="addAnalysisNodeBtn" class="btn" type="button" style="padding: 5px 10px; font-size: 0.85rem;">+ Add</button>
+            <button id="addAnalysisNodeBtn" class="btn" type="button" style="padding: 5px 10px; font-size: var(--text-sm, 0.87rem);">+ Add</button>
           </div>
           <div id="analysisNodeList" class="analysis-list"></div>
         </section>
@@ -1560,7 +1560,7 @@ button.analysis-quote-jump.active-quote,
 
           <!-- NEW: Quote section for analysis workflow (Path 2) -->
           <div style="border-top: 1px solid rgba(44, 255, 179, 0.15); padding-top: 12px;">
-            <p class="kicker" style="margin: 0 0 8px 0; font-size: 0.8rem;">Quote References (NEW)</p>
+            <p class="kicker" style="margin: 0 0 8px 0; font-size: var(--text-xs, 0.82rem);">Quote References (NEW)</p>
             <button id="addQuoteRefBtn" class="btn" type="button" style="width: 100%; margin-bottom: 12px;">+ Add Quote Reference</button>
             <div id="quoteRefsList" style="display: flex; flex-direction: column; gap: 8px; max-height: 120px; overflow-y: auto;"></div>
           </div>
@@ -1568,7 +1568,7 @@ button.analysis-quote-jump.active-quote,
           <textarea id="analysisNotes" class="inline-textarea" rows="5" placeholder="Analysis commentary"></textarea>
           <div style="display: flex; gap: 6px; align-items: flex-start;">
             <input id="analysisTags" class="inline-input" type="text" placeholder="tags, separated, by commas" style="flex: 1;" />
-            <button type="button" id="tagSelectorToggle" class="btn" style="padding: 7px 11px; font-size: 0.85rem; white-space: nowrap;" title="Select existing tags">🏷 Tags</button>
+            <button type="button" id="tagSelectorToggle" class="btn" style="padding: 7px 11px; font-size: var(--text-sm, 0.87rem); white-space: nowrap;" title="Select existing tags">🏷 Tags</button>
           </div>
           <div id="tagSelectorContainer" style="display: none;"></div>
           <div class="form-actions">
@@ -1590,8 +1590,8 @@ button.analysis-quote-jump.active-quote,
           <input type="hidden" id="cueAnalysisId" />
 
           <div style="border-top: 1px solid rgba(44, 255, 179, 0.15); padding-top: 12px; margin-bottom: 12px;">
-            <p class="kicker" style="margin: 0 0 8px 0; font-size: 0.8rem;">Linked Quote</p>
-            <div id="cueQuotePreview" style="background: rgba(44, 255, 179, 0.08); padding: 9px 10px; border-radius: 6px; font-size: 0.9rem; font-style: italic; line-height: 1.45;"></div>
+            <p class="kicker" style="margin: 0 0 8px 0; font-size: var(--text-xs, 0.82rem);">Linked Quote</p>
+            <div id="cueQuotePreview" style="background: rgba(44, 255, 179, 0.08); padding: 9px 10px; border-radius: 6px; font-size: var(--text-base, 0.92rem); font-style: italic; line-height: 1.45;"></div>
           </div>
 
           <textarea id="cueText" class="inline-textarea" rows="4" placeholder="Enter your memory cue (a question or prompt to help recall this quote)"></textarea>

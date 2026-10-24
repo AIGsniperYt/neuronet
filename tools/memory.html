@@ -85,7 +85,7 @@
                   <button id="processImportBtn" class="memory-btn primary">Process Import</button>
                   <button id="cancelImportBtn" class="memory-btn">Cancel</button>
                 </div>
-                <div id="importFeedback" style="margin-top: 8px; font-size: 0.9rem;"></div>
+                <div id="importFeedback" style="margin-top: 8px; font-size: var(--text-base, 0.92rem);"></div>
               </div>
 
               <!-- Card Edit Form (persistent) -->
@@ -247,7 +247,7 @@
     <div class="stats-header">
       <span id="sidebarHeaderTitle">Focus</span>
       <div style="display: flex; gap: 8px; align-items: center;">
-        <button id="resetMemoryBtn" class="memory-btn" title="Reset all SRS metadata for this subject" style="font-size: 0.8rem; color: #ff4d4d; border-color: rgba(255,77,77,0.2);">Reset Data</button>
+        <button id="resetMemoryBtn" class="memory-btn" title="Reset all SRS metadata for this subject" style="font-size: var(--text-xs, 0.82rem); color: #ff4d4d; border-color: rgba(255,77,77,0.2);">Reset Data</button>
         <button id="closeStatsBtn" class="memory-btn">&times;</button>
       </div>
     </div>
@@ -308,7 +308,7 @@
     border-radius: 999px;
     cursor: pointer;
     font: inherit;
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
     transition: all 0.2s ease;
   }
 
@@ -555,7 +555,7 @@
   }
 
   .blurt-label {
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -595,7 +595,7 @@
     padding: 10px 14px;
     border-radius: 999px;
     cursor: pointer;
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
     font-weight: 700;
     border: 1px solid rgba(255,255,255,0.10);
     background: rgba(255,255,255,0.03);
@@ -647,7 +647,7 @@
     }
 
    .priority-label {
-      font-size: 0.85rem;
+      font-size: var(--text-sm, 0.87rem);
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
@@ -667,7 +667,7 @@
       background: transparent;
       color: var(--text-muted);
       cursor: pointer;
-      font-size: 0.9rem;
+      font-size: var(--text-base, 0.92rem);
       transition: all 0.15s ease;
       font-family: inherit;
     }
@@ -697,7 +697,7 @@
       position: absolute;
       top: 12px;
       right: 12px;
-      font-size: 0.8rem;
+      font-size: var(--text-xs, 0.82rem);
       color: rgba(230,255,245,0.25);
       letter-spacing: 1px;
       pointer-events: none;
@@ -778,7 +778,7 @@
 
   .evidence-matching-subtitle {
     color: var(--text-muted);
-    font-size: 1rem;
+    font-size: var(--text-md, 1.03rem);
     margin-top: 4px;
   }
 
@@ -819,7 +819,7 @@
 
   .quote-text { flex: 1; }
   .quote-source {
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     color: var(--text-muted);
     font-style: italic;
     text-align: right;
@@ -927,7 +927,7 @@
     border-bottom: 1px solid var(--glass-border);
     font-weight: 600;
     color: var(--accent);
-    font-size: 1rem;
+    font-size: var(--text-md, 1.03rem);
   }
 
   /* Sidebar Mode Tabs */
@@ -945,7 +945,7 @@
     border: 1px solid transparent;
     border-radius: 8px;
     color: var(--text-muted);
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
     cursor: pointer;
     transition: all 0.2s ease;
   }
@@ -1004,7 +1004,7 @@
   }
 
   .system-thinking-label {
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 2px;
@@ -1014,7 +1014,7 @@
   }
 
   .system-thinking-text {
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
     line-height: 1.4;
     min-height: 3.5em;
     display: flex;
@@ -1032,7 +1032,7 @@
 
   .thought-line.history {
     opacity: 0.4;
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     color: var(--text-muted);
   }
 
@@ -1091,7 +1091,7 @@
   }
 
   .heap-section-title {
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -1115,7 +1115,7 @@
   }
 
   .heap-item-rank {
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     font-weight: 700;
     color: var(--accent);
     min-width: 24px;
@@ -1128,7 +1128,7 @@
   }
 
   .heap-item-label {
-    font-size: 0.9rem;
+    font-size: var(--text-md, 1.03rem);
     color: var(--text-main);
     line-height: 1.4;
     margin-bottom: 6px;
@@ -1139,7 +1139,7 @@
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     color: var(--text-muted);
   }
 
@@ -1156,7 +1156,7 @@
 
   .heap-current-tag {
     display: inline-block;
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     background: rgba(44,255,179,0.15);
     color: var(--accent);
     border-radius: 4px;
@@ -1169,7 +1169,7 @@
   }
 
   .blurt-prompt-label {
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -1178,7 +1178,7 @@
   }
 
   .custom-deck-label {
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -1201,7 +1201,7 @@
     display: block;
     font-weight: 500;
     color: var(--text-muted);
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     margin-bottom: 4px;
   }
 
@@ -1273,7 +1273,7 @@
     background: rgba(44,255,179,0.12);
     color: var(--accent);
     font-weight: 600;
-    font-size: 1.05rem;
+    font-size: var(--text-md, 1.03rem);
     cursor: pointer;
     transition: all 0.2s ease;
   }
@@ -1286,7 +1286,7 @@
   /* COUNT (bottom, subtle pill) */
   .card-meta {
     margin-top: auto;
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     color: var(--text-muted);
 
     padding: 4px 12px;
@@ -1296,7 +1296,7 @@
   }
 
   .deck-stats {
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
     color: var(--text-muted);
     padding: 6px 16px;
     background: rgba(255,255,255,0.05);
@@ -1370,7 +1370,7 @@
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
     font-family: inherit;
     transition: all 0.15s ease;
   }
@@ -1398,7 +1398,7 @@
   }
 
   .filter-mode-label {
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
     color: var(--text-muted);
     font-weight: 500;
   }
@@ -1410,7 +1410,7 @@
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     font-family: inherit;
     transition: all 0.15s ease;
   }
@@ -1429,7 +1429,7 @@
 
   .filter-mode-hint {
     width: 100%;
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     color: var(--text-muted);
     opacity: 0.7;
     margin-top: 4px;
@@ -1453,7 +1453,7 @@
 
   .filter-section h3 {
     color: var(--accent);
-    font-size: 1rem;
+    font-size: var(--text-md, 1.03rem);
     margin: 0 0 12px 0;
     font-weight: 600;
   }
@@ -1499,12 +1499,12 @@
   .filter-row-label {
     flex: 1;
     color: var(--text-main);
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
   }
 
   .filter-row-count {
     color: var(--text-muted);
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     background: rgba(255,255,255,0.05);
     padding: 2px 8px;
     border-radius: 999px;
@@ -1592,7 +1592,7 @@
   }
 
   .tooltip-label {
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     color: var(--accent);
     font-weight: 600;
     letter-spacing: 0.5px;
@@ -1600,7 +1600,7 @@
   }
 
   .tooltip-count {
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
     color: var(--text-main);
     font-weight: 700;
   }
@@ -1611,7 +1611,7 @@
     border: 1px solid rgba(44,255,179,0.3);
     background: rgba(44,255,179,0.1);
     color: var(--accent);
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     cursor: pointer;
     font-family: inherit;
     transition: all 0.15s ease;
@@ -1660,7 +1660,7 @@
 .deck-sidebar-header {
   margin-bottom: 12px;
   color: var(--accent);
-  font-size: 0.9rem;
+  font-size: var(--text-base, 0.92rem);
   font-weight: 600;
 }
 
@@ -1689,7 +1689,7 @@
 .deck-sidebar-header {
   margin-bottom: 12px;
   color: var(--accent);
-  font-size: 0.9rem;
+  font-size: var(--text-base, 0.92rem);
   font-weight: 600;
 }
 
@@ -1718,7 +1718,7 @@
 .deck-sidebar-header {
   margin-bottom: 12px;
   color: var(--accent);
-  font-size: 0.9rem;
+  font-size: var(--text-base, 0.92rem);
   font-weight: 600;
 }
 
@@ -1773,7 +1773,7 @@
   }
 
   .layer-row-label {
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -1798,7 +1798,7 @@
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
     font-family: inherit;
     transition: all 0.15s ease;
     white-space: nowrap;
@@ -1824,7 +1824,7 @@
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     font-family: inherit;
     transition: all 0.15s ease;
     white-space: nowrap;
@@ -1847,7 +1847,7 @@
     border: 1px solid var(--accent-soft);
     background: rgba(44,255,179,0.06);
     color: var(--text-main);
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
     font-family: inherit;
     outline: none;
     min-width: 80px;
@@ -1867,7 +1867,7 @@
     background: rgba(44,255,179,0.1);
     color: var(--accent);
     cursor: pointer;
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     font-family: inherit;
     transition: all 0.15s ease;
     white-space: nowrap;
@@ -2014,7 +2014,7 @@
     margin-bottom: 5px;
     color: var(--text-main);
     font-weight: 500;
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
   }
 
   .builder-input,
@@ -2026,7 +2026,7 @@
     border-radius: 10px;
     color: var(--text-main);
     font-family: inherit;
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
     transition: all 0.2s ease;
     box-sizing: border-box;
   }
@@ -2091,7 +2091,7 @@
   }
 
   .flashcard-item-layers {
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     color: var(--text-muted);
     margin-top: 4px;
     white-space: nowrap;
@@ -2103,7 +2103,7 @@
     flex: 1;
     color: var(--text-main);
     font-weight: 500;
-    font-size: 0.9rem;
+    font-size: var(--text-md, 1.03rem);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2122,7 +2122,7 @@
     padding: 4px 8px;
     border-radius: 6px;
     cursor: pointer;
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     transition: all 0.2s ease;
   }
 
@@ -2212,7 +2212,7 @@
   .success-message p {
     color: var(--text-muted);
     margin: 0 0 24px 0;
-    font-size: 1rem;
+    font-size: var(--text-md, 1.03rem);
   }
 
   .launchpad-controls {
@@ -2243,7 +2243,7 @@
   .mass-edit-card-title {
     color: var(--accent);
     font-weight: 600;
-    font-size: 0.9rem;
+    font-size: var(--text-md, 1.03rem);
   }
 
   .mass-edit-card .form-group {
@@ -2255,7 +2255,7 @@
     margin-bottom: 4px;
     color: var(--text-main);
     font-weight: 500;
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
   }
 
   .mass-edit-card textarea {
@@ -2266,7 +2266,7 @@
     border-radius: 8px;
     color: var(--text-main);
     font-family: inherit;
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
     transition: all 0.2s ease;
     box-sizing: border-box;
     resize: vertical;
@@ -2295,7 +2295,7 @@
     padding: 10px 16px;
     background: rgba(10,10,10,0.85);
     backdrop-filter: blur(10px);
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     font-family: inherit;
     transition: all 0.15s ease;
     white-space: nowrap;
@@ -2341,7 +2341,7 @@
   .mass-edit-card-title {
     color: var(--accent);
     font-weight: 600;
-    font-size: 1rem;
+    font-size: var(--text-md, 1.03rem);
   }
 
   #massEditContainer {
@@ -2377,7 +2377,7 @@
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     font-family: inherit;
     transition: all 0.15s ease;
     white-space: nowrap;
@@ -2397,7 +2397,7 @@
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     font-family: inherit;
     transition: all 0.15s ease;
   }
@@ -2419,7 +2419,7 @@
     background: rgba(255,77,77,0.1);
     color: #ff4d4d;
     cursor: pointer;
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     font-family: inherit;
     transition: all 0.2s ease;
   }
@@ -2441,7 +2441,7 @@
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 8px;
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
   }
 
   .focus-stats div {
@@ -2453,7 +2453,7 @@
   }
 
   .route-strip {
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     color: var(--text-muted);
     background: rgba(44,255,179,0.06);
     border: 1px solid rgba(44,255,179,0.15);
@@ -2470,7 +2470,7 @@
   }
 
   .heap-title {
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -2479,7 +2479,7 @@
   }
 
   .heap-item {
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
     color: var(--text-main);
     padding: 6px 8px;
     border-radius: 6px;
@@ -2496,7 +2496,7 @@
   }
 
   .strategy-banner {
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
     color: var(--accent);
     background: rgba(44,255,179,0.08);
     border: 1px solid rgba(44,255,179,0.2);
@@ -2512,7 +2512,7 @@
   }
 
   .decision-trace h4 {
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -2521,7 +2521,7 @@
   }
 
   .trace-step {
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
     color: var(--text-main);
     padding: 6px 10px;
     background: rgba(255,255,255,0.03);
@@ -2536,7 +2536,7 @@
   }
 
   .live-metrics div {
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     color: var(--text-muted);
     background: rgba(255,255,255,0.03);
     border: 1px solid rgba(255,255,255,0.06);
@@ -2565,7 +2565,7 @@
   }
 
   .memory-state h4, .priority-breakdown h4, .review-timeline h4 {
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -2580,7 +2580,7 @@
     background: rgba(255,255,255,0.03);
     border: 1px solid rgba(255,255,255,0.06);
     border-radius: 8px;
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
   }
 
   .state-row span:first-child {
@@ -2625,7 +2625,7 @@
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
     font-family: inherit;
     transition: all 0.15s ease;
   }
@@ -2667,7 +2667,7 @@
 
   .card-preview {
     flex: 1;
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
     color: var(--text-main);
     min-width: 0;
     overflow: hidden;
@@ -2682,7 +2682,7 @@
   }
 
   .phase-badge {
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     padding: 2px 8px;
     border-radius: 999px;
     font-weight: 600;
@@ -2697,7 +2697,7 @@
   .phase-badge.mastered { background: rgba(255,77,77,0.2); color: #ff4d4d; }
 
   .priority-badge {
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     padding: 2px 8px;
     border-radius: 999px;
     background: rgba(255,255,255,0.05);
@@ -2712,7 +2712,7 @@
     background: rgba(44,255,179,0.1);
     color: var(--accent);
     cursor: pointer;
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     font-family: inherit;
     transition: all 0.15s ease;
     white-space: nowrap;
@@ -2728,7 +2728,7 @@
     justify-content: center;
     align-items: center;
     gap: 16px;
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
     color: var(--text-muted);
     padding-top: 8px;
   }
@@ -2740,7 +2740,7 @@
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
     font-family: inherit;
     transition: all 0.15s ease;
   }
@@ -2757,7 +2757,7 @@
 
   .inspect-empty {
     color: var(--text-muted);
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
     text-align: center;
     padding: 40px 20px;
   }
@@ -2774,7 +2774,7 @@
   .sidebar-tab {
     flex: 1;
     padding: 6px 8px;
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     font-weight: 600;
     letter-spacing: 0.3px;
     background: rgba(255,255,255,0.04);
@@ -2808,19 +2808,19 @@
     margin-bottom: 12px;
   }
   .router-route-label {
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 1px;
     color: var(--accent);
   }
   .router-route-name {
-    font-size: 1rem;
+    font-size: var(--text-md, 1.03rem);
     font-weight: 700;
     color: var(--text-main);
   }
   .router-route-explanation {
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     color: var(--text-muted);
     line-height: 1.5;
     margin-top: 2px;
@@ -2835,7 +2835,7 @@
     background: rgba(255,255,255,0.02);
     border: 1px solid rgba(255,255,255,0.04);
     margin-bottom: 4px;
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
   }
   .router-step .step-label {
     color: var(--text-muted);
@@ -2848,7 +2848,7 @@
   }
   .router-step .step-effect {
     text-align: right;
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     color: rgba(44,255,179,0.7);
     font-style: italic;
   }
@@ -2857,7 +2857,7 @@
     justify-content: space-between;
     align-items: center;
     padding: 5px 8px;
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     border-bottom: 1px solid rgba(255,255,255,0.04);
   }
   .router-live-metric .metric-label {
@@ -2877,7 +2877,7 @@
     gap: 10px;
     padding: 32px 16px;
     color: var(--text-muted);
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
     text-align: center;
   }
   .inspect-placeholder-icon {
@@ -2892,7 +2892,7 @@
     margin-bottom: 12px;
   }
   .inspect-card-label {
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -2900,7 +2900,7 @@
     margin-bottom: 6px;
   }
   .inspect-card-preview {
-    font-size: 0.9rem;
+    font-size: var(--text-base, 0.92rem);
     color: var(--text-main);
     line-height: 1.5;
     max-height: 60px;
@@ -2910,7 +2910,7 @@
     -webkit-box-orient: vertical;
   }
   .inspect-section-title {
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -2930,14 +2930,14 @@
     border-radius: 8px;
   }
   .inspect-metric-label {
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-bottom: 3px;
   }
   .inspect-metric-value {
-    font-size: 1rem;
+    font-size: var(--text-md, 1.03rem);
     font-weight: 700;
     color: var(--text-main);
   }
@@ -2959,7 +2959,7 @@
     align-items: flex-start;
     gap: 8px;
     padding: 5px 0;
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     border-bottom: 1px solid rgba(255,255,255,0.04);
   }
   .inspect-timeline-dot {
@@ -2972,7 +2972,7 @@
   .inspect-contrib-row {
     display: flex;
     justify-content: space-between;
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     padding: 4px 8px;
     border-radius: 6px;
     background: rgba(255,255,255,0.02);
@@ -2991,7 +2991,7 @@
   }
   .explore-filter-chip {
     padding: 4px 10px;
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     font-weight: 600;
     border-radius: 999px;
     border: 1px solid rgba(255,255,255,0.1);
@@ -3021,7 +3021,7 @@
     border-color: rgba(44,255,179,0.2);
   }
   .explore-card-text {
-    font-size: 0.85rem;
+    font-size: var(--text-sm, 0.87rem);
     color: var(--text-main);
     line-height: 1.4;
     overflow: hidden;
@@ -3033,7 +3033,7 @@
     display: flex;
     gap: 8px;
     margin-top: 5px;
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     color: var(--text-muted);
     flex-wrap: wrap;
   }
@@ -3045,7 +3045,7 @@
   }
   .explore-page-btn {
     padding: 4px 10px;
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     border-radius: 6px;
     background: rgba(255,255,255,0.04);
     border: 1px solid rgba(255,255,255,0.08);
@@ -3063,7 +3063,7 @@
 
   /* ── Shared Sidebar Components ────────────────────────── */
   .sidebar-section-title {
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -3078,7 +3078,7 @@
     background: rgba(0,0,0,0.2);
     border-radius: 8px;
     margin-bottom: 10px;
-    font-size: 0.8rem;
+    font-size: var(--text-xs, 0.82rem);
     border: 1px solid rgba(255,255,255,0.05);
   }
   .focus-router-strip-row {
