@@ -44,6 +44,7 @@ add task management to neuronet to handle todos
 - Card-model Puppeteer smoke test: 22/22 (legacy migration, Quick Add card-only persistence, study/grade card SRS, reload persistence).
 - Deck-builder Puppeteer smoke test: 28/28 (edit a Quick Add card, add a card, delete a card, preserve SRS/tags/order, no duplicate cards, legacy pairs still written, reload coherence).
 - New-deck creation Puppeteer smoke test: 10/10 (Build Deck step 1 → add card → success screen → study immediately → reload without duplicates).
+- Quick Add bulk paste Puppeteer smoke test: 6/6 (tab and pipe separators, stable orders 0–1, cards only, no legacy quote/cue writes).
 - `node --check` passes for `src/db.js`, `src/main.js`, and `src/tools/memoryTool.js`.
 - These are one-off checks in `/tmp/opencode/`, not a test suite.
 
