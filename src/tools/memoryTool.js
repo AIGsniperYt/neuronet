@@ -29,7 +29,7 @@ export async function initMemoryTool(deps, context = {}) {
     escapeHtml
   } = deps;
 
-  const { subject: contextSubject, createDeck } = context;
+  const { subject: contextSubject, createDeck, quickAdd } = context;
 
   const SIDEBAR_MODES = {
     FOCUS: "focus",
@@ -210,6 +210,11 @@ export async function initMemoryTool(deps, context = {}) {
    let importToggleBtn, ankiImportInput, processImportBtn, cancelImportBtn, importFeedback;
    let exportBtn;
    let massEditBtn, massEditContainer, massEditCards, massEditCancelBtn, massEditSaveBtn;
+  // Quick Add elements
+  let quickAddModal, quickAddOverlay, closeQuickAddBtn, quickAddDeckInput, quickAddDeckOptions;
+  let quickAddSingleView, quickAddBulkView, quickAddFront, quickAddBack, quickAddPriorityPills;
+  let quickAddTags, quickAddStatus, quickAddSaveCloseBtn, quickAddSaveNextBtn;
+  let quickAddBulkInput, quickAddBulkStatus, quickAddBulkImportBtn, quickAddLaunchBtn, quickAddHeaderBtn;
   // Middle UI elements
   let middleUI, middleHeader, middleBackBtn, middleSubjectName, middleStudyBtn;
   let middleModeSelector, andFilterBtn, orFilterBtn, filterModeHint;
@@ -230,6 +235,18 @@ export async function initMemoryTool(deps, context = {}) {
     layerPillState: {
       selectedLayers: []   // currently selected layer names for the editing card (max 3)
     }
+  };
+
+  // Quick Add: card-first capture that persists each card immediately. It writes
+  // legacy quote + cue records for now so Memory works without a migration.
+  const quickAddState = {
+    isOpen: false,
+    saving: false,
+    activeTab: "single",
+    priority: 3,
+    lastDeck: "",
+    savedCount: 0,
+    nextOrders: new Map()
   };
 
   function getDOMElements() {
@@ -312,6 +329,27 @@ export async function initMemoryTool(deps, context = {}) {
     // Card count display
     cardCount = document.getElementById("cardCount");
 
+    // Quick Add elements
+    quickAddModal = document.getElementById("quickAddModal");
+    quickAddOverlay = document.getElementById("quickAddOverlay");
+    closeQuickAddBtn = document.getElementById("closeQuickAddBtn");
+    quickAddDeckInput = document.getElementById("quickAddDeckInput");
+    quickAddDeckOptions = document.getElementById("quickAddDeckOptions");
+    quickAddSingleView = document.getElementById("quickAddSingleView");
+    quickAddBulkView = document.getElementById("quickAddBulkView");
+    quickAddFront = document.getElementById("quickAddFront");
+    quickAddBack = document.getElementById("quickAddBack");
+    quickAddPriorityPills = document.getElementById("quickAddPriorityPills");
+    quickAddTags = document.getElementById("quickAddTags");
+    quickAddStatus = document.getElementById("quickAddStatus");
+    quickAddSaveCloseBtn = document.getElementById("quickAddSaveCloseBtn");
+    quickAddSaveNextBtn = document.getElementById("quickAddSaveNextBtn");
+    quickAddBulkInput = document.getElementById("quickAddBulkInput");
+    quickAddBulkStatus = document.getElementById("quickAddBulkStatus");
+    quickAddBulkImportBtn = document.getElementById("quickAddBulkImportBtn");
+    quickAddLaunchBtn = document.getElementById("quickAddLaunchBtn");
+    quickAddHeaderBtn = document.getElementById("quickAddHeaderBtn");
+
     // Middle UI elements
     middleUI = document.getElementById("middleUI");
     middleHeader = document.getElementById("middleHeader");
@@ -340,7 +378,11 @@ export async function initMemoryTool(deps, context = {}) {
       renderUI();
       attachEventListeners();
       attachKeyboardShortcuts();
-      if (createDeck) openDeckBuilder();
+      if (quickAdd) {
+        await openQuickAdd();
+      } else if (createDeck) {
+        openDeckBuilder();
+      }
       document.addEventListener("db-change", handleDBChange);
     } catch (error) {
       console.error("Failed to initialize memory tool:", error);
@@ -740,6 +782,54 @@ export async function initMemoryTool(deps, context = {}) {
       });
     }
 
+    // Quick Add listeners
+    if (quickAddLaunchBtn) {
+      quickAddLaunchBtn.addEventListener("click", () => openQuickAdd());
+    }
+    if (quickAddHeaderBtn) {
+      quickAddHeaderBtn.addEventListener("click", () => openQuickAdd());
+    }
+    if (closeQuickAddBtn) {
+      closeQuickAddBtn.addEventListener("click", closeQuickAdd);
+    }
+    if (quickAddOverlay) {
+      quickAddOverlay.addEventListener("click", closeQuickAdd);
+    }
+    if (quickAddModal) {
+      quickAddModal.addEventListener("keydown", (e) => {
+        // Keep study shortcuts (space/arrows) out of the modal.
+        e.stopPropagation();
+        if (e.key === "Escape") {
+          e.preventDefault();
+          closeQuickAdd();
+          return;
+        }
+        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+          e.preventDefault();
+          if (quickAddState.activeTab === "single") {
+            quickAddSaveCard();
+          } else {
+            quickAddBulkImport();
+          }
+        }
+      });
+    }
+    if (quickAddSaveNextBtn) {
+      quickAddSaveNextBtn.addEventListener("click", () => quickAddSaveCard());
+    }
+    if (quickAddSaveCloseBtn) {
+      quickAddSaveCloseBtn.addEventListener("click", async () => {
+        const saved = await quickAddSaveCard({ allowEmptyClose: true });
+        if (saved) closeQuickAdd();
+      });
+    }
+    if (quickAddBulkImportBtn) {
+      quickAddBulkImportBtn.addEventListener("click", quickAddBulkImport);
+    }
+    document.querySelectorAll("[data-quick-add-tab]").forEach((tab) => {
+      tab.addEventListener("click", () => setQuickAddTab(tab.dataset.quickAddTab));
+    });
+
     // Middle UI event listeners
     if (middleBackBtn) {
       middleBackBtn.addEventListener("click", async () => {
@@ -1086,6 +1176,7 @@ export async function initMemoryTool(deps, context = {}) {
   }
 
   function handleDBChange(event) {
+    if (quickAddState.isOpen) return;
     if (state.session.suppressDBChange > 0) {
       state.session.suppressDBChange--;
       return;
@@ -1099,7 +1190,7 @@ export async function initMemoryTool(deps, context = {}) {
 
     deckList.innerHTML = "";
     if (subjects.length === 0) {
-      deckList.innerHTML = `<div style="color: var(--text-muted);">No decks found. Add quotes or analyses in the Analysis Tool.</div>`;
+      deckList.innerHTML = `<div style="color: var(--text-muted);">No decks yet. Add a card to start one — no source or analysis needed.</div>`;
       return;
     }
 
@@ -1114,8 +1205,15 @@ export async function initMemoryTool(deps, context = {}) {
         <div class="card-title">${escapeHtml(subject)}</div>
         <button class="card-btn deck-study-btn" data-subject="${escapeHtml(subject)}">Study</button>
         <div class="card-meta deck-stats">${total} items</div>
+        <button class="deck-add-btn" data-subject="${escapeHtml(subject)}" title="Add a card to this deck" aria-label="Add a card to ${escapeHtml(subject)}">+</button>
         ${state.editMode ? `<button class="deck-edit-btn" data-subject="${escapeHtml(subject)}">✎</button>` : ""}
       `;
+
+      const addCardBtn = card.querySelector(".deck-add-btn");
+      addCardBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openQuickAdd({ deck: subject });
+      });
 
       if (state.editMode) {
         const editBtn = card.querySelector(".deck-edit-btn");
@@ -4514,6 +4612,366 @@ export async function initMemoryTool(deps, context = {}) {
       }
    }
 
+  // ========== QUICK ADD ==========
+  //
+  // Quick Add is deliberately smaller than the deck builder: it captures one
+  // card at a time and persists it immediately. Cards are stored as the legacy
+  // quote + cue pair so Memory can study them today; `meta.deckOrder` preserves
+  // creation order for views that want a stable default order.
+
+  function setQuickAddStatus(el, message, tone = "") {
+    if (!el) return;
+    el.textContent = message;
+    el.classList.remove("success", "error");
+    if (tone) el.classList.add(tone);
+  }
+
+  function parseQuickAddTags(value) {
+    return [...new Set(
+      String(value || "")
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+    )];
+  }
+
+  function addQuickAddDeckOption(deck) {
+    if (!quickAddDeckOptions || !deck) return;
+    const exists = Array.from(quickAddDeckOptions.options || [])
+      .some((option) => option.value === deck);
+    if (exists) return;
+    const option = document.createElement("option");
+    option.value = deck;
+    quickAddDeckOptions.appendChild(option);
+  }
+
+  async function populateQuickAddDeckOptions() {
+    if (!quickAddDeckOptions) return;
+    let subjects = [];
+    try {
+      subjects = await getSubjects() || [];
+    } catch (error) {
+      console.warn("Could not load decks for Quick Add:", error);
+    }
+    quickAddDeckOptions.innerHTML = "";
+    const decks = [...new Set([
+      ...subjects,
+      contextSubject,
+      quickAddState.lastDeck
+    ].filter(Boolean))];
+    decks.forEach((deck) => addQuickAddDeckOption(deck));
+  }
+
+  function renderQuickAddPriorityPills() {
+    if (!quickAddPriorityPills) return;
+    const labels = ["Very Low", "Low", "Medium", "High", "Very High"];
+    quickAddPriorityPills.innerHTML = labels.map((label, index) => {
+      const priority = index + 1;
+      const color = getPriorityColor(priority);
+      const isActive = priority === quickAddState.priority;
+      return `<button type="button" class="priority-pill ${isActive ? "active" : ""}"
+        data-priority="${priority}"
+        style="color: ${isActive ? color : "var(--text-muted)"}; border-color: ${isActive ? color : "rgba(255,255,255,0.15)"};"
+        title="Set priority to ${label}">${label}</button>`;
+    }).join("");
+
+    quickAddPriorityPills.querySelectorAll(".priority-pill").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        quickAddState.priority = parseInt(btn.dataset.priority) || 3;
+        renderQuickAddPriorityPills();
+      });
+    });
+  }
+
+  function setQuickAddTab(tab, { focus = true } = {}) {
+    quickAddState.activeTab = tab === "bulk" ? "bulk" : "single";
+    document.querySelectorAll("[data-quick-add-tab]").forEach((btn) => {
+      const isActive = btn.dataset.quickAddTab === quickAddState.activeTab;
+      btn.classList.toggle("active", isActive);
+      btn.setAttribute("aria-selected", isActive ? "true" : "false");
+    });
+    if (quickAddSingleView) {
+      quickAddSingleView.style.display = quickAddState.activeTab === "single" ? "" : "none";
+    }
+    if (quickAddBulkView) {
+      quickAddBulkView.style.display = quickAddState.activeTab === "bulk" ? "" : "none";
+    }
+    if (!focus) return;
+    requestAnimationFrame(() => {
+      if (quickAddState.activeTab === "single") {
+        quickAddFront?.focus();
+      } else {
+        quickAddBulkInput?.focus();
+      }
+    });
+  }
+
+  function setQuickAddBusy(isBusy) {
+    quickAddState.saving = isBusy;
+    [quickAddSaveNextBtn, quickAddSaveCloseBtn, quickAddBulkImportBtn].forEach((btn) => {
+      if (btn) btn.disabled = isBusy;
+    });
+  }
+
+  async function openQuickAdd({ deck = "" } = {}) {
+    if (!quickAddModal) getDOMElements();
+    if (!quickAddModal) return;
+
+    quickAddState.isOpen = true;
+    quickAddState.saving = false;
+    quickAddState.savedCount = 0;
+    quickAddState.priority = 3;
+    quickAddState.nextOrders.clear();
+
+    quickAddModal.style.display = "flex";
+    await populateQuickAddDeckOptions();
+
+    const presetDeck = String(deck || contextSubject || quickAddState.lastDeck || "").trim();
+    if (quickAddDeckInput) quickAddDeckInput.value = presetDeck;
+    if (quickAddFront) quickAddFront.value = "";
+    if (quickAddBack) quickAddBack.value = "";
+    if (quickAddTags) quickAddTags.value = "";
+    if (quickAddBulkInput) quickAddBulkInput.value = "";
+    setQuickAddStatus(quickAddStatus, "No cards added yet");
+    setQuickAddStatus(quickAddBulkStatus, "Paste cards to import");
+    setQuickAddBusy(false);
+    renderQuickAddPriorityPills();
+    setQuickAddTab("single", { focus: false });
+
+    requestAnimationFrame(() => {
+      if (!presetDeck) {
+        quickAddDeckInput?.focus();
+      } else {
+        quickAddFront?.focus();
+      }
+    });
+  }
+
+  function closeQuickAdd() {
+    if (!quickAddState.isOpen) return;
+    quickAddState.isOpen = false;
+    setQuickAddBusy(false);
+    if (quickAddModal) quickAddModal.style.display = "none";
+
+    // Deck counts and new decks only need to refresh once the modal closes;
+    // per-card db-change events are suppressed while it is open.
+    if (state.view === "launchpad") {
+      loadLaunchpad()
+        .then(() => renderUI())
+        .catch((error) => console.error("Could not refresh decks:", error));
+    }
+  }
+
+  async function getNextDeckOrder(deck) {
+    const cached = quickAddState.nextOrders.get(deck);
+    if (Number.isFinite(cached)) return cached;
+
+    let quotes = [];
+    try {
+      quotes = await getQuotesForSubject(deck) || [];
+    } catch (error) {
+      console.warn("Could not read deck order:", error);
+    }
+
+    let maxOrder = -1;
+    quotes.forEach((quote) => {
+      const order = Number(quote?.meta?.deckOrder);
+      if (Number.isFinite(order)) maxOrder = Math.max(maxOrder, order);
+    });
+    const nextOrder = maxOrder >= 0 ? maxOrder + 1 : quotes.length;
+    quickAddState.nextOrders.set(deck, nextOrder);
+    return nextOrder;
+  }
+
+  async function persistQuickAddCard({ deck, front, back, priority, tags }) {
+    const now = Date.now();
+    const deckOrder = await getNextDeckOrder(deck);
+    const quoteId = crypto.randomUUID();
+    const cueId = crypto.randomUUID();
+    const mergedTags = [...new Set(["custom-deck", ...(tags || [])].filter(Boolean))];
+
+    const quote = {
+      id: quoteId,
+      type: "quote",
+      subject: deck,
+      quote: back,
+      title: deck,
+      priority,
+      createdAt: now,
+      updatedAt: now,
+      meta: {
+        tags: mergedTags,
+        hierarchyPath: [deck],
+        deckOrder,
+        confidence: 0.8,
+        nextReview: now,
+        interval: 1,
+        ease: 2.5,
+        repetitions: 0
+      }
+    };
+
+    const cue = {
+      id: cueId,
+      subject: deck,
+      quoteId,
+      cue: front,
+      priority,
+      type: "cue",
+      createdAt: now,
+      updatedAt: now,
+      meta: {
+        deckOrder,
+        nextReview: now,
+        interval: 1,
+        ease: 2.5,
+        repetitions: 0
+      }
+    };
+
+    await addQuote(quote);
+    try {
+      await addCue(cue);
+    } catch (error) {
+      // Do not leave an orphaned answer behind if the cue write fails.
+      try { await deleteQuote(quoteId); } catch (_) { /* best effort */ }
+      throw error;
+    }
+
+    quickAddState.nextOrders.set(deck, deckOrder + 1);
+    return { quote, cue, deckOrder };
+  }
+
+  async function quickAddSaveCard({ allowEmptyClose = false } = {}) {
+    if (quickAddState.saving) return false;
+
+    const deck = quickAddDeckInput?.value?.trim() || "";
+    const front = quickAddFront?.value?.trim() || "";
+    const back = quickAddBack?.value?.trim() || "";
+
+    if (!front && !back && allowEmptyClose) return true;
+
+    if (!deck) {
+      setQuickAddStatus(quickAddStatus, "Choose or type a deck first", "error");
+      quickAddDeckInput?.focus();
+      return false;
+    }
+    if (!front || !back) {
+      setQuickAddStatus(quickAddStatus, "Add both a front and a back", "error");
+      (!front ? quickAddFront : quickAddBack)?.focus();
+      return false;
+    }
+
+    setQuickAddBusy(true);
+    try {
+      await persistQuickAddCard({
+        deck,
+        front,
+        back,
+        priority: quickAddState.priority || 3,
+        tags: parseQuickAddTags(quickAddTags?.value)
+      });
+
+      quickAddState.lastDeck = deck;
+      quickAddState.savedCount += 1;
+      if (quickAddFront) quickAddFront.value = "";
+      if (quickAddBack) quickAddBack.value = "";
+      addQuickAddDeckOption(deck);
+      const count = quickAddState.savedCount;
+      setQuickAddStatus(
+        quickAddStatus,
+        `Saved ${count} card${count === 1 ? "" : "s"} to ${deck}`,
+        "success"
+      );
+      quickAddFront?.focus();
+      return true;
+    } catch (error) {
+      console.error("Could not save Quick Add card:", error);
+      setQuickAddStatus(quickAddStatus, `Could not save card: ${error.message}`, "error");
+      return false;
+    } finally {
+      setQuickAddBusy(false);
+    }
+  }
+
+  // Shared by the deck builder's Anki import and Quick Add's bulk paste.
+  // Anki's clipboard format is tab-separated; `front | back` is accepted too
+  // because it is easier to type by hand.
+  function parseAnkiCards(text) {
+    const cards = [];
+    let skipped = 0;
+    String(text || "").split(/\r?\n/).forEach((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      const tabIndex = trimmed.indexOf("\t");
+      const separatorIndex = tabIndex >= 0 ? tabIndex : trimmed.indexOf("|");
+      if (separatorIndex < 0) {
+        skipped += 1;
+        return;
+      }
+      const front = trimmed.slice(0, separatorIndex).trim();
+      const back = trimmed.slice(separatorIndex + 1).trim();
+      if (!front || !back) {
+        skipped += 1;
+        return;
+      }
+      cards.push({ front, back });
+    });
+    return { cards, skipped };
+  }
+
+  async function quickAddBulkImport() {
+    if (quickAddState.saving) return;
+
+    const deck = quickAddDeckInput?.value?.trim() || "";
+    if (!deck) {
+      setQuickAddStatus(quickAddBulkStatus, "Choose or type a deck first", "error");
+      quickAddDeckInput?.focus();
+      return;
+    }
+
+    const { cards, skipped } = parseAnkiCards(quickAddBulkInput?.value);
+    if (!cards.length) {
+      setQuickAddStatus(
+        quickAddBulkStatus,
+        "No valid rows. Use front<TAB>back or front | back.",
+        "error"
+      );
+      return;
+    }
+
+    const tags = parseQuickAddTags(quickAddTags?.value);
+    const priority = quickAddState.priority || 3;
+    let imported = 0;
+    let failed = 0;
+
+    setQuickAddBusy(true);
+    for (const card of cards) {
+      try {
+        await persistQuickAddCard({ deck, ...card, priority, tags });
+        imported += 1;
+      } catch (error) {
+        failed += 1;
+        console.error("Could not import Quick Add row:", card, error);
+      }
+    }
+    setQuickAddBusy(false);
+
+    quickAddState.savedCount += imported;
+    if (imported > 0) {
+      quickAddState.lastDeck = deck;
+      addQuickAddDeckOption(deck);
+      if (quickAddBulkInput) quickAddBulkInput.value = "";
+    }
+    const summary = `Imported ${imported} card${imported === 1 ? "" : "s"} to ${deck}`;
+    const skippedCount = skipped + failed;
+    setQuickAddStatus(
+      quickAddBulkStatus,
+      skippedCount ? `${summary} (${skippedCount} skipped)` : summary,
+      failed ? "error" : "success"
+    );
+  }
+
   // ========== ANKI IMPORT ==========
 
   async function exportToAnki() {
@@ -4875,39 +5333,18 @@ export async function initMemoryTool(deps, context = {}) {
       return;
     }
 
-    const lines = text.split("\n");
-    let imported = 0;
-    let skipped = 0;
+    const { cards, skipped } = parseAnkiCards(text);
 
-    lines.forEach(line => {
-      const trimmed = line.trim();
-      if (!trimmed) return;
-
-      const tabIndex = trimmed.indexOf("\t");
-      if (tabIndex === -1) {
-        skipped++;
-        return;
-      }
-
-      const front = trimmed.substring(0, tabIndex).trim();
-      const back = trimmed.substring(tabIndex + 1).trim();
-
-      if (!front || !back) {
-        skipped++;
-        return;
-      }
-
-        deckBuilderState.cards.push({
-          cueId: crypto.randomUUID(),
-          cueFront: front,
-          quoteId: crypto.randomUUID(),
-          quoteBack: back,
-          priority: 3, // Default to Medium
-          layers: [], // populated via layer rows after import
-          isExisting: false
-        });
-
-      imported++;
+    cards.forEach(({ front, back }) => {
+      deckBuilderState.cards.push({
+        cueId: crypto.randomUUID(),
+        cueFront: front,
+        quoteId: crypto.randomUUID(),
+        quoteBack: back,
+        priority: 3, // Default to Medium
+        layers: [], // populated via layer rows after import
+        isExisting: false
+      });
     });
 
     // Clear import area
@@ -4923,7 +5360,7 @@ export async function initMemoryTool(deps, context = {}) {
     renderFlashcardList();
     clearForm();
 
-    importFeedback.textContent = `${imported} cards imported${skipped > 0 ? `, ${skipped} lines skipped (no tab separator)` : ''}.`;
+    importFeedback.textContent = `${cards.length} cards imported${skipped > 0 ? `, ${skipped} lines skipped (no tab/pipe separator)` : ""}.`;
     importFeedback.style.color = "#3fd07d";
   }
 

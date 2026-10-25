@@ -2,6 +2,7 @@
   <div id="memoryHeader">
     <h1><span class="tool-reference" title="Memory tool"><i class="fa-solid fa-brain" aria-hidden="true"></i><code>Memory</code></span> Tool</h1>
     <div id="memoryControls">
+      <button id="quickAddHeaderBtn" class="memory-btn" title="Add a card without leaving this view">+ Card</button>
       <button id="backToDecksBtn" class="memory-btn" style="display: none;">Back to Decks</button>
       <button id="modeSelect" class="memory-btn" style="display: none;">Quote Learning</button>
       <button id="newSessionBtn" class="memory-btn" style="display: none;">New Session</button>
@@ -15,8 +16,9 @@
       <p>Choose a subject to start studying its flashcards.</p>
     </div>
     <div class="launchpad-controls">
-      <button id="studyAllBtn" class="memory-btn primary" disabled title="Coming soon">Study All Subjects (WIP)</button>
-      <button id="createDeckBtn" class="memory-btn primary">Create New +</button>
+      <button id="quickAddLaunchBtn" class="memory-btn primary">Add Cards +</button>
+      <button id="studyAllBtn" class="memory-btn" disabled title="Coming soon">Study All Subjects (WIP)</button>
+      <button id="createDeckBtn" class="memory-btn">Build Deck</button>
       <button id="editDecksBtn" class="memory-btn">Edit</button>
     </div>
     <div id="deckList" class="deck-list">
@@ -158,6 +160,76 @@
             <p id="successMessage">Your deck "<span id="deckNameDisplay"></span>" has been created with <span id="cardCountDisplay">0</span> cards.</p>
             <button id="studyNewDeckBtn" class="memory-btn primary">Study New Deck</button>
             <button id="backToLaunchpadBtn" class="memory-btn">Back to Decks</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quick Add Modal: capture cards without a source/quote/analysis pipeline -->
+  <div id="quickAddModal" class="deck-builder-modal" style="display: none;">
+    <div class="deck-builder-overlay" id="quickAddOverlay"></div>
+    <div class="deck-builder-container quick-add-container">
+      <div class="deck-builder-header">
+        <div>
+          <h2>Add Cards</h2>
+          <p class="quick-add-subtitle">Capture a card directly. Link it to material later, or never.</p>
+        </div>
+        <button id="closeQuickAddBtn" class="close-btn" type="button" aria-label="Close">&times;</button>
+      </div>
+
+      <div class="deck-builder-content">
+        <div class="quick-add-toolbar">
+          <div class="form-group quick-add-deck-group">
+            <label for="quickAddDeckInput">Deck</label>
+            <input id="quickAddDeckInput" class="builder-input" list="quickAddDeckOptions" placeholder="Type a new deck or choose one" autocomplete="off" />
+            <datalist id="quickAddDeckOptions"></datalist>
+          </div>
+          <div class="quick-add-tabs" role="tablist" aria-label="Add mode">
+            <button type="button" class="quick-add-tab active" data-quick-add-tab="single" role="tab" aria-selected="true">Single card</button>
+            <button type="button" class="quick-add-tab" data-quick-add-tab="bulk" role="tab" aria-selected="false">Bulk paste</button>
+          </div>
+        </div>
+
+        <div id="quickAddSingleView">
+          <div class="form-group">
+            <label for="quickAddFront">Front</label>
+            <textarea id="quickAddFront" class="builder-input quick-add-front" placeholder="Question, prompt, or term..."></textarea>
+          </div>
+          <div class="form-group">
+            <label for="quickAddBack">Back</label>
+            <textarea id="quickAddBack" class="builder-input quick-add-back" placeholder="Answer, definition, or explanation..."></textarea>
+          </div>
+          <div class="quick-add-meta-row">
+            <div class="form-group">
+              <label>Priority</label>
+              <div id="quickAddPriorityPills" class="priority-pills"></div>
+            </div>
+            <div class="form-group quick-add-tags-group">
+              <label for="quickAddTags">Tags <span class="quick-add-optional">optional</span></label>
+              <input id="quickAddTags" class="builder-input" type="text" placeholder="cell-biology, exam-2026" autocomplete="off" />
+            </div>
+          </div>
+          <div class="quick-add-footer">
+            <span id="quickAddStatus" class="quick-add-status">No cards added yet</span>
+            <div class="quick-add-actions">
+              <button id="quickAddSaveCloseBtn" class="memory-btn" type="button">Save &amp; Close</button>
+              <button id="quickAddSaveNextBtn" class="memory-btn primary" type="button">Save &amp; Next</button>
+            </div>
+          </div>
+          <p class="quick-add-hint">Ctrl/Cmd + Enter saves and starts the next card.</p>
+        </div>
+
+        <div id="quickAddBulkView" style="display: none;">
+          <div class="form-group">
+            <label for="quickAddBulkInput">Paste one card per line: <code>front&lt;TAB&gt;back</code> or <code>front | back</code></label>
+            <textarea id="quickAddBulkInput" class="builder-input anki-import-area quick-add-bulk-area" placeholder="What is the powerhouse of the cell?&#9;Mitochondria&#10;What is the function of ribosomes? | Protein synthesis"></textarea>
+          </div>
+          <div class="quick-add-footer">
+            <span id="quickAddBulkStatus" class="quick-add-status">Paste cards to import</span>
+            <div class="quick-add-actions">
+              <button id="quickAddBulkImportBtn" class="memory-btn primary" type="button">Import cards</button>
+            </div>
           </div>
         </div>
       </div>
@@ -1988,6 +2060,168 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
+  }
+
+  /* Quick Add: card-first capture, no source/quote/analysis required */
+  .quick-add-container {
+    max-width: 680px;
+  }
+
+  .quick-add-subtitle {
+    margin: 4px 0 0;
+    color: var(--text-muted);
+    font-size: var(--text-sm, 0.87rem);
+    font-weight: 400;
+  }
+
+  .quick-add-toolbar {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+  }
+
+  .quick-add-deck-group {
+    flex: 1 1 260px;
+    min-width: 220px;
+    margin-bottom: 0;
+  }
+
+  .quick-add-tabs {
+    display: inline-flex;
+    gap: 4px;
+    padding: 3px;
+    border: 1px solid var(--glass-border);
+    border-radius: 999px;
+    background: rgba(255,255,255,0.03);
+    margin-bottom: 2px;
+  }
+
+  .quick-add-tab {
+    border: 0;
+    border-radius: 999px;
+    padding: 7px 12px;
+    background: transparent;
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: var(--text-sm, 0.87rem);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .quick-add-tab:hover {
+    color: var(--text-main);
+    background: rgba(255,255,255,0.05);
+  }
+
+  .quick-add-tab.active {
+    color: var(--text-main);
+    background: rgba(44,255,179,0.14);
+    box-shadow: inset 0 0 0 1px rgba(44,255,179,0.25);
+  }
+
+  .quick-add-meta-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 14px;
+    align-items: start;
+  }
+
+  .quick-add-tags-group {
+    min-width: 0;
+  }
+
+  .quick-add-optional {
+    color: var(--text-muted);
+    font-weight: 400;
+    font-size: var(--text-xs, 0.8rem);
+  }
+
+  .quick-add-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255,255,255,0.07);
+  }
+
+  .quick-add-status {
+    color: var(--text-muted);
+    font-size: var(--text-sm, 0.87rem);
+    min-height: 1.2em;
+  }
+
+  .quick-add-status.success {
+    color: #3fd07d;
+  }
+
+  .quick-add-status.error {
+    color: #ff6b6b;
+  }
+
+  .quick-add-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-left: auto;
+  }
+
+  .quick-add-hint {
+    margin: 8px 0 0;
+    color: var(--text-muted);
+    font-size: var(--text-xs, 0.8rem);
+    text-align: right;
+  }
+
+  .quick-add-bulk-area {
+    min-height: 180px;
+  }
+
+  .deck-add-btn {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    border: 1px solid rgba(44,255,179,0.28);
+    background: rgba(44,255,179,0.08);
+    color: var(--accent);
+    font-size: 1.05rem;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+
+  .deck-add-btn:hover {
+    background: rgba(44,255,179,0.18);
+    border-color: var(--accent-soft);
+  }
+
+  @media (max-width: 620px) {
+    .quick-add-meta-row {
+      grid-template-columns: 1fr;
+    }
+    .quick-add-footer {
+      align-items: stretch;
+    }
+    .quick-add-actions {
+      width: 100%;
+      margin-left: 0;
+    }
+    .quick-add-actions .memory-btn {
+      flex: 1;
+    }
+    .quick-add-hint {
+      text-align: left;
+    }
   }
 
 .builder-step {

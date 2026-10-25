@@ -862,6 +862,12 @@ function showLaunchpad() {
   if (tc) {
     tc.classList.add("exiting");
     setTimeout(() => {
+      // A quick action can open a tool while the launchpad is still exiting.
+      // Do not wipe that freshly loaded tool when this timer fires.
+      if (currentToolName) {
+        tc.classList.remove("exiting");
+        return;
+      }
       tc.style.display = "none";
       tc.classList.remove("exiting");
       tc.innerHTML = "";
@@ -1047,9 +1053,9 @@ async function renderQuickActions() {
   const makeFlashcardsBtn = document.getElementById("dashMakeFlashcards");
   if (makeFlashcardsBtn) {
     makeFlashcardsBtn.onclick = () => {
-      // Jump straight into the deck builder rather than the Memory launchpad.
-      loadTool("memory", { subject: currentSubject || "", createDeck: true })
-        .catch((error) => console.error("Could not open the flashcard builder:", error));
+      // Card-first: open Quick Add, not the multi-step deck builder.
+      loadTool("memory", { subject: currentSubject || "", quickAdd: true })
+        .catch((error) => console.error("Could not open Quick Add:", error));
     };
   }
 }
