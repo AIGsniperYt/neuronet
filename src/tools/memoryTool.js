@@ -4676,8 +4676,8 @@ export async function initMemoryTool(deps, context = {}) {
               await deleteCard(linked.id);
             }
           }
-          await deleteCue(deleted.cueId);
-          await deleteQuote(deleted.quoteId);
+          if (deleted.cueId) await deleteCue(deleted.cueId);
+          if (deleted.quoteId) await deleteQuote(deleted.quoteId);
         }
 
         // New builder cards append after the deck's current stable order.
