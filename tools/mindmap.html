@@ -40,6 +40,13 @@
     flex-direction: column;
     gap: 3px;
     min-width: 0;
+    container-type: inline-size;
+  }
+
+  /* The subtitle is decoration: show it only when the title column can fit it
+     without truncating, and drop it as soon as the panel gets tight. */
+  @container (max-width: 340px) {
+    .mindmap-header p { display: none; }
   }
 
   .mindmap-header h2 {
@@ -268,7 +275,7 @@
   .content-text {
     line-height: 1.6;
     color: rgba(230, 255, 245, 0.9);
-    font-family: var(--font-reading, "Literata", Georgia, "Times New Roman", serif);
+    font-family: var(--font-ui, "Source Sans 3", Inter, system-ui, sans-serif);
     font-size: var(--text-base, 0.92rem);
     word-break: break-word;
   }
@@ -559,6 +566,80 @@
     color: #ff6b6b;
     border-color: rgba(255, 107, 107, 0.3);
     background: rgba(255, 107, 107, 0.08);
+  }
+
+  /* Dots view */
+  .mindmap-dots-legend {
+    position: absolute;
+    top: 8px;
+    left: 10px;
+    right: 10px;
+    z-index: 22;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    padding: 7px 11px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    background: rgba(7, 18, 13, 0.92);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
+  }
+
+  .mindmap-dots-legend[hidden] {
+    display: none;
+  }
+
+  .dots-legend-types {
+    gap: 6px 10px;
+  }
+
+  .dots-legend-type {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--text-xs, 0.82rem);
+    color: rgba(230, 255, 245, 0.62);
+    white-space: nowrap;
+  }
+
+  .dots-type-pip {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+  }
+
+  .dots-type-pip.analysis { background: #2cffb3; }
+  .dots-type-pip.quote { background: #ff9b39; }
+  .dots-type-pip.cue { background: #ff79c6; }
+  .dots-type-pip.source { background: #4da6ff; }
+  .dots-type-pip.pastpaper { background: #ffd166; }
+
+  .dots-legend-arc {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(230, 255, 245, 0.18);
+    border-top-color: rgba(230, 255, 245, 0.8);
+    border-right-color: rgba(230, 255, 245, 0.8);
+    transform: rotate(-45deg);
+  }
+
+  @media (pointer: coarse) {
+    .dots-legend-hover-note { display: none; }
+  }
+
+  @media (max-width: 700px) {
+    .mindmap-dots-legend {
+      gap: 4px 10px;
+      padding: 6px 8px;
+    }
+    .mindmap-dots-legend .grid-legend-title,
+    .mindmap-dots-legend .dots-legend-type {
+      font-size: 0.72rem;
+    }
   }
 
   .mindmap-grid {
@@ -996,26 +1077,50 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 10px;
+    min-height: 26px;
     cursor: pointer;
     font-size: var(--text-xs, 0.82rem);
-    color: rgba(230, 255, 245, 0.7);
+    font-weight: 600;
+    color: var(--text-muted);
     margin-bottom: 8px;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.09em;
   }
 
   #connectionsToggle {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 32px;
-    min-height: 32px;
-    padding: 4px 8px;
-    border-radius: 7px;
+    width: 26px;
+    height: 26px;
+    flex: 0 0 auto;
+    border-radius: 6px;
+    color: rgba(230, 255, 245, 0.55);
+    transition: color 0.15s ease, background 0.15s ease;
+  }
+
+  #connectionsToggle::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(45deg);
+    transition: transform 0.2s ease;
   }
 
   .connections-header:hover {
     color: var(--accent);
+  }
+
+  .connections-header:hover #connectionsToggle {
+    color: var(--accent);
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .connections-list.collapsed #connectionsToggle::before {
+    transform: rotate(135deg);
   }
 
   .connections-items {
@@ -1086,10 +1191,11 @@
 
   .tags-header {
     font-size: var(--text-xs, 0.82rem);
-    color: rgba(230, 255, 245, 0.7);
+    font-weight: 600;
+    color: var(--text-muted);
     margin-bottom: 8px;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.09em;
   }
 
   .tags-list {
@@ -1312,8 +1418,11 @@
         <button type="button" class="view-toggle-btn active" data-view="graph" aria-pressed="true" title="Graph view" aria-label="Graph view">
           <i class="fa-solid fa-diagram-project" aria-hidden="true"></i><span class="view-toggle-label">Graph</span>
         </button>
-        <button type="button" class="view-toggle-btn" data-view="grid" aria-pressed="false" title="Grid view" aria-label="Grid view">
-          <i class="fa-solid fa-table-cells-large" aria-hidden="true"></i><span class="view-toggle-label">Grid</span>
+        <button type="button" class="view-toggle-btn" data-view="dots" aria-pressed="false" title="Dots view" aria-label="Dots view">
+          <i class="fa-solid fa-grip" aria-hidden="true"></i><span class="view-toggle-label">Dots</span>
+        </button>
+        <button type="button" class="view-toggle-btn" data-view="grid" aria-pressed="false" title="Cards view" aria-label="Cards view">
+          <i class="fa-solid fa-table-cells-large" aria-hidden="true"></i><span class="view-toggle-label">Cards</span>
         </button>
       </div>
       <button id="connectNodesBtn" class="btn btn-header">Connect Nodes</button>
@@ -1395,6 +1504,39 @@
       <div id="mindmapGrid" class="mindmap-grid"></div>
     </div>
 
+    <div id="mindmapDotsLegend" class="mindmap-dots-legend" aria-label="Dots signal legend" hidden>
+      <div class="grid-legend-group">
+        <span class="grid-legend-title">Border</span>
+        <span class="grid-legend-swatch swatch-1" title="Priority 1"></span>
+        <span class="grid-legend-swatch swatch-2" title="Priority 2"></span>
+        <span class="grid-legend-swatch swatch-3" title="Priority 3"></span>
+        <span class="grid-legend-swatch swatch-4" title="Priority 4"></span>
+        <span class="grid-legend-swatch swatch-5" title="Priority 5"></span>
+        <span class="grid-legend-note">priority</span>
+      </div>
+      <div class="grid-legend-group">
+        <span class="grid-legend-title">Fill</span>
+        <span class="grid-legend-chip recall-strong">Strong</span>
+        <span class="grid-legend-chip recall-medium">Partial</span>
+        <span class="grid-legend-chip recall-weak">Weak</span>
+        <span class="grid-legend-note">recall</span>
+      </div>
+      <div class="grid-legend-group dots-legend-types">
+        <span class="grid-legend-title">Center</span>
+        <span class="dots-legend-type"><span class="dots-type-pip analysis"></span>Analysis</span>
+        <span class="dots-legend-type"><span class="dots-type-pip quote"></span>Quote</span>
+        <span class="dots-legend-type"><span class="dots-type-pip cue"></span>Cue</span>
+        <span class="dots-legend-type"><span class="dots-type-pip source"></span>Source</span>
+        <span class="dots-legend-type"><span class="dots-type-pip pastpaper"></span>Paper</span>
+      </div>
+      <div class="grid-legend-group">
+        <span class="grid-legend-title">Arc</span>
+        <span class="dots-legend-arc" aria-hidden="true"></span>
+        <span class="grid-legend-note">accuracy</span>
+      </div>
+      <span class="grid-legend-note dots-legend-hover-note">Hover a dot for details</span>
+    </div>
+
     <div id="emptyState" class="empty-state">
       <div class="empty-state-icon">🕸️</div>
       <p>No nodes yet. Add sources, quotes, and analyses to see your knowledge network.</p>
@@ -1416,7 +1558,7 @@
       <div id="connectionsContainer" class="connections-list">
         <div class="connections-header" id="connectionsHeader">
           <span>Connections (<span id="connectionCount">0</span>)</span>
-          <span id="connectionsToggle">▼</span>
+          <span id="connectionsToggle" aria-hidden="true"></span>
         </div>
         <div id="connectionsItems" class="connections-items"></div>
       </div>

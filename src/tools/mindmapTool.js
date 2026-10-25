@@ -1,5 +1,5 @@
 import { dialog } from "./dialog.js";
-import { parse, render, domToMarkdown, renderMathWithKatex } from "../vendor/md-format/mdeditor.js";
+import { parse, render as renderMarkdown, domToMarkdown, renderMathWithKatex } from "../vendor/md-format/mdeditor.js";
 export async function initMindmapTool(deps, context = {}) {
   const {
     getAllNodes,
@@ -54,7 +54,9 @@ const state = {
     focusSubject: String(contextSubject || "").trim() || null,
     focusSubjectId: null,
     scopeNodeIds: new Set(),
-    nodeVisibility: new Map()
+    nodeVisibility: new Map(),
+    dotsLayout: null,
+    dotAnim: null
   };
 
   const physicsConfig = {
@@ -81,6 +83,7 @@ const state = {
   const blueprintArea = document.getElementById("blueprintArea");
   const gridView = document.getElementById("mindmapGridView");
   const gridContainer = document.getElementById("mindmapGrid");
+  const dotsLegend = document.getElementById("mindmapDotsLegend");
   const viewToggle = document.getElementById("mindmapViewToggle");
   const emptyState = document.getElementById("emptyState");
   const nodeSidebar = document.getElementById("nodeSidebar");
@@ -150,6 +153,16 @@ const state = {
     4: "#ff9b39",
     5: "#ff4d4d"
   };
+  const DOT_RECALL_FILLS = {
+    strong: "rgba(44, 255, 179, 0.55)",
+    medium: "rgba(255, 209, 102, 0.5)",
+    weak: "rgba(255, 107, 107, 0.5)",
+    unknown: "rgba(255, 255, 255, 0.07)"
+  };
+  const DOT_MIN_CELL = 6;
+  const DOT_MAX_CELL = 40;
+  const DOT_MORPH_MS = 760;
+  const DOT_MORPH_STAGGER_MS = 180;
 
   // QuadTree implementation for efficient spatial indexing
   class QuadTree {
@@ -518,10 +531,23 @@ const state = {
 
   function sourceMarkdown(node) {
     if (!node) return "";
+    // Legacy saves occasionally stringified a missing value, leaving the
+    // literal text "undefined"/"null" in a content field. Treat that as empty
+    // so the next (real) field in the chain wins instead of printing it.
+    const usable = (value) => {
+      if (typeof value !== "string") return "";
+      const trimmed = value.trim();
+      return trimmed === "undefined" || trimmed === "null" ? "" : value;
+    };
     let md = "";
-    if (node.contentMarkdown) md = node.contentMarkdown;
-    else if (node.contentHtml) md = htmlToMarkdown(node.contentHtml);
-    else md = node.content || node.contentText || "";
+    const markdown = usable(node.contentMarkdown);
+    if (markdown) {
+      md = markdown;
+    } else {
+      const html = usable(node.contentHtml);
+      if (html) md = htmlToMarkdown(html);
+      else md = usable(node.content) || usable(node.contentText) || "";
+    }
     return mdNormalize(md);
   }
 
@@ -1031,10 +1057,479 @@ const state = {
     gridContainer.innerHTML = html;
   }
 
+  function buildDotSections() {
+    const subjectMap = new Map();
+
+    getAllItems().forEach((item) => {
+      if (!GRID_CARD_TYPES.has(item?.type)) return;
+      if (!isNodeInScope(item.id)) return;
+
+      const subject = getItemSubject(item) || "Unsorted";
+      if (!subjectMap.has(subject)) subjectMap.set(subject, []);
+      subjectMap.get(subject).push(buildGridCard(item));
+    });
+
+    return Array.from(subjectMap.entries())
+      .map(([subject, cards]) => {
+        cards.sort((a, b) => {
+          const typeDelta = (GRID_TYPE_ORDER[a.type] ?? 9) - (GRID_TYPE_ORDER[b.type] ?? 9);
+          if (typeDelta !== 0) return typeDelta;
+          const priorityDelta = (b.priority || 0) - (a.priority || 0);
+          if (priorityDelta !== 0) return priorityDelta;
+          return a.title.localeCompare(b.title);
+        });
+        return { subject, cards, count: cards.length };
+      })
+      .sort((a, b) => a.subject.localeCompare(b.subject, undefined, { sensitivity: "base" }));
+  }
+
+  function groupCardsByType(cards) {
+    const groups = [];
+    const byType = new Map();
+    cards.forEach((card) => {
+      if (!byType.has(card.type)) {
+        const group = { type: card.type, cards: [] };
+        byType.set(card.type, group);
+        groups.push(group);
+      }
+      byType.get(card.type).cards.push(card);
+    });
+    return groups;
+  }
+
+  function getDotsDisplayPositions(now, layout = state.dotsLayout, anim = state.dotAnim) {
+    const positions = new Map();
+    if (!layout) return positions;
+
+    if (!anim) {
+      layout.dots.forEach((dot, id) => positions.set(id, dot));
+      return positions;
+    }
+
+    const elapsed = now - anim.start;
+    if (elapsed >= anim.duration) {
+      if (anim === state.dotAnim) state.dotAnim = null;
+      layout.dots.forEach((dot, id) => positions.set(id, dot));
+      return positions;
+    }
+
+    const morphDuration = Math.max(1, anim.duration - DOT_MORPH_STAGGER_MS);
+    layout.dots.forEach((dot, id) => {
+      const from = anim.from.get(id) || dot;
+      const progress = Math.max(0, Math.min(1, (elapsed - (dot.delay || 0)) / morphDuration));
+      const eased = progress < 0.5
+        ? 4 * progress * progress * progress
+        : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+      positions.set(id, {
+        ...dot,
+        x: from.x + (dot.x - from.x) * eased,
+        y: from.y + (dot.y - from.y) * eased
+      });
+    });
+    return positions;
+  }
+
+  function buildDotsLayout({ animate = false, fromGraph = false } = {}) {
+    if (!canvas) return;
+
+    const { width, height } = syncCanvasSize();
+    const sections = buildDotSections();
+    const previousLayout = state.dotsLayout;
+    const previousPositions = getDotsDisplayPositions(performance.now(), previousLayout, state.dotAnim);
+    const legendHeight = dotsLegend && !dotsLegend.hidden ? dotsLegend.offsetHeight + 10 : 6;
+    const padX = Math.max(10, Math.min(24, width * 0.018));
+    const top = legendHeight + 6;
+    const bottom = 14;
+    const availW = Math.max(80, width - padX * 2);
+    const availH = Math.max(80, height - top - bottom);
+
+    if (!sections.length) {
+      state.dotsLayout = {
+        dots: new Map(),
+        sections: [],
+        width,
+        height,
+        radius: 0,
+        cell: 0,
+        top,
+        empty: true
+      };
+      state.dotAnim = null;
+      return;
+    }
+
+    const sectionCount = sections.length;
+    const minSectionWidth = 180;
+    const maxColumns = Math.max(1, Math.floor((availW + 10) / (minSectionWidth + 10)));
+    const columns = Math.min(sectionCount, maxColumns);
+    const colGap = Math.max(8, Math.min(14, availW * 0.012));
+    const colW = (availW - colGap * (columns - 1)) / columns;
+
+    let chosen = null;
+    for (let cell = DOT_MAX_CELL; cell >= DOT_MIN_CELL; cell -= 1) {
+      const radius = Math.max(2.2, Math.min(9.5, cell * 0.24));
+      const sectionPad = Math.max(6, Math.round(cell * 0.4));
+      const innerPad = Math.max(4, Math.round(cell * 0.35));
+      const headerH = Math.max(20, Math.min(26, cell * 1.1));
+      const typeGap = Math.max(4, Math.round(cell * 0.35));
+      const contentW = Math.max(cell, colW - sectionPad * 2 - innerPad * 2);
+      const perRow = Math.max(1, Math.floor(contentW / cell));
+
+      const infos = sections.map((section) => {
+        const groups = groupCardsByType(section.cards);
+        let sectionHeight = sectionPad * 2 + headerH;
+        groups.forEach((group, index) => {
+          const rows = Math.ceil(group.cards.length / perRow);
+          sectionHeight += rows * cell;
+          if (index < groups.length - 1) sectionHeight += typeGap;
+        });
+        const maxGroupCards = Math.max(...groups.map((group) => group.cards.length));
+        const blockWidth = Math.min(perRow, maxGroupCards) * cell;
+        const offsetX = Math.max(0, (contentW - blockWidth) / 2);
+        return { groups, perRow, height: sectionHeight, offsetX };
+      });
+
+      const colHeights = new Array(columns).fill(0);
+      const placements = infos.map((info) => {
+        let col = 0;
+        for (let index = 1; index < columns; index += 1) {
+          if (colHeights[index] < colHeights[col]) col = index;
+        }
+        const y = colHeights[col];
+        colHeights[col] = y + info.height + colGap;
+        return { ...info, col, y };
+      });
+      const maxHeight = Math.max(...colHeights);
+
+      chosen = { cell, radius, sectionPad, innerPad, headerH, typeGap, perRow, infos, placements, maxHeight };
+      if (maxHeight <= availH) break;
+    }
+
+    const dots = new Map();
+    const layoutSections = [];
+
+    sections.forEach((section, sectionIndex) => {
+      const placement = chosen.placements[sectionIndex];
+      const x = padX + placement.col * (colW + colGap);
+      const y = top + placement.y;
+      const contentX = x + chosen.sectionPad + chosen.innerPad + placement.offsetX;
+      let cursorY = y + chosen.sectionPad + chosen.headerH;
+
+      placement.groups.forEach((group, groupIndex) => {
+        group.cards.forEach((card, cardIndex) => {
+          const row = Math.floor(cardIndex / placement.perRow);
+          const col = cardIndex % placement.perRow;
+          dots.set(card.id, {
+            x: contentX + col * chosen.cell + chosen.cell / 2,
+            y: cursorY + row * chosen.cell + chosen.cell / 2,
+            card,
+            delay: Math.min(DOT_MORPH_STAGGER_MS, (col + row) * 12),
+            sectionIndex
+          });
+        });
+        cursorY += Math.ceil(group.cards.length / placement.perRow) * chosen.cell;
+        if (groupIndex < placement.groups.length - 1) cursorY += chosen.typeGap;
+      });
+
+      layoutSections.push({
+        subject: section.subject,
+        count: section.count,
+        x,
+        y,
+        w: colW,
+        h: placement.height
+      });
+    });
+
+    state.dotsLayout = {
+      dots,
+      sections: layoutSections,
+      width,
+      height,
+      radius: chosen.radius,
+      cell: chosen.cell,
+      top,
+      empty: false
+    };
+
+    if (animate) {
+      const from = new Map();
+      dots.forEach((dot, id) => {
+        let start = null;
+        if (fromGraph) {
+          const graphPos = state.nodePositions.get(id);
+          if (graphPos) start = transformPoint(graphPos.x, graphPos.y);
+        } else if (previousPositions.has(id)) {
+          start = previousPositions.get(id);
+        }
+        from.set(id, start ? { x: start.x, y: start.y } : { x: width / 2, y: top + 30 });
+      });
+      state.dotAnim = { from, start: performance.now(), duration: DOT_MORPH_MS };
+    } else {
+      state.dotAnim = null;
+    }
+  }
+
+  function drawRoundedRect(context, x, y, width, height, radius) {
+    const r = Math.min(radius, width / 2, height / 2);
+    context.beginPath();
+    if (typeof context.roundRect === "function") {
+      context.roundRect(x, y, width, height, r);
+      return;
+    }
+    context.moveTo(x + r, y);
+    context.arcTo(x + width, y, x + width, y + height, r);
+    context.arcTo(x + width, y + height, x, y + height, r);
+    context.arcTo(x, y + height, x, y, r);
+    context.arcTo(x, y, x + width, y, r);
+    context.closePath();
+  }
+
+  function truncateCanvasText(context, text, maxWidth) {
+    const value = String(text || "");
+    if (context.measureText(value).width <= maxWidth) return value;
+    let shortened = value;
+    while (shortened.length > 1 && context.measureText(`${shortened}…`).width > maxWidth) {
+      shortened = shortened.slice(0, -1);
+    }
+    return `${shortened}…`;
+  }
+
+  function findDotAtPosition(x, y) {
+    const layout = state.dotsLayout;
+    if (!layout || !layout.dots.size) return null;
+
+    const positions = state.dotAnim
+      ? getDotsDisplayPositions(performance.now(), layout, state.dotAnim)
+      : layout.dots;
+    const hitRadius = Math.max(6, Math.min(14, layout.cell * 0.5));
+    let best = null;
+    let bestDistance = Infinity;
+
+    positions.forEach((dot, id) => {
+      const dx = x - dot.x;
+      const dy = y - dot.y;
+      const distance = dx * dx + dy * dy;
+      if (distance <= hitRadius * hitRadius && distance < bestDistance) {
+        best = dot;
+        bestDistance = distance;
+      }
+    });
+
+    return best;
+  }
+
+  function drawDotTooltip(dot, width, height, top) {
+    const card = dot.card;
+    const accuracy = card.accuracy === null
+      ? "no accuracy"
+      : `${Math.round(card.accuracy * 100)}% accuracy`;
+    const priority = card.priority ? `P${card.priority}` : "no priority";
+    const tags = card.tags.slice(0, 4).map((tag) => `#${tag}`).join(" ");
+    const maxTextWidth = Math.min(360, width - 48);
+
+    ctx.save();
+    ctx.font = "600 12px Inter, system-ui, sans-serif";
+    const title = truncateCanvasText(ctx, card.title, maxTextWidth);
+    const meta = truncateCanvasText(
+      ctx,
+      `${card.typeLabel} · ${priority} · ${card.recall.label} · ${accuracy}`,
+      maxTextWidth
+    );
+    const tagLine = tags ? truncateCanvasText(ctx, tags, maxTextWidth) : "";
+    const lines = [title, meta, tagLine].filter(Boolean);
+
+    let textWidth = 0;
+    lines.forEach((line, index) => {
+      ctx.font = index === 0
+        ? "600 12px Inter, system-ui, sans-serif"
+        : "11px Inter, system-ui, sans-serif";
+      textWidth = Math.max(textWidth, ctx.measureText(line).width);
+    });
+
+    const boxWidth = Math.max(120, textWidth + 20);
+    const boxHeight = 14 + lines.length * 15;
+    let boxX = dot.x + state.dotsLayout.radius + 14;
+    if (boxX + boxWidth > width - 8) boxX = dot.x - boxWidth - state.dotsLayout.radius - 14;
+    boxX = Math.max(8, Math.min(width - boxWidth - 8, boxX));
+    const boxY = Math.max(top + 4, Math.min(height - boxHeight - 8, dot.y - boxHeight / 2));
+
+    drawRoundedRect(ctx, boxX, boxY, boxWidth, boxHeight, 8);
+    ctx.fillStyle = "rgba(7, 18, 13, 0.97)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(44, 255, 179, 0.28)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    lines.forEach((line, index) => {
+      ctx.font = index === 0
+        ? "600 12px Inter, system-ui, sans-serif"
+        : "11px Inter, system-ui, sans-serif";
+      ctx.fillStyle = index === 0
+        ? "rgba(230, 255, 245, 0.95)"
+        : "rgba(230, 255, 245, 0.6)";
+      ctx.fillText(line, boxX + 10, boxY + 7 + index * 15);
+    });
+    ctx.restore();
+  }
+
+  function renderDots() {
+    if (!ctx || !canvas) return;
+
+    const { width, height } = syncCanvasSize();
+    if (!state.dotsLayout || state.dotsLayout.width !== width || state.dotsLayout.height !== height) {
+      buildDotsLayout({ animate: false });
+    }
+
+    const layout = state.dotsLayout;
+    ctx.clearRect(0, 0, width, height);
+
+    if (!layout || layout.empty || !layout.dots.size) {
+      ctx.save();
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "rgba(230, 255, 245, 0.55)";
+      ctx.font = "600 15px Inter, system-ui, sans-serif";
+      ctx.fillText("No cards to chart yet", width / 2, height / 2 - 10);
+      ctx.font = "13px Inter, system-ui, sans-serif";
+      ctx.fillStyle = "rgba(230, 255, 245, 0.38)";
+      ctx.fillText("Add quotes, analyses, or cues to see them here.", width / 2, height / 2 + 14);
+      ctx.restore();
+      updateStats();
+      updateEmptyState();
+      return;
+    }
+
+    const positions = getDotsDisplayPositions(performance.now(), layout, state.dotAnim);
+
+    layout.sections.forEach((section) => {
+      drawRoundedRect(ctx, section.x, section.y, section.w, section.h, 10);
+      ctx.fillStyle = "rgba(10, 30, 22, 0.5)";
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255, 107, 107, 0.13)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      ctx.save();
+      ctx.textBaseline = "middle";
+      ctx.textAlign = "left";
+      ctx.beginPath();
+      ctx.arc(section.x + 11, section.y + 14, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255, 107, 107, 0.85)";
+      ctx.fill();
+
+      ctx.font = "600 11px Inter, system-ui, sans-serif";
+      ctx.fillStyle = "rgba(230, 255, 245, 0.82)";
+      ctx.fillText(
+        truncateCanvasText(ctx, section.subject, Math.max(40, section.w - 58)),
+        section.x + 18,
+        section.y + 14
+      );
+
+      ctx.textAlign = "right";
+      ctx.font = "500 10px Inter, system-ui, sans-serif";
+      ctx.fillStyle = "rgba(230, 255, 245, 0.42)";
+      ctx.fillText(String(section.count), section.x + section.w - 10, section.y + 14);
+      ctx.restore();
+    });
+
+    const drawDot = (id, dot) => {
+      const position = positions.get(id);
+      if (!position) return;
+
+      const isHovered = state.hoveredNodeId === id;
+      const isSelected = state.selectedNodeId === id;
+      const recall = dot.card.recall?.level || "unknown";
+      const priorityColor = dot.card.priority
+        ? GRID_IMPORTANCE_COLORS[dot.card.priority]
+        : "rgba(255, 255, 255, 0.24)";
+      const typeColor = getNodeColor(dot.card.type);
+      const radius = layout.radius
+        * (isHovered ? 1.35 : 1)
+        * (isSelected ? 1.12 : 1);
+
+      ctx.save();
+
+      if (isHovered || isSelected) {
+        ctx.beginPath();
+        ctx.arc(position.x, position.y, radius + 6, 0, Math.PI * 2);
+        ctx.fillStyle = isSelected ? "rgba(255, 255, 255, 0.07)" : "rgba(44, 255, 179, 0.08)";
+        ctx.fill();
+      }
+
+      if (dot.card.accuracy !== null && layout.cell >= 14) {
+        const arcRadius = radius + 3.5;
+        ctx.beginPath();
+        ctx.arc(position.x, position.y, arcRadius, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        if (dot.card.accuracy > 0) {
+          ctx.beginPath();
+          ctx.arc(
+            position.x,
+            position.y,
+            arcRadius,
+            -Math.PI / 2,
+            -Math.PI / 2 + Math.PI * 2 * dot.card.accuracy
+          );
+          ctx.strokeStyle = "rgba(230, 255, 245, 0.65)";
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        }
+      }
+
+      ctx.beginPath();
+      ctx.arc(position.x, position.y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = DOT_RECALL_FILLS[recall] || DOT_RECALL_FILLS.unknown;
+      ctx.fill();
+      ctx.strokeStyle = priorityColor;
+      ctx.lineWidth = isSelected ? 2.5 : Math.max(1.2, Math.min(2.4, layout.cell * 0.085));
+      ctx.stroke();
+
+      if (radius >= 3.5) {
+        ctx.beginPath();
+        ctx.arc(position.x, position.y, Math.max(1.1, radius * 0.32), 0, Math.PI * 2);
+        ctx.fillStyle = typeColor;
+        ctx.fill();
+      }
+
+      if (isSelected) {
+        ctx.beginPath();
+        ctx.arc(position.x, position.y, radius + 5.5, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
+        ctx.lineWidth = 1.8;
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    };
+
+    const highlighted = new Set(
+      [state.hoveredNodeId, state.selectedNodeId].filter(Boolean)
+    );
+    positions.forEach((dot, id) => {
+      if (!highlighted.has(id)) drawDot(id, dot);
+    });
+    positions.forEach((dot, id) => {
+      if (highlighted.has(id)) drawDot(id, dot);
+    });
+
+    if (state.hoveredNodeId && positions.has(state.hoveredNodeId)) {
+      drawDotTooltip(positions.get(state.hoveredNodeId), width, height, layout.top);
+    }
+
+    updateStats();
+    updateEmptyState();
+  }
+
   function updateEmptyState() {
     if (!emptyState) return;
 
-    if (state.viewMode === "grid") {
+    if (state.viewMode === "grid" || state.viewMode === "dots") {
       emptyState.style.display = "none";
       return;
     }
@@ -1058,7 +1553,7 @@ const state = {
   }
 
   function setViewMode(nextMode) {
-    const mode = nextMode === "grid" ? "grid" : "graph";
+    const mode = nextMode === "dots" ? "dots" : nextMode === "grid" ? "grid" : "graph";
     const changed = state.viewMode !== mode;
     state.viewMode = mode;
 
@@ -1071,19 +1566,31 @@ const state = {
     }
 
     if (gridView) gridView.hidden = mode !== "grid";
+    if (dotsLegend) dotsLegend.hidden = mode !== "dots";
     if (canvas) {
       canvas.style.opacity = mode === "grid" ? "0" : "1";
       canvas.style.pointerEvents = mode === "grid" ? "none" : "";
     }
 
-    if (mode === "grid") {
+    state.hoveredNodeId = null;
+    state.draggingNodeId = null;
+    state.isPanning = false;
+    state.hasDragged = false;
+    if (mode !== "dots") state.dotAnim = null;
+
+    if (mode === "grid" || mode === "dots") {
       if (state.isConnecting) {
         state.isConnecting = false;
         state.connectingSourceId = null;
         document.getElementById("connectNodesBtn")?.classList.remove("active");
         document.getElementById("connectingOverlay")?.classList.remove("visible");
       }
+    }
+
+    if (mode === "grid") {
       renderGrid();
+    } else if (mode === "dots") {
+      if (changed) buildDotsLayout({ animate: true, fromGraph: true });
     } else if (changed) {
       state.userInteracted = false;
       updateEmptyState();
@@ -1110,7 +1617,7 @@ const state = {
         const markdown = sourceMarkdown(selectedItem);
         try {
           fullContent.innerHTML = markdown.trim()
-            ? render(parse(markdown), "html", { softBreaks: sourceSoftBreaks(selectedItem) })
+            ? renderMarkdown(parse(markdown), "html", { softBreaks: sourceSoftBreaks(selectedItem) })
             : "";
           renderMathWithKatex(fullContent);
         } catch (error) {
@@ -1898,6 +2405,8 @@ const state = {
 
     if (state.viewMode === "grid") {
       renderGrid();
+    } else if (state.viewMode === "dots") {
+      buildDotsLayout({ animate: true });
     }
   }
 
@@ -1920,6 +2429,8 @@ const state = {
       fitCameraToGraph();
       render();
       logPerf();
+    } else if (state.viewMode === "dots") {
+      renderDots();
     }
     rafId = requestAnimationFrame(tick);
   }
@@ -1994,15 +2505,19 @@ const state = {
     state.panOffset.y += (targetPanY - state.panOffset.y) * 0.07;
   }
 
-  function render() {
-    if (!ctx || !canvas) return;
-
+  function syncCanvasSize() {
     const container = canvas.parentElement;
     const width = Math.max(1, Math.round(container.clientWidth));
     const height = Math.max(1, Math.round(container.clientHeight));
-
     if (canvas.width !== width) canvas.width = width;
     if (canvas.height !== height) canvas.height = height;
+    return { width, height };
+  }
+
+  function render() {
+    if (!ctx || !canvas) return;
+
+    const { width, height } = syncCanvasSize();
 
     ctx.clearRect(0, 0, width, height);
 
@@ -2128,6 +2643,11 @@ const state = {
   }
 
   function findNodeAtPosition(x, y) {
+    if (state.viewMode === "dots") {
+      const dot = findDotAtPosition(x, y);
+      return dot ? { id: dot.card.id } : null;
+    }
+
     const items = getAllItems();
     const clickRadius = 20 / state.zoom;
 
@@ -2295,6 +2815,8 @@ const state = {
 
     if (state.viewMode === "grid") {
       renderGrid();
+    } else if (state.viewMode === "dots") {
+      buildDotsLayout({ animate: true });
     }
   }
 
@@ -2511,6 +3033,12 @@ const state = {
         };
         const node = findNodeAtPosition(pos.x, pos.y);
 
+        if (state.viewMode === "dots") {
+          state.hoveredNodeId = node ? node.id : null;
+          canvas.style.cursor = node ? "pointer" : "default";
+          return;
+        }
+
         if (state.isPanning) {
           state.userInteracted = true;
           state.hasDragged = true;
@@ -2536,6 +3064,7 @@ const state = {
 
       canvas.addEventListener("mousedown", (e) => {
         state.hasDragged = false;
+        if (state.viewMode === "dots") return;
         if (e.button === 1) {
           state.isPanning = true;
           canvas.style.cursor = "grabbing";
@@ -2594,8 +3123,9 @@ const state = {
       });
 
       canvas.addEventListener("wheel", (e) => {
-        state.userInteracted = true;
         e.preventDefault();
+        if (state.viewMode === "dots") return;
+        state.userInteracted = true;
         const rect = canvas.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
@@ -2754,10 +3284,6 @@ const state = {
     if (connectionsHeader && connectionsContainer) {
       connectionsHeader.addEventListener("click", () => {
         connectionsContainer.classList.toggle("collapsed");
-        const toggle = document.getElementById("connectionsToggle");
-        if (toggle) {
-          toggle.textContent = connectionsContainer.classList.contains("collapsed") ? "▶" : "▼";
-        }
       });
     }
   }
@@ -2785,13 +3311,19 @@ const state = {
     const container = canvas?.parentElement;
     if (!container) return;
 
+    syncHeaderHeight();
+
+    if (state.viewMode === "dots") {
+      buildDotsLayout({ animate: false });
+      return;
+    }
+
     const width = container.clientWidth;
     const height = container.clientHeight;
 
     if (state.nodePositions.size === 0) {
       initializePositions(width, height);
     }
-    syncHeaderHeight();
   }
 
   window.addEventListener("resize", handleResize);
