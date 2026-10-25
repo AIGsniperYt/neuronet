@@ -19,33 +19,50 @@ add task management to neuronet to handle todos
 
 ---
 
-## Agent Work Log — 2026-10-25
+## Agent Work Log — 2026-10-25 (current)
 
-**Goal:** make flashcard creation card-first and discipline-neutral. Analysis becomes optional context, not the required entry path.
+**Goal:** card-first, discipline-neutral study. A card can exist without a source, quote, excerpt, analysis, or multi-step deck wizard. Analysis is optional context, not the entry point.
 
-### Done
-- Added a Quick Add modal to `tools/memory.html`: deck input with existing-deck suggestions, front/back, priority pills, tags, Save & Next, Save & Close, bulk paste tab, and keyboard hint.
-- Wired Quick Add in `src/tools/memoryTool.js`: persists each card immediately as a legacy quote + cue pair, writes `meta.deckOrder` for stable ordering, always adds the reserved `custom-deck` tag, and refreshes the deck list on close.
-- Added entry points: dashboard “Make Flashcards” now opens Quick Add (`src/main.js`), Memory launchpad has “Add Cards +”, the header has “+ Card”, and each deck card has a “+” button.
-- Neutralized the empty-state copy (“No decks yet. Add a card to start one — no source or analysis needed.”).
-- Bulk paste accepts `front<TAB>back` or `front | back`, one card per line.
-- `node --check` passes for `memoryTool.js` and `main.js`.
+### Shipped / committed
+- Card model committed as `85f4692` (`Make cards the first-class study unit`).
+- Phase 1 bridge is committed as `bc84565` (`Add card-first Quick Add bridge for Memory`).
+- Quick Add lives in `tools/memory.html` + `src/tools/memoryTool.js`: deck input with suggestions, front/back, priority, tags, Save & Next, Save & Close, bulk paste (`front<TAB>back` or `front | back`), Ctrl/Cmd+Enter.
+- Entry points: dashboard “Make Flashcards”, Memory “Add Cards +”, header “+ Card”, and each deck card’s “+”.
+- Fixed a launchpad race: `showLaunchpad()` no longer wipes a tool opened during its 350 ms exit animation, and `.launchpad.exiting` is `pointer-events: none` so the fading overlay cannot swallow clicks.
 
-### Current / next
-- Quick Add browser smoke test passed 17/17 (persistence, tags, stable deck order, bulk import, new deck appearing on the Memory launchpad). Test lives at `/tmp/opencode/quickadd_smoke2.mjs`; it is a one-off check, not a suite.
-- Fixed a launchpad race found by the test: `showLaunchpad()` was clearing a tool that opened during its 350 ms exit animation. Also added `pointer-events: none` to `.launchpad.exiting` so the fading launchpad cannot swallow clicks.
-- Committing this as the Phase 1 bridge checkpoint. Next: the real card-first model (first-class `cards` store, decks/topics, migration, Memory queue reading cards directly), then an incremental `../project.md` audit.
+### Current phase — real card model (implemented and committed)
+- `cards` store is live at DB v9. A card owns `id`, `front`, `back`, `deck`, `deckPath`, `tags`, `priority`, `order`, `meta` (SRS), `links`, `origin`, `createdAt`, `updatedAt`.
+- `deck` is a topic string, not necessarily a subject. `deckPath` carries hierarchy. Deck lists are derived from cards plus legacy subjects; there is still no separate deck store.
+- `custom-deck` is stripped when cards are normalised, so new cards never carry it as a user tag.
+- `syncCardsFromLegacy()` idempotently backfills cards from existing quote + cue pairs. It creates missing cards, refreshes content only when the legacy record is newer, and never overwrites card-owned SRS or stable order. Runs at startup, after cloud merge, and after legacy-style writes.
+- Quick Add now writes a card only — no quote, no cue. Old Quick Add quote+cue pairs are migrated automatically on the next startup.
+- Memory’s study queue, grading, priority editing, launchpad counts, middle-UI filters, explorer, dashboard due counts, subject rename/delete, export, and import all read/write cards.
+- The deck builder is card-aware: `openDeckEditor()` lists cards in stable `order`, `saveFlashcard()` preserves `cardId`/`cueId`/`quoteId`/SRS/links, and `saveDeckToDB()` writes cards directly (no reliance on the sync bridge), assigns orders to new cards, and deletes removed cards plus their legacy pairs. Legacy quote+cue records are still written for Analysis compatibility, but they no longer create duplicate cards.
+- New deck-builder cards append after the deck’s current max `order`; edited cards keep their existing order and SRS.
 
-### Thoughts / risks
-- Quick Add currently uses the legacy quote + cue stores. That is intentional: Memory works immediately with no DB migration. A real `cards` store can come later.
-- `meta.deckOrder` is written but no view consumes it yet. Mindmap Dots still sorts by priority/title; changing that default to stable deck order is a separate follow-up.
-- Quick Add suppresses `db-change` refreshes while open, then reloads the deck list on close. This avoids the study view reloading mid-entry.
-- Reserved `custom-deck` tag is still a visible tag in some UI. The user already flagged this; Quick Add keeps writing it for compatibility but it should become metadata-only later.
-- Reused the existing Anki import parser (`processAnkiImport`) via a shared `parseAnkiCards` helper instead of keeping a second bulk parser. Both the deck builder and Quick Add now accept tab-separated or `front | back` rows.
+### Test status
+- Card-model Puppeteer smoke test: 22/22 (legacy migration, Quick Add card-only persistence, study/grade card SRS, reload persistence).
+- Deck-builder Puppeteer smoke test: 28/28 (edit a Quick Add card, add a card, delete a card, preserve SRS/tags/order, no duplicate cards, legacy pairs still written, reload coherence).
+- New-deck creation Puppeteer smoke test: 10/10 (Build Deck step 1 → add card → success screen → study immediately → reload without duplicates).
+- `node --check` passes for `src/db.js`, `src/main.js`, and `src/tools/memoryTool.js`.
+- These are one-off checks in `/tmp/opencode/`, not a test suite.
 
-### Architecture note — what is actually “new”
-- **Legacy bridge (what Quick Add writes today):** `quotes` store holds the answer, `cues` store holds the front/prompt, linked by `quoteId`. This shape exists for source-anchored analysis. `custom-deck` + `hierarchyPath` are hacks that make a quote/cue pair behave like a deck card. It is only there so the existing Memory engine works immediately.
-- **New core model (still to build):** a first-class card record is the unit of study. It owns front/back, deck/topic grouping, tags, priority, stable order, and its own SRS state. It can exist with no source, excerpt, quote, or analysis. The knowledge layer links to cards optionally; it does not create them.
-- **Consequence:** the real migration is not “add a modal”; it is moving SRS ownership from quote/cue to card, making decks/topics first-class (a deck is not necessarily a subject), and teaching the Memory queue to read cards directly. The current Quick Add is deliberately Phase 1 only.
+### Backup / cloud decision
+- **JSON export/import is the canonical cross-device backup path.** It now includes `cards`; older exports rebuild cards from legacy quote+cue pairs after import.
+- **Cloud sync is explicitly legacy/optional and does not yet carry cards.** Rather than revive the stale backend just to mirror JSON, cards stay local-first until there is a concrete reason to add a cards collection/endpoints (for example, true diff-merge sync). Documented in `../project.md` Known Issues and Sync Philosophy.
+- Spec audit applied in `../project.md`: two-layer model, card-first philosophy, `cards` store + indexes, card CRUD, Quick Add, deck-builder card ownership, stable order vs performance sorting, Analysis-secondary framing, and the cloud/Mindmap card gaps.
+
+### Next steps
+1. If cloud sync becomes a priority, add a cards collection/endpoints or rebuild cards from synced legacy pairs on login. Do not build it just to duplicate JSON export.
+2. Follow-up: make other views (Mindmap Grid/Dots, etc.) consume the `cards` store where appropriate. Stable order should be the default browse order; performance sorting stays an explicit utility.
+3. Consider surfacing optional knowledge context (linked quote/analysis) in the study card back, now that cards can exist without it.
+4. Keep `todo.md` as the mailbox: replace this log rather than appending indefinitely.
+
+### Problems / risks
+- Cloud sync (`src/sync.js`) has no cards endpoint. Cards are local-only until sync is extended; JSON export/import is the current backup path.
+- Legacy quote/cue records remain by design for source anchoring and Analysis. The deck builder keeps writing them so analysis references still resolve.
+- `custom-deck` remains in old quote records and some legacy UI until those paths are cleaned up.
+- Quick Add writes cards with no legacy link, so any old code path that only understands quotes will not see them. All known study/dashboard/export paths have been migrated.
+- Mindmap Dots still sorts by its own signals; stable card order is not consumed there yet.
 
 

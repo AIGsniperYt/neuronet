@@ -26,7 +26,13 @@ export async function initMemoryTool(deps, context = {}) {
     getSubjects,
     getFormattedQuote,
     resolveQuoteInSource,
-    escapeHtml
+    escapeHtml,
+    addCard,
+    getAllCards,
+    getCard,
+    getCardsForDeck,
+    getCardsForQuote,
+    deleteCard
   } = deps;
 
   const { subject: contextSubject, createDeck, quickAdd } = context;
@@ -126,7 +132,7 @@ export async function initMemoryTool(deps, context = {}) {
   const state = {
     view: contextSubject ? "study" : "launchpad",
     currentSubject: contextSubject || "",
-    currentMode: "quote-learning",
+    currentMode: "card-learning",
     flashcards: [], // session history (cards shown)
     currentIndex: 0,
     isFlipped: false,
@@ -414,7 +420,7 @@ export async function initMemoryTool(deps, context = {}) {
 
     if (modeSelect) {
       modeSelect.addEventListener("click", async () => {
-        const modes = ["quote-learning", "analysis-learning", "evidence-matching", "blurt"];
+        const modes = ["card-learning", "analysis-learning", "evidence-matching", "blurt"];
         const currentIndex = modes.indexOf(state.currentMode);
         state.currentMode = modes[(currentIndex + 1) % modes.length];
         await loadFlashcards();
@@ -530,7 +536,7 @@ export async function initMemoryTool(deps, context = {}) {
           const subject = studyBtn.dataset.studySubject || "";
           if (!subject) return;
           state.currentSubject = subject;
-          state.currentMode = "quote-learning";
+          state.currentMode = "card-learning";
           state.sessionFilter = null;
           state.view = "study";
           state.sidebarMode = SIDEBAR_MODES.FOCUS;
@@ -967,8 +973,8 @@ export async function initMemoryTool(deps, context = {}) {
     const currentCard = state.flashcards[state.currentIndex];
     if (!currentCard?.review?.required || currentCard.review.graded) return;
     if (!state.isFlipped) return;
-    if (typeof addQuote !== "function" || typeof addNode !== "function") {
-      console.warn("Memory grading is unavailable: addQuote/addNode not provided to Memory Tool.");
+    if (typeof addQuote !== "function" || typeof addNode !== "function" || typeof addCard !== "function") {
+      console.warn("Memory grading is unavailable: addQuote/addNode/addCard not provided to Memory Tool.");
       return;
     }
 
@@ -1006,7 +1012,20 @@ export async function initMemoryTool(deps, context = {}) {
     currentCard.review.responseTimeMs = responseTimeMs;
     currentCard.memoryState = updatedMemoryState;
 
-    if (persistKind === "quote") {
+    if (persistKind === "card") {
+      const updatedCard = {
+        ...persistRecord,
+        meta: mergeMemoryStateIntoMeta(persistRecord.meta || {}, updatedMemoryState),
+        updatedAt: nowMs
+      };
+      state.session.suppressDBChange++;
+      await addCard(updatedCard);
+      if (isBlurt) {
+        currentCard.targetRecord = updatedCard;
+      } else {
+        currentCard.record = updatedCard;
+      }
+    } else if (persistKind === "quote") {
       const updatedQuote = {
         ...persistRecord,
         meta: mergeMemoryStateIntoMeta(persistRecord.meta || {}, updatedMemoryState),
@@ -1185,7 +1204,7 @@ export async function initMemoryTool(deps, context = {}) {
   }
 
   async function loadLaunchpad() {
-    const subjects = await getSubjects();
+    const [subjects, allCards] = await Promise.all([getSubjects(), getAllCards()]);
     if (!deckList) return;
 
     deckList.innerHTML = "";
@@ -1194,10 +1213,16 @@ export async function initMemoryTool(deps, context = {}) {
       return;
     }
 
+    const cardCountByDeck = new Map();
+    (allCards || []).forEach((card) => {
+      if (!card?.deck) return;
+      cardCountByDeck.set(card.deck, (cardCountByDeck.get(card.deck) || 0) + 1);
+    });
+
     for (const subject of subjects) {
-      const quotes = await getQuotesForSubject(subject) || [];
+      const cardCount = cardCountByDeck.get(subject) || 0;
       const analyses = await getAnalysisNodesForSubject(subject) || [];
-      const total = quotes.length + analyses.length;
+      const total = cardCount + analyses.length;
 
        const card = document.createElement("div");
       card.className = "card";
@@ -1228,7 +1253,7 @@ export async function initMemoryTool(deps, context = {}) {
       studyBtn.addEventListener("click", async (e) => {
         e.stopPropagation();
         state.currentSubject = subject;
-        state.currentMode = "quote-learning";
+        state.currentMode = "card-learning";
         state.sessionFilter = null;
         state.view = "study";
         await loadFlashcards();
@@ -1270,8 +1295,8 @@ export async function initMemoryTool(deps, context = {}) {
     state.session.routeRerouteCounter = 0;
     state.session.focusedBlockKeys = new Set();
 
-    if (state.currentMode === "quote-learning") {
-      await buildQuoteLearningQueue();
+    if (state.currentMode === "card-learning") {
+      await buildCardLearningQueue();
       drawNextCardFromHeap();
     } else if (state.currentMode === "analysis-learning") {
       await buildAnalysisLearningQueue();
@@ -1368,6 +1393,10 @@ export async function initMemoryTool(deps, context = {}) {
       const targetKind = card.targetKind || card.back?.targetKind || "unknown";
       const targetId = card.targetRecord?.id || card.back?.targetRecord?.id;
       return targetId ? `blurt:${targetKind}:${targetId}` : (card.id ? `blurt-cue:${card.id}` : null);
+    }
+    if (card.memoryKind === "card" || card.type === "card-learning") {
+      const cardId = card.record?.id || card.id;
+      return cardId ? `card:${cardId}` : null;
     }
     if (card.memoryKind === "quote" || card.type === "quote-learning") {
       const quoteId = card.record?.id || card.id;
@@ -1663,18 +1692,29 @@ export async function initMemoryTool(deps, context = {}) {
 
   function getCardLayers(card) {
     const record = getCardRecord(card);
-    const path = Array.isArray(record?.meta?.hierarchyPath) ? record.meta.hierarchyPath : [];
+    const path = Array.isArray(record?.deckPath)
+      ? record.deckPath
+      : Array.isArray(record?.meta?.hierarchyPath)
+        ? record.meta.hierarchyPath
+        : [];
     return path.filter(Boolean).slice(1, 4);
   }
 
   function getCardSubject(card) {
     const record = getCardRecord(card);
-    const path = Array.isArray(record?.meta?.hierarchyPath) ? record.meta.hierarchyPath : [];
-    return record?.subject || path[0] || state.currentSubject || "";
+    const path = Array.isArray(record?.deckPath)
+      ? record.deckPath
+      : Array.isArray(record?.meta?.hierarchyPath)
+        ? record.meta.hierarchyPath
+        : [];
+    return record?.deck || record?.subject || path[0] || state.currentSubject || "";
   }
 
   function getQuotePriorityForCard(card) {
-    return card?.memoryKind === "quote" || card?.targetKind === "quote"
+    return card?.memoryKind === "card"
+      || card?.memoryKind === "quote"
+      || card?.targetKind === "quote"
+      || card?.targetKind === "card"
       ? (card?.record?.priority ?? card?.targetRecord?.priority ?? null)
       : null;
   }
@@ -2185,7 +2225,12 @@ export async function initMemoryTool(deps, context = {}) {
   }
 
   async function maybeEnqueueSurpriseCard() {
-    if (state.currentMode !== "quote-learning" && state.currentMode !== "analysis-learning" && state.currentMode !== "blurt") return;
+    if (
+      state.currentMode !== "card-learning"
+      && state.currentMode !== "quote-learning"
+      && state.currentMode !== "analysis-learning"
+      && state.currentMode !== "blurt"
+    ) return;
     if (!state.session.heap) return;
     if (!Array.isArray(state.session.surprisePool) || state.session.surprisePool.length === 0) return;
     if (!shouldInterleaveOldCard(state.session.learningRoute, state.stats)) return;
@@ -2207,7 +2252,30 @@ export async function initMemoryTool(deps, context = {}) {
     const nowMs = Date.now();
     let card = null;
 
-    if (candidate.memoryKind === "quote") {
+    if (candidate.memoryKind === "card") {
+      const cardRecord = candidate.record;
+      card = {
+        id: cardRecord.id,
+        memoryKind: "card",
+        type: "card-learning",
+        record: cardRecord,
+        review: { required: true, graded: false, grade: null, responseTimeMs: null },
+        front: {
+          content: cardRecord.front,
+          isCard: true,
+          deck: cardRecord.deck,
+          deckPath: cardRecord.deckPath || []
+        },
+        back: {
+          content: cardRecord.back,
+          isCard: true,
+          deck: cardRecord.deck,
+          deckPath: cardRecord.deckPath || [],
+          tags: cardRecord.tags || []
+        },
+        memoryState: candidate.memoryState
+      };
+    } else if (candidate.memoryKind === "quote") {
       const quote = candidate.record;
       const analyses = await getAnalysesReferencingQuote(quote.id);
       const cueNode = candidate.cueNode || null;
@@ -2278,68 +2346,38 @@ export async function initMemoryTool(deps, context = {}) {
     updateSystemThought();
   }
 
-  async function buildQuoteLearningQueue() {
+  async function buildCardLearningQueue() {
     const nowMs = Date.now();
-    const [allQuotes, allCues, allSources] = await Promise.all([
-      getQuotesForSubject(state.currentSubject),
-      getAllCues(),
-      getAllNodes().then(nodes => nodes.filter(n => n.type === "source"))
-    ]);
-
-    // Build lookup maps
-    const cuesByQuoteId = new Map();
-    const sourcesById = new Map();
-    (allSources || []).forEach(s => sourcesById.set(s.id, s));
-    (allCues || [])
-      .filter((c) => c?.subject === state.currentSubject && c?.quoteId)
-      .forEach((cue) => {
-        if (!cuesByQuoteId.has(cue.quoteId)) {
-          cuesByQuoteId.set(cue.quoteId, cue);
-        }
-      });
+    const deckCards = await getCardsForDeck(state.currentSubject);
+    const ordered = [...(deckCards || [])].sort((a, b) => {
+      const orderDiff = (Number(a.order) || 0) - (Number(b.order) || 0);
+      if (orderDiff !== 0) return orderDiff;
+      return (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0);
+    });
 
     state.session.surprisePool = [];
 
-    const isCustomDeck = (quote) => quote?.meta?.tags?.includes("custom-deck");
-
-    const cards = await Promise.all(
-      (allQuotes || []).map(async (quote) => {
-        const analyses = await getAnalysesReferencingQuote(quote.id);
-        const cueNode = cuesByQuoteId.get(quote.id) || null;
-        const memoryState = getMemoryStateFromMeta(quote.meta || {}, "quote");
-        const sourceNode = sourcesById.get(quote.link?.sourceId) || null;
-
-        // For custom decks, display cue on front, quote on back
-        let frontContent;
-        if (isCustomDeck(quote) && cueNode?.cue) {
-          frontContent = cueNode.cue;
-        } else {
-          frontContent = getCueForQuote(quote, cueNode);
-        }
-
-        return {
-          id: quote.id,
-          memoryKind: "quote",
-          type: "quote-learning",
-          record: quote,
-          review: { required: true, graded: false, grade: null, responseTimeMs: null },
-          front: {
-            content: frontContent,
-            isCue: !isCustomDeck(quote),
-            cueNode,
-            isCustomDeck: isCustomDeck(quote)
-          },
-          back: {
-            content: quote.quote,
-            isQuote: true,
-            quoteData: quote,
-            sourceNode,
-            analyses: analyses
-          },
-          memoryState
-        };
-      })
-    );
+    const cards = ordered.map((card) => ({
+      id: card.id,
+      memoryKind: "card",
+      type: "card-learning",
+      record: card,
+      review: { required: true, graded: false, grade: null, responseTimeMs: null },
+      front: {
+        content: card.front,
+        isCard: true,
+        deck: card.deck,
+        deckPath: card.deckPath || []
+      },
+      back: {
+        content: card.back,
+        isCard: true,
+        deck: card.deck,
+        deckPath: card.deckPath || [],
+        tags: card.tags || []
+      },
+      memoryState: getMemoryStateFromMeta(card.meta || {}, "card")
+    }));
 
     // Apply filters if set
     let filteredCards = cards;
@@ -2559,16 +2597,24 @@ export async function initMemoryTool(deps, context = {}) {
   async function resetSubjectMemoryMetadata() {
     if (!state.currentSubject) return;
 
-    const [quotes, analyses] = await Promise.all([
+    const [quotes, analyses, cards] = await Promise.all([
       getQuotesForSubject(state.currentSubject),
-      getAnalysisNodesForSubject(state.currentSubject)
+      getAnalysisNodesForSubject(state.currentSubject),
+      getCardsForDeck(state.currentSubject)
     ]);
 
     const srsKeys = ["S", "D", "U", "interval", "nextReview", "lastReview", "reviewCount", "expectedTime", "avgTime", "timeVariance", "consistency", "confidence", "lastGrade"];
 
-    state.session.suppressDBChange = (quotes || []).length + (analyses || []).length;
+    state.session.suppressDBChange = (quotes || []).length + (analyses || []).length + (cards || []).length;
 
     const promises = [];
+
+    for (const card of (cards || [])) {
+      if (card.meta) {
+        srsKeys.forEach(key => delete card.meta[key]);
+        promises.push(addCard(card));
+      }
+    }
 
     for (const quote of (quotes || [])) {
       if (quote.meta) {
@@ -2680,7 +2726,7 @@ export async function initMemoryTool(deps, context = {}) {
 
     if (modeSelect) {
       modeSelect.textContent =
-        state.currentMode === "quote-learning" ? "Quote Learning" :
+        state.currentMode === "card-learning" ? "Cards" :
         state.currentMode === "analysis-learning" ? "Analysis Learning" :
         state.currentMode === "blurt" ? "Blurt" :
         "Evidence Matching";
@@ -2702,7 +2748,7 @@ export async function initMemoryTool(deps, context = {}) {
       updateFlashcardDisplay(flashcardData, flashcard);
     } else {
       if (flashcardContent) flashcardContent.textContent = "No flashcards available.";
-      if (flashcardBackContent) flashcardBackContent.textContent = "Add content in the Analysis tool.";
+      if (flashcardBackContent) flashcardBackContent.textContent = "Add cards with Quick Add.";
     }
 
     const currentCard = state.flashcards[state.currentIndex];
@@ -2727,8 +2773,11 @@ export async function initMemoryTool(deps, context = {}) {
     const priorityToggleBtn = document.getElementById("priorityToggle");
     const priorityCtrl = document.getElementById("priorityControls");
     if (priorityToggleBtn) {
-      const isQuoteCard = currentCard?.memoryKind === "quote" || currentCard?.type === "quote-learning";
-      if (isQuoteCard && currentCard?.record?.priority !== undefined) {
+      const isCard = currentCard?.memoryKind === "card"
+        || currentCard?.memoryKind === "quote"
+        || currentCard?.type === "card-learning"
+        || currentCard?.type === "quote-learning";
+      if (isCard && currentCard?.record?.priority !== undefined) {
         priorityToggleBtn.style.display = "block";
         priorityToggleBtn.textContent = `${"★".repeat(currentCard.record.priority)}${"☆".repeat(5 - currentCard.record.priority)}`;
       } else {
@@ -2749,10 +2798,11 @@ export async function initMemoryTool(deps, context = {}) {
     roundProgress.innerHTML = "";
 
     const roundSize = 8;
-    const isHeapMode = ["analysis-learning", "blurt"].includes(state.currentMode);
+    const isHeapMode = ["card-learning", "analysis-learning", "blurt"].includes(state.currentMode);
 
-    // For heap-based modes, always show: already-seen history cards + upcoming from heap
-    // For quote-learning (linear), use the standard paged window
+    // For heap-based modes, always show: already-seen history cards + upcoming from heap.
+    // Card learning is heap-ranked too; the stable `order` only breaks ties and
+    // determines the default browse order.
     const roundStart = isHeapMode ? 0 : Math.floor(state.currentIndex / roundSize) * roundSize;
 
     const upcoming = (state.session.heap && state.session.heap.items.length > 0)
@@ -2985,31 +3035,54 @@ export async function initMemoryTool(deps, context = {}) {
 
   }
 
-  async function updateQuotePriority(quoteId, newPriority) {
-    if (!quoteId || !addQuote) return;
-    const quote = await getQuote(quoteId);
+  async function updateQuotePriority(recordId, newPriority) {
+    if (!recordId) return;
+    const currentCard = state.flashcards[state.currentIndex];
+    const isCard = currentCard?.memoryKind === "card" && currentCard.record?.id === recordId;
+
+    if (isCard) {
+      if (typeof addCard !== "function") return;
+      const priority = clampNumber(Number(newPriority), 1, 5);
+      const updatedCard = {
+        ...currentCard.record,
+        priority,
+        updatedAt: Date.now()
+      };
+      state.session.suppressDBChange++;
+      await addCard(updatedCard);
+      currentCard.record = updatedCard;
+
+      const priorityToggleBtn = document.getElementById("priorityToggle");
+      if (priorityToggleBtn) {
+        priorityToggleBtn.textContent = `${"★".repeat(priority)}${"☆".repeat(5 - priority)}`;
+      }
+      renderUI();
+      return;
+    }
+
+    if (!addQuote) return;
+    const quote = await getQuote(recordId);
     if (!quote) return;
 
-    quote.priority = clampNumber(newPriority, 1, 5);
+    quote.priority = clampNumber(Number(newPriority), 1, 5);
     quote.updatedAt = Date.now();
 
     state.session.suppressDBChange++;
     await addQuote(quote);
 
     // Update the current card if it's the same quote
-    const currentCard = state.flashcards[state.currentIndex];
-    if (currentCard?.record?.id === quoteId) {
+    if (currentCard?.record?.id === recordId) {
       currentCard.record.priority = quote.priority;
     }
 
     // Update toggle button text
     const priorityToggleBtn = document.getElementById("priorityToggle");
-    if (priorityToggleBtn && currentCard?.record?.id === quoteId) {
+    if (priorityToggleBtn && currentCard?.record?.id === recordId) {
       priorityToggleBtn.textContent = `Priority: ${"★".repeat(quote.priority)}${"☆".repeat(5 - quote.priority)}`;
     }
 
     renderUI();
-    console.log(`Quote ${quoteId} priority updated to ${newPriority}`);
+    console.log(`Quote ${recordId} priority updated to ${newPriority}`);
   }
 
   function formatAnalysisForDisplay(text) {
@@ -3352,6 +3425,7 @@ export async function initMemoryTool(deps, context = {}) {
 
   function getSidebarCardId(card) {
     if (!card) return null;
+    if (card.memoryKind === "card" || card.type === "card-learning") return card.record?.id || card.id || null;
     if (card.memoryKind === "quote" || card.type === "quote-learning") return card.record?.id || card.id || null;
     if (card.memoryKind === "analysis" || card.type === "analysis-learning") return card.record?.id || card.id || null;
     if (card.type === "blurt") return card.targetRecord?.id || card.id || null;
@@ -3545,15 +3619,19 @@ export async function initMemoryTool(deps, context = {}) {
     if (!state.currentSubject) { state.explorerCards = []; return; }
     state.explorerLoading = true;
     try {
-      const [quotes, analyses] = await Promise.all([
-        getQuotesForSubject(state.currentSubject),
+      const [cards, analyses] = await Promise.all([
+        getCardsForDeck(state.currentSubject),
         getAnalysisNodesForSubject(state.currentSubject)
       ]);
-      const quoteCards = (quotes || []).map(q => ({
-        id: q.id, kind: "quote", text: q.quote || "", subject: q.subject || state.currentSubject,
-        layers: (q.meta?.hierarchyPath || []).slice(1, 4).filter(Boolean),
-        tags: q.meta?.tags || [], priority: q.priority,
-        ms: getMemoryStateFromMeta(q.meta || {}, "quote")
+      const deckCards = (cards || []).map(card => ({
+        id: card.id,
+        kind: "card",
+        text: card.back || card.front || "",
+        subject: card.deck || state.currentSubject,
+        layers: (card.deckPath || []).slice(1, 4).filter(Boolean),
+        tags: card.tags || [],
+        priority: card.priority,
+        ms: getMemoryStateFromMeta(card.meta || {}, "card")
       }));
       const analysisCards = (analyses || []).map(a => ({
         id: a.id, kind: "analysis", text: a.analysis || "", subject: a.subject || state.currentSubject,
@@ -3561,7 +3639,7 @@ export async function initMemoryTool(deps, context = {}) {
         tags: a.tags || [], priority: null,
         ms: getMemoryStateFromMeta(a.meta || {}, "analysis")
       }));
-      state.explorerCards = [...quoteCards, ...analysisCards];
+      state.explorerCards = [...deckCards, ...analysisCards];
     } catch (e) {
       console.warn("Explorer load error:", e);
       state.explorerCards = [];
@@ -3594,8 +3672,8 @@ export async function initMemoryTool(deps, context = {}) {
       if (filter.startsWith("phase:")) {
         const ph = filter.slice(6);
         cards = cards.filter(c => getUserLearningPhase({ memoryState: c.ms }, state.userProfile) === ph);
-      } else if (filter === "kind:quote") {
-        cards = cards.filter(c => c.kind === "quote");
+      } else if (filter === "kind:card") {
+        cards = cards.filter(c => c.kind === "card");
       } else if (filter === "kind:analysis") {
         cards = cards.filter(c => c.kind === "analysis");
       }
@@ -3606,7 +3684,7 @@ export async function initMemoryTool(deps, context = {}) {
     const pageCards = cards.slice(page * EXPLORER_PAGE_SIZE, (page + 1) * EXPLORER_PAGE_SIZE);
     const filterChips = [
       { label: "All", value: "" },
-      { label: "Quotes", value: "kind:quote" },
+      { label: "Cards", value: "kind:card" },
       { label: "Analyses", value: "kind:analysis" },
       { label: "New", value: "phase:new" },
       { label: "Stabilising", value: "phase:stabilising" },
@@ -3991,26 +4069,61 @@ export async function initMemoryTool(deps, context = {}) {
 
     if (deckNameInput) deckNameInput.value = subject;
 
-    const quotes = await getQuotesForSubject(subject) || [];
-    const cues = await getCuesForSubject(subject) || [];
+    const cards = await getCardsForDeck(subject) || [];
 
-    for (const quote of quotes) {
-      const cardCues = cues.filter(c => c.quoteId === quote.id);
-      const cue = cardCues.length > 0 ? cardCues[0] : null;
-
-      // Get layer info from quote's hierarchyPath, convert to layers array
-      const path = quote.meta?.hierarchyPath || [];
-      const layers = path.filter(Boolean).slice(1, 4); // layers only (skip subject at index 0)
-
-      deckBuilderState.cards.push({
-        cueId: cue ? cue.id : crypto.randomUUID(),
-        cueFront: cue ? cue.cue : "",
-        quoteId: quote.id,
-        quoteBack: quote.quote,
-        priority: quote.priority || 3,
-        layers,
-        isExisting: true
+    if (cards.length > 0) {
+      const orderedCards = [...cards].sort((a, b) => {
+        const orderDiff = (Number(a.order) || 0) - (Number(b.order) || 0);
+        if (orderDiff !== 0) return orderDiff;
+        return (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0);
       });
+      for (const card of orderedCards) {
+        deckBuilderState.cards.push({
+          cardId: card.id,
+          cueId: card.links?.cueId || crypto.randomUUID(),
+          cueFront: card.front,
+          quoteId: card.links?.quoteId || crypto.randomUUID(),
+          quoteBack: card.back,
+          priority: card.priority || 3,
+          layers: (card.deckPath || []).slice(1, 4),
+          isExisting: true,
+          meta: card.meta || {},
+          createdAt: card.createdAt,
+          origin: card.origin,
+          links: card.links || {}
+        });
+      }
+    } else {
+      // Fallback for a deck whose legacy pairs have not been backfilled yet.
+      const quotes = await getQuotesForSubject(subject) || [];
+      const cues = await getCuesForSubject(subject) || [];
+      const orderedQuotes = [...quotes].sort((a, b) => {
+        const orderDiff = (Number(a.meta?.deckOrder) || 0) - (Number(b.meta?.deckOrder) || 0);
+        if (orderDiff !== 0) return orderDiff;
+        return (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0);
+      });
+
+      for (const quote of orderedQuotes) {
+        const cardCues = cues.filter(c => c.quoteId === quote.id);
+        const cue = cardCues.length > 0 ? cardCues[0] : null;
+        const path = quote.meta?.hierarchyPath || [];
+        const layers = path.filter(Boolean).slice(1, 4);
+
+        deckBuilderState.cards.push({
+          cardId: null,
+          cueId: cue ? cue.id : crypto.randomUUID(),
+          cueFront: cue ? cue.cue : "",
+          quoteId: quote.id,
+          quoteBack: quote.quote,
+          priority: quote.priority || 3,
+          layers,
+          isExisting: true,
+          meta: quote.meta || {},
+          createdAt: quote.createdAt,
+          origin: "legacy",
+          links: { quoteId: quote.id, cueId: cue?.id }
+        });
+      }
     }
 
     renderFlashcardList();
@@ -4402,14 +4515,22 @@ export async function initMemoryTool(deps, context = {}) {
       .filter(Boolean)
       .map(s => s.trim())
       .filter(Boolean);
+    const existing = deckBuilderState.currentCardIndex >= 0
+      ? deckBuilderState.cards[deckBuilderState.currentCardIndex]
+      : null;
     const card = {
-      cueId: crypto.randomUUID(),
+      cardId: existing?.cardId || null,
+      cueId: existing?.cueId || crypto.randomUUID(),
       cueFront,
-      quoteId: crypto.randomUUID(),
+      quoteId: existing?.quoteId || crypto.randomUUID(),
       quoteBack,
       priority,
       layers, // array of up to 3 layer names [l1, l2, l3]
-      isExisting: false
+      isExisting: !!existing?.isExisting,
+      meta: existing?.meta,
+      createdAt: existing?.createdAt,
+      origin: existing?.origin,
+      links: existing?.links
     };
 
     if (deckBuilderState.currentCardIndex >= 0) {
@@ -4435,7 +4556,11 @@ export async function initMemoryTool(deps, context = {}) {
     if (index >= 0 && index < deckBuilderState.cards.length) {
       const card = deckBuilderState.cards[index];
       if (card.isExisting) {
-        deckBuilderState.deletedCardIds.push({ quoteId: card.quoteId, cueId: card.cueId });
+        deckBuilderState.deletedCardIds.push({
+          cardId: card.cardId || null,
+          quoteId: card.quoteId,
+          cueId: card.cueId
+        });
       }
       deckBuilderState.cards.splice(index, 1);
       renderFlashcardList();
@@ -4540,11 +4665,27 @@ export async function initMemoryTool(deps, context = {}) {
           await renameSubject(deckBuilderState.editingSubject, subjectName);
         }
 
-        // Delete removed cards
+        // Delete removed cards. Cards are the study source of truth; the
+        // legacy quote/cue pair is removed alongside them.
         for (const deleted of deckBuilderState.deletedCardIds) {
+          if (deleted.cardId) {
+            await deleteCard(deleted.cardId);
+          } else if (deleted.quoteId) {
+            const linkedCards = await getCardsForQuote(deleted.quoteId);
+            for (const linked of linkedCards || []) {
+              await deleteCard(linked.id);
+            }
+          }
           await deleteCue(deleted.cueId);
           await deleteQuote(deleted.quoteId);
         }
+
+        // New builder cards append after the deck's current stable order.
+        const deckCards = await getCardsForDeck(subjectName) || [];
+        let nextOrder = deckCards.reduce(
+          (max, existing) => Math.max(max, Number(existing.order) || 0),
+          -1
+        ) + 1;
 
         // Save all cards (update existing, add new)
         for (const card of deckBuilderState.cards) {
@@ -4553,7 +4694,10 @@ export async function initMemoryTool(deps, context = {}) {
             subjectName,
             ...(card.layers || [])
           ].filter(Boolean);
+          const now = Date.now();
 
+          const existingQuote = card.isExisting ? await getQuote(card.quoteId) : null;
+          const existingCue = card.isExisting ? await getCue(card.cueId) : null;
           const quote = {
             id: card.quoteId,
             type: "quote",
@@ -4561,11 +4705,13 @@ export async function initMemoryTool(deps, context = {}) {
             quote: card.quoteBack,
             title: subjectName,
             priority: card.priority,
+            createdAt: existingQuote?.createdAt || now,
+            updatedAt: now,
             meta: {
               tags: ["custom-deck"],
               hierarchyPath: hierarchyPath,
               confidence: 0.8,
-              nextReview: Date.now(),
+              nextReview: now,
               interval: 1,
               ease: 2.5,
               repetitions: 0
@@ -4580,16 +4726,46 @@ export async function initMemoryTool(deps, context = {}) {
             cue: card.cueFront,
             priority: card.priority,
             type: "cue",
-            createdAt: card.isExisting ? (await getCue(card.cueId))?.createdAt || Date.now() : Date.now(),
-            updatedAt: Date.now(),
+            createdAt: existingCue?.createdAt || now,
+            updatedAt: now,
             meta: {
-              nextReview: Date.now(),
+              nextReview: now,
               interval: 1,
               ease: 2.5,
               repetitions: 0
             }
           };
           await addCue(cue);
+
+          // Write the card itself. Content comes from the builder, while SRS,
+          // stable order, tags, and creation time stay card-owned.
+          const existingCard = card.cardId ? await getCard(card.cardId) : null;
+          const order = Number.isFinite(Number(existingCard?.order))
+            ? Number(existingCard.order)
+            : nextOrder++;
+          await addCard({
+            id: existingCard?.id || card.cardId || crypto.randomUUID(),
+            front: card.cueFront,
+            back: card.quoteBack,
+            deck: subjectName,
+            deckPath: hierarchyPath,
+            tags: [...new Set([
+              ...(existingCard?.tags || []),
+              ...(Array.isArray(card.tags) ? card.tags : [])
+            ])],
+            priority: card.priority,
+            order,
+            meta: { ...(existingCard?.meta || card.meta || {}) },
+            links: {
+              ...(existingCard?.links || {}),
+              quoteId: card.quoteId,
+              cueId: card.cueId
+            },
+            origin: existingCard?.origin || card.origin || "manual",
+            legacyUpdatedAt: now,
+            createdAt: existingCard?.createdAt || card.createdAt || now,
+            updatedAt: now
+          });
         }
 
        // Show success screen (or close modal if editing)
@@ -4615,9 +4791,9 @@ export async function initMemoryTool(deps, context = {}) {
   // ========== QUICK ADD ==========
   //
   // Quick Add is deliberately smaller than the deck builder: it captures one
-  // card at a time and persists it immediately. Cards are stored as the legacy
-  // quote + cue pair so Memory can study them today; `meta.deckOrder` preserves
-  // creation order for views that want a stable default order.
+  // card at a time and persists it immediately as a first-class card. No
+  // source, quote, cue, or analysis is required. `order` preserves creation
+  // order so the default browse order stays stable.
 
   function setQuickAddStatus(el, message, tone = "") {
     if (!el) return;
@@ -4766,19 +4942,19 @@ export async function initMemoryTool(deps, context = {}) {
     const cached = quickAddState.nextOrders.get(deck);
     if (Number.isFinite(cached)) return cached;
 
-    let quotes = [];
+    let cards = [];
     try {
-      quotes = await getQuotesForSubject(deck) || [];
+      cards = await getCardsForDeck(deck) || [];
     } catch (error) {
       console.warn("Could not read deck order:", error);
     }
 
     let maxOrder = -1;
-    quotes.forEach((quote) => {
-      const order = Number(quote?.meta?.deckOrder);
+    cards.forEach((card) => {
+      const order = Number(card?.order);
       if (Number.isFinite(order)) maxOrder = Math.max(maxOrder, order);
     });
-    const nextOrder = maxOrder >= 0 ? maxOrder + 1 : quotes.length;
+    const nextOrder = maxOrder >= 0 ? maxOrder + 1 : cards.length;
     quickAddState.nextOrders.set(deck, nextOrder);
     return nextOrder;
   }
@@ -4786,60 +4962,32 @@ export async function initMemoryTool(deps, context = {}) {
   async function persistQuickAddCard({ deck, front, back, priority, tags }) {
     const now = Date.now();
     const deckOrder = await getNextDeckOrder(deck);
-    const quoteId = crypto.randomUUID();
-    const cueId = crypto.randomUUID();
-    const mergedTags = [...new Set(["custom-deck", ...(tags || [])].filter(Boolean))];
 
-    const quote = {
-      id: quoteId,
-      type: "quote",
-      subject: deck,
-      quote: back,
-      title: deck,
+    const card = {
+      id: crypto.randomUUID(),
+      front,
+      back,
+      deck,
+      deckPath: [deck],
+      tags: [...new Set((tags || []).filter(Boolean))],
       priority,
-      createdAt: now,
-      updatedAt: now,
+      order: deckOrder,
       meta: {
-        tags: mergedTags,
-        hierarchyPath: [deck],
-        deckOrder,
         confidence: 0.8,
         nextReview: now,
         interval: 1,
         ease: 2.5,
         repetitions: 0
-      }
-    };
-
-    const cue = {
-      id: cueId,
-      subject: deck,
-      quoteId,
-      cue: front,
-      priority,
-      type: "cue",
+      },
+      links: {},
+      origin: "quick-add",
       createdAt: now,
-      updatedAt: now,
-      meta: {
-        deckOrder,
-        nextReview: now,
-        interval: 1,
-        ease: 2.5,
-        repetitions: 0
-      }
+      updatedAt: now
     };
 
-    await addQuote(quote);
-    try {
-      await addCue(cue);
-    } catch (error) {
-      // Do not leave an orphaned answer behind if the cue write fails.
-      try { await deleteQuote(quoteId); } catch (_) { /* best effort */ }
-      throw error;
-    }
-
+    await addCard(card);
     quickAddState.nextOrders.set(deck, deckOrder + 1);
-    return { quote, cue, deckOrder };
+    return { card, deckOrder };
   }
 
   async function quickAddSaveCard({ allowEmptyClose = false } = {}) {
@@ -5451,62 +5599,62 @@ export async function initMemoryTool(deps, context = {}) {
   async function loadMiddleUIData() {
     if (!state.currentSubject) return;
 
-    // Get all quotes and analyses for this subject
-    const [quotes, analyses, allCues] = await Promise.all([
-      getQuotesForSubject(state.currentSubject),
-      getAnalysisNodesForSubject(state.currentSubject),
-      getAllCues()
+    // Get all cards and analyses for this deck/topic.
+    const [cards, analyses] = await Promise.all([
+      getCardsForDeck(state.currentSubject),
+      getAnalysisNodesForSubject(state.currentSubject)
     ]);
 
     // Priority counts and grades
     const priorityCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
     const priorityCards = { 1: [], 2: [], 3: [], 4: [], 5: [] };
     let totalWithPriority = 0;
-    (quotes || []).forEach(q => {
-      if (q.priority !== undefined && q.priority !== null) {
-        priorityCounts[q.priority] = (priorityCounts[q.priority] || 0) + 1;
-        priorityCards[q.priority].push(q);
+    (cards || []).forEach(card => {
+      if (card.priority !== undefined && card.priority !== null) {
+        priorityCounts[card.priority] = (priorityCounts[card.priority] || 0) + 1;
+        priorityCards[card.priority].push(card);
         totalWithPriority++;
       }
     });
 
-    // Tags - collect from quotes and analyses with grade distribution
+    // Tags - collect from cards and analyses with grade distribution
     const tagSet = new Set();
     const tagCards = new Map();
-    (quotes || []).forEach(q => {
-      (q.meta?.tags || []).forEach(t => {
-        tagSet.add(t);
-        if (!tagCards.has(t)) {
-          tagCards.set(t, []);
+    (cards || []).forEach(card => {
+      (card.tags || []).forEach(tag => {
+        tagSet.add(tag);
+        if (!tagCards.has(tag)) {
+          tagCards.set(tag, []);
         }
-        tagCards.get(t).push(q);
+        tagCards.get(tag).push(card);
       });
     });
-    (analyses || []).forEach(a => {
-      (a.tags || []).forEach(t => {
-        tagSet.add(t);
-        if (!tagCards.has(t)) {
-          tagCards.set(t, []);
+    (analyses || []).forEach(analysis => {
+      (analysis.tags || []).forEach(tag => {
+        tagSet.add(tag);
+        if (!tagCards.has(tag)) {
+          tagCards.set(tag, []);
         }
-        tagCards.get(t).push(a);
+        tagCards.get(tag).push(analysis);
       });
     });
     const tags = Array.from(tagSet).sort().map(tag => {
-      const cards = tagCards.get(tag) || [];
-      const quoteCount = (quotes || []).filter(q => (q.meta?.tags || []).includes(tag)).length;
-      const analysisCount = (analyses || []).filter(a => (a.tags || []).includes(tag)).length;
+      const taggedCards = tagCards.get(tag) || [];
+      const cardCount = (cards || []).filter(card => (card.tags || []).includes(tag)).length;
+      const analysisCount = (analyses || []).filter(analysis => (analysis.tags || []).includes(tag)).length;
       return {
         name: tag,
-        count: quoteCount + analysisCount,
-        grades: getGradeDistribution(cards)
+        count: cardCount + analysisCount,
+        grades: getGradeDistribution(taggedCards)
       };
     });
 
-    // Layers - collect from quotes' hierarchyPath with grade distribution
+    // Layers - collect from each card's deckPath with grade distribution.
+    // Path[0] is the deck itself; path[1..3] are the hierarchy layers.
     const layerMap = new Map(); // layer1 -> { count, cards: [], children: Map(layer2 -> { count, cards: [], children: Map(layer3 -> { count, cards: [] }) }) }
 
-    (quotes || []).forEach(q => {
-      const path = q.meta?.hierarchyPath || [];
+    (cards || []).forEach(card => {
+      const path = Array.isArray(card.deckPath) ? card.deckPath : [];
       const l1 = path[1] || "(None)";
       const l2 = path[2] || "";
       const l3 = path[3] || "";
@@ -5516,7 +5664,7 @@ export async function initMemoryTool(deps, context = {}) {
       }
       const l1Entry = layerMap.get(l1);
       l1Entry.count++;
-      l1Entry.cards.push(q);
+      l1Entry.cards.push(card);
 
       if (l2) {
         if (!l1Entry.children.has(l2)) {
@@ -5524,7 +5672,7 @@ export async function initMemoryTool(deps, context = {}) {
         }
         const l2Entry = l1Entry.children.get(l2);
         l2Entry.count++;
-        l2Entry.cards.push(q);
+        l2Entry.cards.push(card);
 
         if (l3) {
           if (!l2Entry.children.has(l3)) {
@@ -5532,7 +5680,7 @@ export async function initMemoryTool(deps, context = {}) {
           }
           const l3Entry = l2Entry.children.get(l3);
           l3Entry.count++;
-          l3Entry.cards.push(q);
+          l3Entry.cards.push(card);
         }
       }
     });
@@ -5749,7 +5897,10 @@ export async function initMemoryTool(deps, context = {}) {
 
     // Tag check
     if (filter.tags.length > 0) {
-      const cardTags = card.record?.meta?.tags || card.record?.tags || [];
+      const cardTags = [
+        ...(Array.isArray(card.record?.tags) ? card.record.tags : []),
+        ...(Array.isArray(card.record?.meta?.tags) ? card.record.meta.tags : [])
+      ];
       const hasTag = filter.tags.some(t => cardTags.includes(t));
       if (isAND && !hasTag) return false;
       if (!isAND && hasTag) return true;
@@ -5757,7 +5908,11 @@ export async function initMemoryTool(deps, context = {}) {
 
     // Layer check
     if (filter.layers.length > 0) {
-      const path = card.record?.meta?.hierarchyPath || [];
+      const path = Array.isArray(card.record?.deckPath)
+        ? card.record.deckPath
+        : Array.isArray(card.record?.meta?.hierarchyPath)
+          ? card.record.meta.hierarchyPath
+          : [];
       const inLayer = filter.layers.some(l => path.includes(l));
       if (isAND && !inLayer) return false;
       if (!isAND && inLayer) return true;

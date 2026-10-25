@@ -1,4 +1,4 @@
-import { cleanupOldDemoDatabases, initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, addSubject, deleteSubject, renameSubject, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource } from "./db.js";
+import { cleanupOldDemoDatabases, initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, addSubject, deleteSubject, renameSubject, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, syncCardsFromLegacy } from "./db.js";
 import { syncLocalWithCloud, syncToCloud, deleteCloudNode, deleteCloudQuote, deleteCloudCue, fetchCloudNodes, fetchCloudQuotes, fetchCloudCues } from "./sync.js";
 import { initAnalysisToolV2 } from "./tools/analysisTool.js";
 import { dialog } from "./tools/dialog.js";
@@ -104,7 +104,13 @@ const tools = {
       getSubjects,
       getFormattedQuote,
       resolveQuoteInSource,
-      escapeHtml
+      escapeHtml,
+      addCard,
+      getAllCards,
+      getCard,
+      getCardsForDeck,
+      getCardsForQuote,
+      deleteCard
     }, context)
   },
 
@@ -446,6 +452,9 @@ async function deleteSubjectCascadeEverywhere(subjectName) {
     }
   }
 
+  // Cards are the study source of truth, so remove them with the subject.
+  await deleteCardsForDeck(subject);
+
   // Delete quotes (and their cues) for the subject.
   const subjectQuotes = await getQuotesForSubject(subject);
   for (const quote of subjectQuotes || []) {
@@ -657,13 +666,19 @@ async function fetchDemoPayload() {
 }
 
 async function exportDatabaseJson() {
-  const [nodes, quotes, cues] = await Promise.all([getAllNodes(), getAllQuotes(), getAllCues()]);
+  const [nodes, quotes, cues, cards] = await Promise.all([
+    getAllNodes(),
+    getAllQuotes(),
+    getAllCues(),
+    getAllCards()
+  ]);
   const payload = {
     schemaVersion: SCHEMA_VERSION,
     exportedAt: new Date().toISOString(),
     nodes,
     quotes,
-    cues
+    cues,
+    cards
   };
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
@@ -689,13 +704,19 @@ async function importPayload(payload) {
   const nodes = Array.isArray(dataset?.nodes) ? dataset.nodes : [];
   const quotes = Array.isArray(dataset?.quotes) ? dataset.quotes : [];
   const cues = Array.isArray(dataset?.cues) ? dataset.cues : [];
+  const cards = Array.isArray(dataset?.cards) ? dataset.cards : [];
 
   await clearNodes();
   await clearQuotes();
   await clearCues();
+  await clearCards();
   await addNodes(nodes);
   await addQuotes(quotes);
   await addCues(cues);
+  await addCards(cards);
+  // Older exports have no cards. Rebuild them from the legacy pairs so an
+  // imported backup is immediately studyable.
+  await syncCardsFromLegacy();
 
   if (USE_BACKEND && window.currentUser) {
     const [cloudNodes, cloudQuotes, cloudCues] = await Promise.all([
@@ -992,11 +1013,11 @@ async function renderQuickActions() {
   let bestSubject = null;
   let bestDue = 0;
   for (const s of subjects) {
-    const [dueQ, dueA] = await Promise.all([
-      getDueQuotesForSubject(s, { limit: 999 }),
+    const [dueCards, dueA] = await Promise.all([
+      getDueCardsForDeck(s, { limit: 999 }),
       getDueAnalysisNodesForSubject(s, { limit: 999 })
     ]);
-    const total = dueQ.length + dueA.length;
+    const total = dueCards.length + dueA.length;
     if (total > bestDue) { bestDue = total; bestSubject = s; }
   }
   if (bestSubject && bestDue > 0) {
@@ -1120,17 +1141,17 @@ async function renderDueForReview() {
   const rows = [];
 
   for (const s of subjects) {
-    const [dueQ, dueA] = await Promise.all([
-      getDueQuotesForSubject(s, { limit: 999 }),
+    const [dueCards, dueA] = await Promise.all([
+      getDueCardsForDeck(s, { limit: 999 }),
       getDueAnalysisNodesForSubject(s, { limit: 999 })
     ]);
-    const total = dueQ.length + dueA.length;
+    const total = dueCards.length + dueA.length;
     if (total > 0) {
       rows.push(`
         <div class="dash-due-row">
           <span class="dash-due-name">${escapeHtml(s)}</span>
           <div class="dash-due-counts">
-            ${dueQ.length ? `<span><span class="count">${dueQ.length}</span> quotes</span>` : ""}
+            ${dueCards.length ? `<span><span class="count">${dueCards.length}</span> cards</span>` : ""}
             ${dueA.length ? `<span><span class="count">${dueA.length}</span> analyses</span>` : ""}
           </div>
           <button class="dash-due-btn" data-subject="${escapeHtml(s)}">Study</button>
@@ -1664,6 +1685,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     await performMigration(getAllNodes, addNode, addQuote);
   }
 
+  // Cards are the study source of truth. Backfill them from any legacy
+  // quote + cue pairs so existing decks and the legacy deck builder remain
+  // studyable while the rest of the app catches up.
+  await syncCardsFromLegacy();
+
   loadingMessage.textContent = "Authenticating with the cloud...";
   let user;
   if (USE_BACKEND) {
@@ -1682,6 +1708,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     if (user) {
       await syncAfterLogin();
+      await syncCardsFromLegacy();
     }
   } else {
     loadingMessage.textContent = "Loading page content complete!";

@@ -1,6 +1,6 @@
 let db;
 
-const DB_VERSION = 8;
+const DB_VERSION = 9;
 
 function getDBName() {
   return window.DEMO_MODE ? `neuronet-${window.APP_VERSION}` : "neuronet";
@@ -93,6 +93,16 @@ export function initDB() {
       if (!db.objectStoreNames.contains("tags")) {
         const tagStore = db.createObjectStore("tags", { keyPath: "id" });
         tagStore.createIndex("title", "title", { unique: true });
+      }
+
+      if (!db.objectStoreNames.contains("cards")) {
+        const cardStore = db.createObjectStore("cards", { keyPath: "id" });
+        cardStore.createIndex("deck", "deck", { unique: false });
+        cardStore.createIndex("nextReview", "meta.nextReview", { unique: false });
+        cardStore.createIndex("deckNextReview", ["deck", "meta.nextReview"], { unique: false });
+        cardStore.createIndex("quoteId", "links.quoteId", { unique: false });
+        cardStore.createIndex("order", "order", { unique: false });
+        cardStore.createIndex("createdAt", "createdAt", { unique: false });
       }
     };
 
@@ -902,6 +912,455 @@ export function updateCueLinks(cueId, quoteId, analysisId) {
   });
 }
 
+// ========== CARD STORE OPERATIONS ==========
+//
+// Cards are the unit of study. A card owns its front/back, deck/topic, tags,
+// priority, stable order, and SRS state. It may link to a legacy quote/cue or
+// analysis, but those links are optional context; they do not create the card.
+
+function cardStoreExists() {
+  return db && db.objectStoreNames.contains("cards");
+}
+
+function normalizeDeckPath(card = {}) {
+  const rawPath = Array.isArray(card.deckPath)
+    ? card.deckPath
+    : Array.isArray(card.meta?.hierarchyPath)
+      ? card.meta.hierarchyPath
+      : [];
+  let deckPath = rawPath
+    .map((part) => String(part || "").trim())
+    .filter(Boolean);
+  let deck = String(card.deck || card.subject || deckPath[0] || "").trim();
+  if (!deck && deckPath.length > 0) deck = deckPath[0];
+  if (deck && deckPath[0] !== deck) {
+    deckPath = [deck, ...deckPath.filter((part) => part !== deck)];
+  }
+  if (!deckPath.length && deck) deckPath = [deck];
+  return { deck, deckPath };
+}
+
+function normalizeCardTags(tags = []) {
+  return [...new Set(
+    (Array.isArray(tags) ? tags : [])
+      .map((tag) => String(tag || "").trim())
+      .filter((tag) => tag && tag !== "custom-deck")
+  )];
+}
+
+function normalizeCardRecord(card = {}) {
+  const now = Date.now();
+  const { deck, deckPath } = normalizeDeckPath(card);
+  const meta = { ...(card.meta || {}) };
+  // These fields moved out of metadata when cards became first-class.
+  delete meta.tags;
+  delete meta.hierarchyPath;
+  delete meta.deckOrder;
+  if (!Number.isFinite(Number(meta.nextReview))) meta.nextReview = 0;
+  if (!Number.isFinite(Number(meta.interval))) meta.interval = 1;
+  if (!Number.isFinite(Number(meta.ease))) meta.ease = 2.5;
+  if (!Number.isFinite(Number(meta.repetitions))) meta.repetitions = 0;
+  if (!Number.isFinite(Number(meta.confidence))) meta.confidence = 0.8;
+
+  const priority = Number.isFinite(Number(card.priority))
+    ? Math.min(5, Math.max(1, Number(card.priority)))
+    : 3;
+  const order = Number.isFinite(Number(card.order)) ? Number(card.order) : now;
+  const tags = normalizeCardTags([
+    ...(Array.isArray(card.tags) ? card.tags : []),
+    ...(Array.isArray(card.meta?.tags) ? card.meta.tags : [])
+  ]);
+
+  const links = {};
+  if (card.links && typeof card.links === "object") {
+    for (const key of ["quoteId", "cueId", "analysisId", "nodeId", "sourceId"]) {
+      if (card.links[key]) links[key] = card.links[key];
+    }
+  }
+
+  return {
+    ...card,
+    id: card.id || crypto.randomUUID(),
+    type: "card",
+    front: String(card.front || "").trim(),
+    back: String(card.back || "").trim(),
+    deck,
+    deckPath,
+    tags,
+    priority,
+    order,
+    meta,
+    links,
+    origin: card.origin || "manual",
+    createdAt: Number(card.createdAt) || now,
+    updatedAt: Number(card.updatedAt) || now
+  };
+}
+
+function buildFallbackCue(text) {
+  const words = String(text || "").trim().split(/\s+/).filter(Boolean);
+  if (words.length <= 4) return words.join(" ");
+  return `${words[0]} ... ${words[words.length - 1]}`;
+}
+
+export function addCard(card) {
+  return new Promise((resolve, reject) => {
+    if (!db || !cardStoreExists()) {
+      reject(new Error("Cards store not available"));
+      return;
+    }
+
+    const record = normalizeCardRecord(card);
+    if (!record.front || !record.back) {
+      reject(new Error("Card requires both a front and a back"));
+      return;
+    }
+
+    const tx = db.transaction("cards", "readwrite");
+    const req = tx.objectStore("cards").put(record);
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => {
+      emitDBChange({ type: "upsert-card", ids: [record.id] });
+      resolve(record);
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export function addCards(cards) {
+  return new Promise((resolve, reject) => {
+    if (!db || !cardStoreExists()) {
+      resolve([]);
+      return;
+    }
+
+    const records = (cards || [])
+      .map(normalizeCardRecord)
+      .filter((record) => record.front && record.back);
+
+    if (records.length === 0) {
+      resolve([]);
+      return;
+    }
+
+    const tx = db.transaction("cards", "readwrite");
+    const store = tx.objectStore("cards");
+    for (const record of records) store.put(record);
+
+    tx.oncomplete = () => {
+      emitDBChange({ type: "bulk-upsert-card", ids: records.map((record) => record.id) });
+      resolve(records);
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export function getAllCards() {
+  return new Promise((resolve, reject) => {
+    if (!db || !cardStoreExists()) {
+      resolve([]);
+      return;
+    }
+
+    const tx = db.transaction("cards", "readonly");
+    const req = tx.objectStore("cards").getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export function getCard(id) {
+  return new Promise((resolve, reject) => {
+    if (!db || !cardStoreExists()) {
+      resolve(null);
+      return;
+    }
+
+    const tx = db.transaction("cards", "readonly");
+    const req = tx.objectStore("cards").get(id);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export function getCardsForDeck(deck) {
+  return new Promise((resolve, reject) => {
+    if (!db || !cardStoreExists()) {
+      resolve([]);
+      return;
+    }
+
+    const tx = db.transaction("cards", "readonly");
+    const store = tx.objectStore("cards");
+    const req = store.index("deck").getAll(deck);
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export function getDueCardsForDeck(deck, { now = Date.now(), limit = 200 } = {}) {
+  return new Promise((resolve, reject) => {
+    if (!db || !cardStoreExists()) {
+      resolve([]);
+      return;
+    }
+
+    const tx = db.transaction("cards", "readonly");
+    const store = tx.objectStore("cards");
+
+    const scanDeck = () => {
+      const reqAll = store.index("deck").getAll(deck);
+      reqAll.onsuccess = () => {
+        const due = (reqAll.result || []).filter((card) => (card?.meta?.nextReview ?? 0) <= now);
+        resolve(due.slice(0, limit));
+      };
+      reqAll.onerror = () => reject(reqAll.error);
+      tx.onerror = () => reject(tx.error);
+    };
+
+    let index;
+    try {
+      index = store.index("deckNextReview");
+    } catch (error) {
+      scanDeck();
+      return;
+    }
+
+    const range = IDBKeyRange.bound([deck, 0], [deck, now]);
+    const results = [];
+    const req = index.openCursor(range);
+    req.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (!cursor || results.length >= limit) {
+        resolve(results);
+        return;
+      }
+      results.push(cursor.value);
+      cursor.continue();
+    };
+    req.onerror = () => reject(req.error);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export function getCardsForQuote(quoteId) {
+  return new Promise((resolve, reject) => {
+    if (!db || !cardStoreExists()) {
+      resolve([]);
+      return;
+    }
+
+    const tx = db.transaction("cards", "readonly");
+    const req = tx.objectStore("cards").index("quoteId").getAll(quoteId);
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export function deleteCard(id) {
+  return new Promise((resolve, reject) => {
+    if (!db || !cardStoreExists()) {
+      resolve(id);
+      return;
+    }
+
+    const tx = db.transaction("cards", "readwrite");
+    const req = tx.objectStore("cards").delete(id);
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => {
+      emitDBChange({ type: "delete-card", ids: [id] });
+      resolve(id);
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export async function deleteCardsForDeck(deck) {
+  const cards = await getCardsForDeck(deck);
+  for (const card of cards) {
+    await deleteCard(card.id);
+  }
+  return cards.length;
+}
+
+export function clearCards() {
+  return new Promise((resolve, reject) => {
+    if (!db || !cardStoreExists()) {
+      resolve();
+      return;
+    }
+
+    const tx = db.transaction("cards", "readwrite");
+    const req = tx.objectStore("cards").clear();
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => {
+      emitDBChange({ type: "clear", store: "cards" });
+      resolve();
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+/**
+ * Idempotently backfill cards from legacy quote + cue pairs.
+ *
+ * This is the bridge for data created before cards existed and for the legacy
+ * deck builder. It only creates missing cards, and only refreshes content when
+ * the legacy record changed since the last sync. Card-owned SRS is never
+ * overwritten by stale quote metadata.
+ */
+export async function syncCardsFromLegacy({ deck = "" } = {}) {
+  if (!db || !cardStoreExists()) {
+    return { created: 0, updated: 0, skipped: 0, total: 0 };
+  }
+
+  const targetDeck = String(deck || "").trim();
+  const [quotes, cues, cards] = await Promise.all([
+    getAllQuotes(),
+    getAllCues(),
+    getAllCards()
+  ]);
+
+  const cueByQuoteId = new Map();
+  for (const cue of cues || []) {
+    if (cue?.quoteId && !cueByQuoteId.has(cue.quoteId)) {
+      cueByQuoteId.set(cue.quoteId, cue);
+    }
+  }
+
+  const cardByQuoteId = new Map();
+  for (const card of cards || []) {
+    if (card?.links?.quoteId) cardByQuoteId.set(card.links.quoteId, card);
+  }
+
+  const usedOrders = new Map();
+  const maxOrders = new Map();
+  for (const card of cards || []) {
+    const deckName = card?.deck;
+    if (!deckName) continue;
+    if (!usedOrders.has(deckName)) usedOrders.set(deckName, new Set());
+    const order = Number(card.order) || 0;
+    usedOrders.get(deckName).add(order);
+    maxOrders.set(deckName, Math.max(maxOrders.get(deckName) ?? -1, order));
+  }
+
+  const takeOrder = (deckName, preferred) => {
+    if (!usedOrders.has(deckName)) usedOrders.set(deckName, new Set());
+    const used = usedOrders.get(deckName);
+    let next = Number.isFinite(Number(preferred))
+      ? Number(preferred)
+      : (maxOrders.get(deckName) ?? -1) + 1;
+    if (next < 0) next = 0;
+    while (used.has(next)) next += 1;
+    used.add(next);
+    maxOrders.set(deckName, Math.max(maxOrders.get(deckName) ?? -1, next));
+    return next;
+  };
+
+  const toAdd = [];
+  const toUpdate = [];
+  let skipped = 0;
+
+  const sourceQuotes = (quotes || [])
+    .filter((quote) => quote?.id && quote?.subject && String(quote.quote || "").trim())
+    .filter((quote) => !targetDeck || quote.subject === targetDeck)
+    .sort((a, b) => (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0));
+
+  for (const quote of sourceQuotes) {
+    const cue = cueByQuoteId.get(quote.id) || null;
+    const existing = cardByQuoteId.get(quote.id) || null;
+    const legacyTags = Array.isArray(quote.meta?.tags) ? quote.meta.tags : [];
+    const isCustomDeck = legacyTags.includes("custom-deck");
+    const front = String(
+      cue?.cue || (isCustomDeck ? quote.quote : buildFallbackCue(quote.quote)) || ""
+    ).trim();
+    const back = String(quote.quote || "").trim();
+    if (!front || !back) {
+      skipped += 1;
+      continue;
+    }
+
+    const { deck: deckName, deckPath } = normalizeDeckPath({
+      deck: quote.subject,
+      deckPath: quote.meta?.hierarchyPath
+    });
+    if (!deckName) {
+      skipped += 1;
+      continue;
+    }
+
+    const tags = normalizeCardTags([
+      ...legacyTags,
+      ...(Array.isArray(cue?.meta?.tags) ? cue.meta.tags : [])
+    ]);
+    const legacyUpdatedAt = Math.max(
+      Number(quote.updatedAt || 0),
+      Number(cue?.updatedAt || 0),
+      Number(quote.createdAt || 0)
+    );
+    const links = { quoteId: quote.id };
+    if (cue?.id) links.cueId = cue.id;
+    if (quote.link?.sourceId) links.sourceId = quote.link.sourceId;
+
+    if (!existing) {
+      const preferred = Number.isFinite(Number(quote.meta?.deckOrder))
+        ? Number(quote.meta.deckOrder)
+        : null;
+      const order = takeOrder(deckName, preferred);
+      const legacyMeta = { ...(cue?.meta || {}), ...(quote.meta || {}) };
+      toAdd.push({
+        id: `card-${quote.id}`,
+        front,
+        back,
+        deck: deckName,
+        deckPath,
+        tags,
+        priority: quote.priority ?? cue?.priority ?? 3,
+        order,
+        meta: legacyMeta,
+        links,
+        origin: "legacy",
+        legacyUpdatedAt,
+        createdAt: Number(quote.createdAt) || Number(cue?.createdAt) || Date.now(),
+        updatedAt: legacyUpdatedAt || Date.now()
+      });
+    } else if (legacyUpdatedAt > Number(existing.legacyUpdatedAt || 0)) {
+      // The legacy record was edited (usually by the deck builder). Refresh
+      // content, but keep the card's own SRS state and stable order.
+      toUpdate.push({
+        ...existing,
+        front,
+        back,
+        deck: deckName,
+        deckPath,
+        tags: normalizeCardTags([...(existing.tags || []), ...tags]),
+        priority: quote.priority ?? cue?.priority ?? existing.priority,
+        links: { ...(existing.links || {}), ...links },
+        legacyUpdatedAt,
+        updatedAt: Date.now()
+      });
+    }
+  }
+
+  if (toAdd.length > 0) await addCards(toAdd);
+  if (toUpdate.length > 0) await addCards(toUpdate);
+
+  return {
+    created: toAdd.length,
+    updated: toUpdate.length,
+    skipped,
+    total: (cards || []).length + toAdd.length
+  };
+}
+
 // ========== PINNED TOOLS ==========
 
 export async function getPinnedTools() {
@@ -1019,13 +1478,20 @@ export async function setPinnedToolsOrder(toolIds) {
 // ========== SUBJECTS ==========
 
 export async function getSubjects() {
-  const [allNodes, allQuotes] = await Promise.all([getAllNodes(), getAllQuotes()]);
+  const [allNodes, allQuotes, allCards] = await Promise.all([
+    getAllNodes(),
+    getAllQuotes(),
+    getAllCards()
+  ]);
   const subjects = new Set();
   allNodes.forEach(node => {
     if (node.subject) subjects.add(node.subject);
   });
   allQuotes.forEach(quote => {
     if (quote.subject) subjects.add(quote.subject);
+  });
+  allCards.forEach(card => {
+    if (card.deck) subjects.add(card.deck);
   });
   return Array.from(subjects).sort();
 }
@@ -1045,10 +1511,14 @@ export async function addSubject(name) {
 export async function deleteSubject(subjectName) {
   const allNodes = await getAllNodes();
   const allQuotes = await getAllQuotes();
+  const subjectCards = await getCardsForDeck(subjectName);
 
   const subjectNodes = allNodes.filter(n => n.subject === subjectName);
   const subjectQuotes = allQuotes.filter(q => q.subject === subjectName);
 
+  for (const card of subjectCards) {
+    await deleteCard(card.id);
+  }
   for (const node of subjectNodes) {
     await deleteNode(node.id);
   }
@@ -1062,11 +1532,23 @@ export async function deleteSubject(subjectName) {
 export async function renameSubject(oldName, newName) {
   const allNodes = await getAllNodes();
   const allQuotes = await getAllQuotes();
+  const allCards = await getAllCards();
   const now = Date.now();
 
   const subjectNodes = allNodes.filter(n => n.subject === oldName);
   const subjectQuotes = allQuotes.filter(q => q.subject === oldName);
+  const subjectCards = allCards.filter((card) => (
+    card.deck === oldName || (card.deckPath || []).includes(oldName)
+  ));
 
+  for (const card of subjectCards) {
+    await addCard({
+      ...card,
+      deck: card.deck === oldName ? newName : card.deck,
+      deckPath: (card.deckPath || []).map((part) => part === oldName ? newName : part),
+      updatedAt: now
+    });
+  }
   for (const node of subjectNodes) {
     const copy = { ...node };
     copy.subject = newName;
