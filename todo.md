@@ -24,7 +24,7 @@ add task management to neuronet to handle todos
 **Goal:** card-first, discipline-neutral study. A card can exist without a source, quote, excerpt, analysis, or multi-step deck wizard. Analysis is optional context, not the entry point.
 
 ### Shipped / committed
-- Card model committed as `85f4692` (`Make cards the first-class study unit`).
+- Card model committed as `73d5c98` (`Make cards the first-class study unit`).
 - Phase 1 bridge is committed as `bc84565` (`Add card-first Quick Add bridge for Memory`).
 - Quick Add lives in `tools/memory.html` + `src/tools/memoryTool.js`: deck input with suggestions, front/back, priority, tags, Save & Next, Save & Close, bulk paste (`front<TAB>back` or `front | back`), Ctrl/Cmd+Enter.
 - Entry points: dashboard “Make Flashcards”, Memory “Add Cards +”, header “+ Card”, and each deck card’s “+”.
