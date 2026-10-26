@@ -21,46 +21,48 @@ add task management to neuronet to handle todos
 
 ## Agent Work Log — 2026-10-26 (current)
 
-**Goal:** cards are the first-class study unit; knowledge is optional context. Dots is the card-first diagnostic surface for importance, recall, and accuracy. Grid/Cards is next.
+**Goal:** cards are the first-class study unit; knowledge is optional context. Dots and Cards are now card-first diagnostic surfaces for importance, recall, and accuracy. The next slice is the external knowledge-context rail in Memory study.
 
 ### Shipped / committed
 - Card model: `73d5c98` (`Make cards the first-class study unit`), with follow-up docs `7ba7433`, `574df8a`, `969e48d`, and deck-builder guard fix `9e18d88`.
+- Dots card-first slice: `62ed19d` (`Make Dots a card-first diagnostic surface`).
 - `cards` store at DB v9: `id`, `front`, `back`, `deck`, `deckPath`, `tags`, `priority`, `order`, `meta` (SRS), `links`, `origin`, `createdAt`, `updatedAt`. `deck` is a topic, not necessarily a subject.
 - Quick Add writes cards only. Bulk paste accepts tab or pipe separators and stable orders. Manual cards start with `0.8` confidence; bulk imports default to `0.5` with a selectable initial confidence (`0.2`–`0.8`).
 - Memory study queue, grading, priority editing, launchpad counts, middle UI, explorer, dashboard due counts, subject rename/delete, export, and import all use cards.
 - Deck builder is card-aware and preserves card/SRS/tag/order state; legacy quote+cue pairs remain only for Analysis compatibility.
 - JSON export/import is the canonical backup path and includes `cards`. Cloud sync remains legacy/optional with no cards endpoint.
 
-### Dots slice — implemented, uncommitted
+### Dots + Cards slice — Cards uncommitted
 - `getAllCards` is passed into Mindmap and loaded in `refreshData()`.
-- `buildDotSections()` groups cards by deck; `buildCardDotItem()` maps each card to the shared card item shape.
-- `isCardInScope()` and `resolveFocusSubject()` accept decks and any `deckPath` part, so Quick Add-only decks are visible.
+- `buildCardSections()` groups cards by deck and sorts by stable `order`, then `createdAt`; `buildCardItem()` maps a card to the shared item/score shape. Both Dots and Cards use it.
+- `isCardInScope()` and `resolveFocusSubject()` accept decks and any `deckPath` part, so Quick Add-only decks are visible and a card-only focus survives a refresh.
 - Dot anatomy: border = importance; left half = recall; right half = accuracy. Solid five-bin palette (`#ff4d4d`, `#ff8a3d`, `#ffa500`, `#a8d95f`, `#3fd07d`); unknown is `#33443d`. Removed the accuracy arc, type centre pip, tints, and bars.
-- `getItemRecall()` now returns numeric `score` plus label. Resolver: `lastGrade` → `L_phase` → `S`/`U` → `recentGrades` → `confidence` prior.
+- `getItemRecall()` returns numeric `score` plus label. Resolver: `lastGrade` → `L_phase` → `S`/`U` → `recentGrades` → `confidence` prior.
 - `getItemAccuracy()` resolver: `recentGrades` → `meta.accuracy` → `lastGrade` → `confidence` prior; observed grades beat the creation prior.
-- Dots uses stable `order`, then `createdAt`; no performance sorting in the browse view.
-- Legend, hover tooltip, empty state, and Dots stats now describe cards/decks only. Dots stats show scoped card and deck counts.
+- Cards/Grid is now card-first: deck sections, `deckPath` sub-groups, stable order, solid `R`/`A` score chips using the same five bins, importance border, and a tooltip with deck/priority/percentages/tags.
+- Clicking a Grid card opens the shared sidebar with front/back and metadata. The sidebar is read-only for cards: no graph connections, no delete, and **Open in Memory** routes to the deck.
+- Card-mode stats show card/deck counts and hide knowledge-layer pills. Empty states and legends now describe cards.
 - Bulk confidence selector added to Quick Add: default `0.5`, selectable `0.2`, `0.35`, `0.5`, `0.65`, `0.8`; single cards keep `0.8`.
 
 ### Test status
 - Card model: 22/22. Deck builder: 28/28. New deck: 10/10. Bulk Quick Add: 6/6.
 - Dots smoke test: 21/21 (legend anatomy, five bins, no arc/type pip, canvas colours, hover tooltip, deck focus stats).
+- Cards/Grid smoke test: 21/21 (deck sections, `deckPath` groups, solid R/A chips, importance border, legend, card sidebar, focus, card-only focus refresh).
 - Bulk-confidence smoke test: 7/7 (default 50%, selectable 20%, single-card 80%, stable order).
-- Screenshots checked: `/tmp/opencode/dots.png`, `/tmp/opencode/dots-hover.png`, `/tmp/opencode/dots-focused.png`.
+- Screenshots checked: `/tmp/opencode/dots.png`, `/tmp/opencode/dots-hover.png`, `/tmp/opencode/dots-focused.png`, `/tmp/opencode/grid-cards.png`, `/tmp/opencode/grid-card-sidebar.png`, `/tmp/opencode/grid-cards-focused.png`.
 - `node --check` passes for `src/main.js`, `src/tools/mindmapTool.js`, and `src/tools/memoryTool.js`.
 - These are one-off checks in `/tmp/opencode/`, not a test suite.
 
 ### Next steps
-1. **Grid/Cards**: consume the `cards` store with the same card item/score model, deck grouping, and solid score bins; update its legend, tooltip, and empty state.
-2. Add the external knowledge-context rail in Memory study without placing it inside the card face.
-3. Update `../project.md` after each slice. Keep this log replaced, not appended.
-4. Optional later: batch-decreasing bulk confidence and a dim “show knowledge context” toggle in Dots.
+1. Add the external knowledge-context rail in Memory study without placing it inside the card face.
+2. Update `../project.md` after each slice. Keep this log replaced, not appended.
+3. Optional later: batch-decreasing bulk confidence and a dim “show knowledge context” toggle in Dots/Grid.
 
 ### Problems / risks
-- Grid/Cards still reads knowledge-layer records via `GRID_CARD_TYPES`/`getAllItems()`. A Quick Add-only deck is invisible there until the next slice.
+- The card sidebar is intentionally read-only; editing/deleting still lives in Memory.
 - Cloud sync (`src/sync.js`) has no cards endpoint; cards are local-only. JSON export/import is the backup path.
 - Legacy quote/cue records remain by design for source anchoring and Analysis.
 - `custom-deck` can persist in old quote records and some legacy UI until those paths are cleaned up.
-- Dots intentionally omits knowledge context. Context, when added, must stay visually external to the card face.
+- Dots/Grid intentionally omit knowledge context. Context, when added, must stay visually external to the card face.
 
 

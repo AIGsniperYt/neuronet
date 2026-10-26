@@ -539,35 +539,6 @@
   .grid-legend-swatch.swatch-4 { color: #ff9b39; }
   .grid-legend-swatch.swatch-5 { color: #ff4d4d; }
 
-  .grid-legend-chip,
-  .grid-legend-badge {
-    font-size: var(--text-xs, 0.82rem);
-    font-weight: 600;
-    padding: 2px 7px;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    color: rgba(230, 255, 245, 0.66);
-    background: rgba(255, 255, 255, 0.03);
-  }
-
-  .grid-legend-chip.recall-strong {
-    color: #2cffb3;
-    border-color: rgba(44, 255, 179, 0.3);
-    background: rgba(44, 255, 179, 0.09);
-  }
-
-  .grid-legend-chip.recall-medium {
-    color: #ffd166;
-    border-color: rgba(255, 209, 102, 0.3);
-    background: rgba(255, 209, 102, 0.08);
-  }
-
-  .grid-legend-chip.recall-weak {
-    color: #ff6b6b;
-    border-color: rgba(255, 107, 107, 0.3);
-    background: rgba(255, 107, 107, 0.08);
-  }
-
   /* Dots view */
   .mindmap-dots-legend {
     position: absolute;
@@ -777,7 +748,6 @@
 
   .mindmap-grid-card {
     --importance-color: rgba(255, 255, 255, 0.14);
-    --recall-fill: rgba(255, 255, 255, 0.025);
     position: relative;
     display: flex;
     flex-direction: column;
@@ -787,7 +757,7 @@
     border: 1px solid rgba(255, 255, 255, 0.075);
     border-left: 3px solid var(--importance-color);
     border-radius: 10px;
-    background: linear-gradient(135deg, var(--recall-fill), rgba(10, 30, 22, 0.88) 62%);
+    background: rgba(10, 30, 22, 0.88);
     color: var(--text-main);
     text-align: left;
     font: inherit;
@@ -817,20 +787,6 @@
     outline-offset: 2px;
   }
 
-  .mindmap-grid-card.recall-strong { --recall-fill: rgba(44, 255, 179, 0.1); }
-  .mindmap-grid-card.recall-medium { --recall-fill: rgba(255, 209, 102, 0.1); }
-  .mindmap-grid-card.recall-weak { --recall-fill: rgba(255, 107, 107, 0.1); }
-  .mindmap-grid-card.recall-unknown { --recall-fill: rgba(255, 255, 255, 0.025); }
-
-  .mindmap-grid-card.is-context {
-    opacity: 0.84;
-  }
-
-  .mindmap-grid-card.is-context:hover,
-  .mindmap-grid-card.is-context.selected {
-    opacity: 1;
-  }
-
   .mindmap-grid-card-top {
     display: flex;
     align-items: center;
@@ -854,36 +810,21 @@
     white-space: nowrap;
   }
 
-  .mindmap-grid-accuracy {
-    margin-left: auto;
+  .mindmap-grid-score {
+    --score-color: #33443d;
     flex: 0 0 auto;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: var(--score-color);
+    color: #07120d;
     font-size: var(--text-xs, 0.82rem);
-    font-weight: 600;
+    font-weight: 700;
     letter-spacing: 0;
     text-transform: none;
-    padding: 2px 6px;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    color: rgba(230, 255, 245, 0.66);
-    background: rgba(255, 255, 255, 0.03);
   }
 
-  .mindmap-grid-accuracy.high {
-    color: #2cffb3;
-    border-color: rgba(44, 255, 179, 0.3);
-    background: rgba(44, 255, 179, 0.09);
-  }
-
-  .mindmap-grid-accuracy.mid {
-    color: #ffd166;
-    border-color: rgba(255, 209, 102, 0.3);
-    background: rgba(255, 209, 102, 0.08);
-  }
-
-  .mindmap-grid-accuracy.low {
-    color: #ff6b6b;
-    border-color: rgba(255, 107, 107, 0.3);
-    background: rgba(255, 107, 107, 0.08);
+  .mindmap-grid-score.is-unknown {
+    color: rgba(230, 255, 245, 0.62);
   }
 
   .mindmap-grid-card-title {
@@ -1493,7 +1434,7 @@
     <canvas id="mindmapCanvas"></canvas>
 
     <div id="mindmapGridView" class="mindmap-grid-view" hidden>
-      <div class="mindmap-grid-legend" aria-label="Grid signal legend">
+      <div class="mindmap-grid-legend" aria-label="Cards signal legend">
         <div class="grid-legend-group">
           <span class="grid-legend-title">Border</span>
           <span class="grid-legend-swatch swatch-1" title="Priority 1"></span>
@@ -1503,19 +1444,17 @@
           <span class="grid-legend-swatch swatch-5" title="Priority 5"></span>
           <span class="grid-legend-note">importance</span>
         </div>
-        <div class="grid-legend-group">
-          <span class="grid-legend-title">Fill</span>
-          <span class="grid-legend-chip recall-strong">Strong</span>
-          <span class="grid-legend-chip recall-medium">Partial</span>
-          <span class="grid-legend-chip recall-weak">Weak</span>
-          <span class="grid-legend-note">recall</span>
+        <div class="grid-legend-group dots-score-legend">
+          <span class="grid-legend-title">Score</span>
+          <span class="dots-score-bin score-0"><span class="dots-score-swatch"></span>0–20%</span>
+          <span class="dots-score-bin score-1"><span class="dots-score-swatch"></span>20–40%</span>
+          <span class="dots-score-bin score-2"><span class="dots-score-swatch"></span>40–60%</span>
+          <span class="dots-score-bin score-3"><span class="dots-score-swatch"></span>60–80%</span>
+          <span class="dots-score-bin score-4"><span class="dots-score-swatch"></span>80–100%</span>
+          <span class="dots-score-bin score-unknown"><span class="dots-score-swatch"></span>No data</span>
+          <span class="grid-legend-note">recall / accuracy</span>
         </div>
-        <div class="grid-legend-group">
-          <span class="grid-legend-title">Badge</span>
-          <span class="grid-legend-badge">70%</span>
-          <span class="grid-legend-note">accuracy</span>
-        </div>
-        <span class="grid-legend-note">— = no data yet</span>
+        <span class="grid-legend-note">R = recall · A = accuracy · — = no data · hover a card for exact values</span>
       </div>
       <div id="mindmapGrid" class="mindmap-grid"></div>
     </div>

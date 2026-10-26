@@ -139,15 +139,6 @@ const state = {
     }
   };
 
-  const GRID_CARD_TYPES = new Set(["analysis", "quote", "cue", "source", "pastpaper"]);
-  const GRID_TYPE_ORDER = { analysis: 0, quote: 1, cue: 2, source: 3, pastpaper: 4 };
-  const GRID_TYPE_LABELS = {
-    analysis: "Analysis",
-    quote: "Quote",
-    cue: "Cue",
-    source: "Source",
-    pastpaper: "Past paper"
-  };
   const GRID_IMPORTANCE_COLORS = {
     1: "#9aa4ad",
     2: "#4ba3ff",
@@ -467,6 +458,7 @@ const state = {
       case "cue": return "🎯";
       case "tag": return "🏷️";
       case "pastpaper": return "✅";
+      case "card": return "▣";
       default: return "●";
     }
   }
@@ -476,6 +468,9 @@ const state = {
   }
 
   function getNodeDisplayTitle(node) {
+    if (node.type === "card") {
+      return String(node.front || "").trim() || "Untitled Card";
+    }
     if (node.type === "quote") {
       const text = node.quote || "";
       return text.substring(0, 40) + (text.length > 40 ? "..." : "") || "Untitled Quote";
@@ -509,6 +504,7 @@ const state = {
   }
 
   function getNodePreview(node, maxLength = 150) {
+    if (node.type === "card") return node.back || "";
     if (node.type === "quote") return node.quote || "";
     if (node.type === "analysis") return node.analysis || "";
     if (node.type?.startsWith("layer")) return (node?.meta?.layerPath || []).join(" > ") || "";
@@ -519,6 +515,13 @@ const state = {
   }
 
   function getNodeFullContent(node) {
+    if (node.type === "card") {
+      const front = String(node.front || "").trim();
+      const back = String(node.back || "").trim();
+      return [front ? `Front\n${front}` : "", back ? `Back\n${back}` : ""]
+        .filter(Boolean)
+        .join("\n\n");
+    }
     if (node.type === "quote") return node.quote || "";
     if (node.type === "analysis") return node.analysis || "";
     if (node.type?.startsWith("layer")) return (node?.meta?.layerPath || []).join(" > ") || "";
@@ -631,12 +634,23 @@ const state = {
 
     push("id", node.id);
     push("type", node.type);
-    push("subject", node.subject);
+    if (node.type !== "card") push("subject", node.subject);
 
     const createdAt = formatTimestamp(node.createdAt);
     const updatedAt = formatTimestamp(node.updatedAt);
     if (createdAt) push("createdAt", createdAt);
     if (updatedAt) push("updatedAt", updatedAt);
+
+    if (node.type === "card") {
+      push("deck", node.deck);
+      if (Array.isArray(node.deckPath) && node.deckPath.length) {
+        push("deckPath", node.deckPath.join(" > "));
+      }
+      push("priority", node.priority);
+      push("order", node.order);
+      push("origin", node.origin);
+      if (Array.isArray(node.tags) && node.tags.length) push("tags", node.tags.join(", "));
+    }
 
     if (node.type === "quote") {
       if (node.link?.sourceId) push("link.sourceId", node.link.sourceId);
@@ -972,31 +986,13 @@ const state = {
     };
   }
 
-  function buildGridCard(item) {
-    const priority = getItemPriority(item);
-    const recall = getItemRecall(item);
-    const accuracy = getItemAccuracy(item);
-    const tags = getGridTags(item);
-    const preview = String(getNodePreview(item, 260) || "").replace(/\s+/g, " ").trim();
-
-    return {
-      id: item.id,
-      type: item.type,
-      typeLabel: GRID_TYPE_LABELS[item.type] || String(item.type || "node"),
-      icon: getNodeTypeIcon(item.type),
-      title: getNodeDisplayTitle(item),
-      preview,
-      priority,
-      recall,
-      accuracy,
-      tags
-    };
-  }
-
-  function buildCardDotItem(card) {
+  function buildCardItem(card) {
     const front = String(card?.front || "").trim();
     const back = String(card?.back || "").trim();
     const deck = String(card?.deck || "").trim() || "Unsorted";
+    const deckPath = (Array.isArray(card?.deckPath) ? card.deckPath : [])
+      .map((part) => String(part || "").trim())
+      .filter(Boolean);
 
     return {
       id: card.id,
@@ -1010,48 +1006,67 @@ const state = {
       accuracy: getItemAccuracy(card),
       tags: getGridTags(card),
       deck,
-      deckPath: Array.isArray(card?.deckPath) ? card.deckPath : [],
+      deckPath,
       order: Number.isFinite(Number(card?.order)) ? Number(card.order) : 0,
       createdAt: Number(card?.createdAt) || 0
     };
   }
 
-  function buildGridData() {
-    const subjectMap = new Map();
+  function compareCardBrowseOrder(a, b) {
+    const orderDelta = a.order - b.order;
+    if (orderDelta !== 0) return orderDelta;
+    const createdDelta = a.createdAt - b.createdAt;
+    if (createdDelta !== 0) return createdDelta;
+    return a.title.localeCompare(b.title);
+  }
 
-    getAllItems().forEach((item) => {
-      if (!GRID_CARD_TYPES.has(item?.type)) return;
-      if (!isNodeInScope(item.id)) return;
+  function buildCardSections() {
+    const deckMap = new Map();
 
-      const subject = getItemSubject(item) || "Unsorted";
-      const parts = getItemLayerParts(item);
-      const groupName = parts.l1 || (item.type === "pastpaper" ? "Past Papers" : "Unsorted");
-
-      if (!subjectMap.has(subject)) subjectMap.set(subject, new Map());
-      const groupMap = subjectMap.get(subject);
-      if (!groupMap.has(groupName)) groupMap.set(groupName, []);
-      groupMap.get(groupName).push(buildGridCard(item));
+    (state.cards || []).forEach((card) => {
+      if (!card?.id || !isCardInScope(card)) return;
+      const deck = String(card.deck || "").trim() || "Unsorted";
+      if (!deckMap.has(deck)) deckMap.set(deck, []);
+      deckMap.get(deck).push(buildCardItem(card));
     });
 
-    return Array.from(subjectMap.entries())
-      .map(([subject, groupMap]) => {
-        const groups = Array.from(groupMap.entries())
-          .map(([name, cards]) => {
-            cards.sort((a, b) => {
-              const typeDelta = (GRID_TYPE_ORDER[a.type] ?? 9) - (GRID_TYPE_ORDER[b.type] ?? 9);
-              if (typeDelta !== 0) return typeDelta;
-              const priorityDelta = (b.priority || 0) - (a.priority || 0);
-              if (priorityDelta !== 0) return priorityDelta;
-              return a.title.localeCompare(b.title);
-            });
-            return { name, cards };
-          })
-          .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
-
-        const count = groups.reduce((sum, group) => sum + group.cards.length, 0);
-        return { subject, groups, count };
+    return Array.from(deckMap.entries())
+      .map(([deck, cards]) => {
+        // Stable creation order is the default. Performance sorting belongs to
+        // the study queue, not this browse view.
+        cards.sort(compareCardBrowseOrder);
+        return { deck, cards, count: cards.length };
       })
-      .sort((a, b) => a.subject.localeCompare(b.subject, undefined, { sensitivity: "base" }));
+      .sort((a, b) => a.deck.localeCompare(b.deck, undefined, { sensitivity: "base" }));
+  }
+
+  function buildGridData() {
+    return buildCardSections().map((section) => {
+      // Deck sections are the primary grouping. When a deck carries a deeper
+      // deckPath, preserve that hierarchy as sub-groups instead of flattening it.
+      const groupMap = new Map();
+      section.cards.forEach((card) => {
+        const subPath = card.deckPath.slice(1).join(" › ");
+        const groupName = subPath || "Cards";
+        if (!groupMap.has(groupName)) groupMap.set(groupName, []);
+        groupMap.get(groupName).push(card);
+      });
+
+      const groups = Array.from(groupMap.entries())
+        .map(([name, cards]) => ({ name, cards }))
+        .sort((a, b) => {
+          if (a.name === "Cards") return -1;
+          if (b.name === "Cards") return 1;
+          return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+        });
+
+      return {
+        deck: section.deck,
+        groups,
+        showGroupHeads: groups.length > 1 || (groups[0] && groups[0].name !== "Cards"),
+        count: section.count
+      };
+    });
   }
 
   function syncGridSelection() {
@@ -1064,16 +1079,16 @@ const state = {
   function renderGrid() {
     if (!gridContainer) return;
 
-    const subjects = buildGridData();
+    const decks = buildGridData();
     updateStats();
 
-    if (!subjects.length) {
+    if (!decks.length) {
       const message = state.focusSubject
-        ? `No knowledge cards in ${state.focusSubject} yet. Add a quote, analysis, cue, or source to grow this subject.`
-        : "No knowledge cards yet. Add sources, quotes, analyses, or cues to fill the grid.";
+        ? `No cards in ${state.focusSubject} yet. Add cards in Memory or Quick Add to fill this deck.`
+        : "No cards yet. Add cards in Memory or Quick Add to fill the grid.";
       gridContainer.innerHTML = `
         <div class="mindmap-grid-empty">
-          <div class="mindmap-grid-empty-icon" aria-hidden="true">🕸️</div>
+          <div class="mindmap-grid-empty-icon" aria-hidden="true">🃏</div>
           <p>${escapeHtml(message)}</p>
         </div>
       `;
@@ -1081,20 +1096,23 @@ const state = {
     }
 
     let cardIndex = 0;
-    const html = subjects.map((section, subjectIndex) => {
+    const html = decks.map((section, sectionIndex) => {
       const groups = section.groups.map((group) => {
         const cards = group.cards.map((card) => {
           const importanceColor = card.priority
             ? GRID_IMPORTANCE_COLORS[card.priority]
             : "rgba(255, 255, 255, 0.14)";
-          const accuracyClass = card.accuracy === null
-            ? ""
-            : card.accuracy >= 0.75
-              ? "high"
-              : card.accuracy >= 0.5
-                ? "mid"
-                : "low";
-          const accuracyLabel = card.accuracy === null ? "—" : `${Math.round(card.accuracy * 100)}%`;
+          const recallScore = card.recall?.score;
+          const accuracyScore = card.accuracy;
+          const recallBin = getScoreBin(recallScore);
+          const accuracyBin = getScoreBin(accuracyScore);
+          const recallLabel = recallScore === null || recallScore === undefined
+            ? "—"
+            : `${Math.round(recallScore * 100)}%`;
+          const accuracyLabel = accuracyScore === null || accuracyScore === undefined
+            ? "—"
+            : `${Math.round(accuracyScore * 100)}%`;
+          const recallPrior = card.recall?.source === "prior" ? " prior" : "";
           const tagChips = card.tags
             .slice(0, 3)
             .map((tag) => `<span class="mindmap-grid-tag">#${escapeHtml(tag)}</span>`)
@@ -1106,26 +1124,30 @@ const state = {
           cardIndex += 1;
           const isSelected = state.selectedNodeId === card.id;
           const titleAttr = [
-            card.typeLabel,
+            card.deck,
             card.priority ? `Priority ${card.priority}` : "No priority data",
-            card.accuracy !== null ? `${accuracyLabel} accuracy` : "No accuracy data",
-            card.recall.level !== "unknown"
-              ? `${card.recall.label} recall${card.recall.derived ? " (linked quotes)" : ""}`
-              : "No recall data"
-          ].join(" · ");
+            recallScore === null || recallScore === undefined
+              ? "No recall data"
+              : `${recallLabel} recall${recallPrior}`,
+            accuracyScore === null || accuracyScore === undefined
+              ? "No accuracy data"
+              : `${accuracyLabel} accuracy`,
+            card.tags.length ? card.tags.map((tag) => `#${tag}`).join(" ") : ""
+          ].filter(Boolean).join(" · ");
 
           return `
-            <button type="button" class="mindmap-grid-card recall-${card.recall.level}${card.type === "source" || card.type === "pastpaper" ? " is-context" : ""}${isSelected ? " selected" : ""}" data-node-id="${escapeHtml(card.id)}" style="--importance-color: ${importanceColor}; animation-delay: ${delay}ms" title="${escapeHtml(titleAttr)}">
+            <button type="button" class="mindmap-grid-card${isSelected ? " selected" : ""}" data-node-id="${escapeHtml(card.id)}" style="--importance-color: ${importanceColor}; animation-delay: ${delay}ms" title="${escapeHtml(titleAttr)}">
               <span class="mindmap-grid-card-top">
                 <span class="mindmap-grid-card-icon" aria-hidden="true">${card.icon}</span>
                 <span class="mindmap-grid-card-type">${escapeHtml(card.typeLabel)}</span>
-                <span class="mindmap-grid-accuracy ${accuracyClass}">${accuracyLabel}</span>
+                ${card.priority ? `<span class="mindmap-grid-priority">P${card.priority}</span>` : ""}
               </span>
               <span class="mindmap-grid-card-title">${escapeHtml(card.title)}</span>
               ${card.preview ? `<span class="mindmap-grid-card-preview">${escapeHtml(card.preview)}</span>` : ""}
               <span class="mindmap-grid-card-footer">
+                <span class="mindmap-grid-score${recallBin.index === -1 ? " is-unknown" : ""}" style="--score-color: ${recallBin.color}" title="Recall ${escapeHtml(recallLabel)}${escapeHtml(recallPrior)}">R ${recallLabel}</span>
+                <span class="mindmap-grid-score${accuracyBin.index === -1 ? " is-unknown" : ""}" style="--score-color: ${accuracyBin.color}" title="Accuracy ${escapeHtml(accuracyLabel)}">A ${accuracyLabel}</span>
                 ${tagChips}${tagOverflow}
-                ${card.priority ? `<span class="mindmap-grid-priority">P${card.priority}</span>` : ""}
               </span>
             </button>
           `;
@@ -1133,21 +1155,24 @@ const state = {
 
         return `
           <div class="mindmap-grid-group">
-            <div class="mindmap-grid-group-head">
-              ${escapeHtml(group.name)}
-              <span class="mindmap-grid-group-count">${group.cards.length}</span>
-            </div>
+            ${section.showGroupHeads
+              ? `<div class="mindmap-grid-group-head">${escapeHtml(group.name)}<span class="mindmap-grid-group-count">· ${group.cards.length}</span></div>`
+              : ""}
             <div class="mindmap-grid-cards">${cards}</div>
           </div>
         `;
       }).join("");
 
+      const groupMeta = section.showGroupHeads
+        ? ` · ${section.groups.length} group${section.groups.length === 1 ? "" : "s"}`
+        : "";
+
       return `
-        <section class="mindmap-grid-subject" style="animation-delay: ${Math.min(subjectIndex * 40, 200)}ms">
+        <section class="mindmap-grid-subject" style="animation-delay: ${Math.min(sectionIndex * 40, 200)}ms">
           <header class="mindmap-grid-subject-head">
             <span class="mindmap-grid-subject-dot" aria-hidden="true"></span>
-            <h3>${escapeHtml(section.subject)}</h3>
-            <span class="mindmap-grid-subject-meta">${section.count} card${section.count === 1 ? "" : "s"} · ${section.groups.length} group${section.groups.length === 1 ? "" : "s"}</span>
+            <h3>${escapeHtml(section.deck)}</h3>
+            <span class="mindmap-grid-subject-meta">${section.count} card${section.count === 1 ? "" : "s"}${groupMeta}</span>
           </header>
           ${groups}
         </section>
@@ -1155,32 +1180,6 @@ const state = {
     }).join("");
 
     gridContainer.innerHTML = html;
-  }
-
-  function buildDotSections() {
-    const deckMap = new Map();
-
-    (state.cards || []).forEach((card) => {
-      if (!card?.id || !isCardInScope(card)) return;
-      const deck = String(card.deck || "").trim() || "Unsorted";
-      if (!deckMap.has(deck)) deckMap.set(deck, []);
-      deckMap.get(deck).push(buildCardDotItem(card));
-    });
-
-    return Array.from(deckMap.entries())
-      .map(([deck, cards]) => {
-        // Stable creation order is the default. Performance sorting belongs to
-        // the study queue, not this browse view.
-        cards.sort((a, b) => {
-          const orderDelta = a.order - b.order;
-          if (orderDelta !== 0) return orderDelta;
-          const createdDelta = a.createdAt - b.createdAt;
-          if (createdDelta !== 0) return createdDelta;
-          return a.title.localeCompare(b.title);
-        });
-        return { deck, cards, count: cards.length };
-      })
-      .sort((a, b) => a.deck.localeCompare(b.deck, undefined, { sensitivity: "base" }));
   }
 
   function groupCardsByType(cards) {
@@ -1233,7 +1232,7 @@ const state = {
     if (!canvas) return;
 
     const { width, height } = syncCanvasSize();
-    const sections = buildDotSections();
+    const sections = buildCardSections();
     const previousLayout = state.dotsLayout;
     const previousPositions = getDotsDisplayPositions(performance.now(), previousLayout, state.dotAnim);
     const legendHeight = dotsLegend && !dotsLegend.hidden ? dotsLegend.offsetHeight + 10 : 6;
@@ -1680,6 +1679,7 @@ const state = {
     if (mode !== "dots") state.dotAnim = null;
 
     if (mode === "grid" || mode === "dots") {
+      updateEmptyState();
       if (state.isConnecting) {
         state.isConnecting = false;
         state.connectingSourceId = null;
@@ -1701,8 +1701,12 @@ const state = {
   function renderSidebar(selectedItem) {
     if (!selectedItem) return;
 
+    const isCard = selectedItem.type === "card";
     sidebarTitle.textContent = getNodeDisplayTitle(selectedItem);
     sidebarType.innerHTML = `<span>${getNodeTypeIcon(selectedItem.type)}</span> ${selectedItem.type.charAt(0).toUpperCase() + selectedItem.type.slice(1)}`;
+
+    if (editNodeBtn) editNodeBtn.textContent = isCard ? "Open in Memory" : "Edit";
+    if (deleteNodeBtn) deleteNodeBtn.hidden = isCard;
 
     const isMeta = state.sidebarView === "metadata";
     if (sidebarContentLabel) sidebarContentLabel.textContent = isMeta ? "Metadata" : "Content";
@@ -1735,43 +1739,52 @@ const state = {
       metaContent.textContent = formatMetadataHumanReadable(selectedItem);
     }
 
-    // Render Connections
+    // Render Connections. Cards are not part of the knowledge graph, so hide
+    // the section entirely instead of leaving a stale previous selection.
+    const connectionsContainer = document.getElementById("connectionsContainer");
     const connectionsItems = document.getElementById("connectionsItems");
     const connectionCount = document.getElementById("connectionCount");
     const graphNode = state.graph.nodes.get(selectedItem.id);
 
-    if (connectionsItems && connectionCount && graphNode) {
-      const neighbors = Array.from(graphNode.connections);
-      connectionCount.textContent = neighbors.length;
-      connectionsItems.innerHTML = "";
+    if (connectionsContainer) connectionsContainer.hidden = !graphNode;
 
-      neighbors.forEach(neighborId => {
-        const neighbor = findItemById(neighborId);
-        if (!neighbor) return;
+    if (connectionsItems && connectionCount) {
+      if (!graphNode) {
+        connectionCount.textContent = "0";
+        connectionsItems.innerHTML = "";
+      } else {
+        const neighbors = Array.from(graphNode.connections);
+        connectionCount.textContent = neighbors.length;
+        connectionsItems.innerHTML = "";
 
-        const itemEl = document.createElement("div");
-        itemEl.className = "connection-item";
-        itemEl.innerHTML = `
-          <div class="connection-info">
-            <span>${getNodeTypeIcon(neighbor.type)}</span>
-            <span class="connection-name">${getNodeDisplayTitle(neighbor)}</span>
-          </div>
-          <button class="btn-break" title="Break Connection" data-target-id="${neighborId}">&times;</button>
-        `;
+        neighbors.forEach(neighborId => {
+          const neighbor = findItemById(neighborId);
+          if (!neighbor) return;
 
-        itemEl.querySelector(".btn-break").addEventListener("click", async (e) => {
-          e.stopPropagation();
-          if (await dialog.confirm(`Break connection to "${getNodeDisplayTitle(neighbor)}"?`)) {
-            breakLink(selectedItem.id, neighborId);
-          }
+          const itemEl = document.createElement("div");
+          itemEl.className = "connection-item";
+          itemEl.innerHTML = `
+            <div class="connection-info">
+              <span>${getNodeTypeIcon(neighbor.type)}</span>
+              <span class="connection-name">${getNodeDisplayTitle(neighbor)}</span>
+            </div>
+            <button class="btn-break" title="Break Connection" data-target-id="${neighborId}">&times;</button>
+          `;
+
+          itemEl.querySelector(".btn-break").addEventListener("click", async (e) => {
+            e.stopPropagation();
+            if (await dialog.confirm(`Break connection to "${getNodeDisplayTitle(neighbor)}"?`)) {
+              breakLink(selectedItem.id, neighborId);
+            }
+          });
+
+          itemEl.addEventListener("click", () => {
+            openNodeSidebar(neighborId);
+          });
+
+          connectionsItems.appendChild(itemEl);
         });
-
-        itemEl.addEventListener("click", () => {
-          openNodeSidebar(neighborId);
-        });
-
-        connectionsItems.appendChild(itemEl);
-      });
+      }
     }
 
     // Render Tags
@@ -1789,19 +1802,32 @@ const state = {
       sidebarContent.appendChild(tagsContainer);
     }
 
-    const tags = item.meta?.tags || [];
+    const isCard = item.type === "card";
+    const tags = isCard
+      ? (Array.isArray(item.tags) ? item.tags : [])
+      : (item.meta?.tags || []);
+
+    if (isCard && !tags.length) {
+      tagsContainer.hidden = true;
+      tagsContainer.innerHTML = "";
+      return;
+    }
+    tagsContainer.hidden = false;
+
     tagsContainer.innerHTML = `
       <div class="tags-header">Tags</div>
       <div class="tags-list">
         ${tags.map(tag => `
           <div class="tag-pill">
-            <span>${tag}</span>
-            <button class="tag-remove" data-tag="${tag}">&times;</button>
+            <span>${escapeHtml(tag)}</span>
+            ${isCard ? "" : `<button class="tag-remove" data-tag="${escapeHtml(tag)}">&times;</button>`}
           </div>
         `).join("")}
-        <button id="addTagBtn" class="tag-add-pill">+ Add Tag</button>
+        ${isCard ? "" : `<button id="addTagBtn" class="tag-add-pill">+ Add Tag</button>`}
       </div>
     `;
+
+    if (isCard) return;
 
     tagsContainer.querySelectorAll(".tag-remove").forEach(btn => {
       btn.addEventListener("click", (e) => {
@@ -2425,7 +2451,14 @@ const state = {
   }
 
   function findItemById(id) {
-    return getAllItems().find(item => item.id === id);
+    const item = getAllItems().find((entry) => entry.id === id);
+    if (item) return item;
+
+    // Grid cards are card-first now, so the sidebar must be able to resolve a
+    // card id that never appears in the knowledge graph.
+    const card = (state.cards || []).find((entry) => entry.id === id);
+    if (!card) return undefined;
+    return { ...card, type: "card", subject: card.deck || "" };
   }
 
   function transformPoint(x, y) {
@@ -2803,6 +2836,8 @@ const state = {
 
     const selectedItem = findItemById(state.selectedNodeId);
     if (!selectedItem) return;
+    // Cards are managed in Memory; the grid sidebar is read-only for them.
+    if (selectedItem.type === "card") return;
 
     const message = selectedItem.type?.startsWith("layer")
       ? "Delete this layer and everything inside it? (All sources + their quotes + any now-empty analyses will be removed.)"
@@ -2854,36 +2889,59 @@ const state = {
     const cueItems = (state.cues || []).filter((item) => isNodeInScope(item.id));
     const tagItems = (state.tags || []).filter((item) => isNodeInScope(item.id));
     const scopedCards = (state.cards || []).filter(isCardInScope);
-    const dotsMode = state.viewMode === "dots";
+    const cardMode = state.viewMode === "dots" || state.viewMode === "grid";
+
+    const setLabel = (element, text) => {
+      const label = element?.parentElement?.querySelector(".stat-label");
+      if (label) label.textContent = text;
+    };
+    const setPillVisible = (element, visible) => {
+      if (element?.parentElement) element.parentElement.style.display = visible ? "flex" : "none";
+    };
 
     if (totalNodes) {
-      totalNodes.textContent = dotsMode
+      totalNodes.textContent = cardMode
         ? scopedCards.length
         : nodeItems.length + quoteItems.length + cueItems.length + tagItems.length;
+      setLabel(totalNodes, cardMode ? "Cards" : "Total");
     }
     if (totalSubjects) {
-      totalSubjects.textContent = dotsMode
-        ? new Set(scopedCards.map((card) => String(card.deck || "").trim()).filter(Boolean)).size
+      totalSubjects.textContent = cardMode
+        ? new Set(scopedCards.map((card) => String(card.deck || "").trim() || "Unsorted")).size
         : nodeItems.filter(i => i.type === "subject").length;
+      setLabel(totalSubjects, cardMode ? "Decks" : "Subjects");
     }
-    if (totalSources) totalSources.textContent = nodeItems.filter(i => i.type === "source").length;
-    if (totalQuotes) totalQuotes.textContent = quoteItems.length;
-    if (totalAnalyses) totalAnalyses.textContent = nodeItems.filter(i => i.type === "analysis").length;
+
+    if (totalSources) {
+      totalSources.textContent = nodeItems.filter(i => i.type === "source").length;
+      setPillVisible(totalSources, !cardMode);
+    }
+    if (totalQuotes) {
+      totalQuotes.textContent = quoteItems.length;
+      setPillVisible(totalQuotes, !cardMode);
+    }
+    if (totalAnalyses) {
+      totalAnalyses.textContent = nodeItems.filter(i => i.type === "analysis").length;
+      setPillVisible(totalAnalyses, !cardMode);
+    }
     if (totalCues) {
       const cueCount = cueItems.length;
       totalCues.textContent = cueCount;
-      totalCues.parentElement.style.display = cueCount > 0 ? "flex" : "none";
+      setPillVisible(totalCues, !cardMode && cueCount > 0);
     }
     if (totalTags) {
       const tagCount = tagItems.length;
       totalTags.textContent = tagCount;
-      totalTags.parentElement.style.display = tagCount > 0 ? "flex" : "none";
+      setPillVisible(totalTags, !cardMode && tagCount > 0);
     }
 
     const connections = state.graph.edges.filter((edge) =>
       isNodeInScope(edge.from) && isNodeInScope(edge.to)
     );
-    if (totalConnections) totalConnections.textContent = connections.length;
+    if (totalConnections) {
+      totalConnections.textContent = connections.length;
+      setPillVisible(totalConnections, !cardMode);
+    }
   }
 
   async function refreshData() {
@@ -2908,8 +2966,10 @@ const state = {
     buildGraph();
 
     // A focused subject that was deleted (or renamed away) falls back to the
-    // global map rather than leaving an empty canvas.
-    if (hadFocus && state.focusSubject && state.scopeNodeIds.size === 0) {
+    // global map rather than leaving an empty canvas. Card-only decks are a
+    // valid scope even when they have no knowledge-layer nodes.
+    const hasScopedCards = (state.cards || []).some(isCardInScope);
+    if (hadFocus && state.focusSubject && state.scopeNodeIds.size === 0 && !hasScopedCards) {
       state.focusSubject = null;
       recomputeScope();
     }
@@ -3297,6 +3357,15 @@ const state = {
           const selectedItem = findItemById(state.selectedNodeId);
           if (selectedItem) {
             closeSidebar();
+            if (selectedItem.type === "card") {
+              window.dispatchEvent(new CustomEvent("neuronet-open-tool", {
+                detail: {
+                  tool: "memory",
+                  subject: String(selectedItem.deck || contextSubject || "").trim()
+                }
+              }));
+              return;
+            }
             window.dispatchEvent(new CustomEvent("neuronet-open-tool", {
               detail: (() => {
                 const subject = String(selectedItem.subject || selectedItem.title || "").trim();
