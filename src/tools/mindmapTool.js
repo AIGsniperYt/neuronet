@@ -58,7 +58,11 @@ const state = {
     nodeVisibility: new Map(),
     cards: [],
     dotsLayout: null,
-    dotAnim: null
+    dotAnim: null,
+    // World-space positions captured when Dots opens. The return trip lerps
+    // graph nodes back to exactly where the learner left them.
+    graphSnapshot: null,
+    graphMorph: null
   };
 
   const physicsConfig = {
@@ -1228,6 +1232,80 @@ const state = {
     return positions;
   }
 
+  function getCardLinkedNodeIds(card) {
+    const links = card?.links && typeof card.links === "object" ? card.links : {};
+    const ids = [];
+    const add = (id) => {
+      if (!id || ids.includes(id)) return;
+      if (!state.graph.nodes.has(id) || !isNodeInScope(id)) return;
+      ids.push(id);
+    };
+    // A card usually descends from a quote; analysis/source links are added
+    // when the learner wants wider context. Use all available anchors so the
+    // dot emerges from the middle of the knowledge it came from.
+    add(links.quoteId);
+    add(links.cueId);
+    add(links.analysisId);
+    add(links.nodeId);
+    add(links.sourceId);
+    return ids;
+  }
+
+  function findDeckAnchorNodeIds(card) {
+    const deck = normalizeSubjectName(card?.deck);
+    const deckPath = (Array.isArray(card?.deckPath) ? card.deckPath : [])
+      .map((part) => normalizeSubjectName(part))
+      .filter(Boolean);
+    if (!deck && !deckPath.length) return [];
+
+    const exact = [];
+    const pathMatches = [];
+    state.graph.nodes.forEach((node, id) => {
+      if (!isNodeInScope(id)) return;
+      const subject = normalizeSubjectName(getItemSubject(node.data));
+      if (!subject) return;
+      if (subject === deck) exact.push(id);
+      else if (deckPath.includes(subject)) pathMatches.push(id);
+    });
+
+    // Prefer the subject node itself; it is the visual home of a deck. Fall
+    // back to the deck's children when the deck has no knowledge node yet.
+    const subjectNode = exact.find((id) => state.graph.nodes.get(id)?.type === "subject");
+    if (subjectNode) return [subjectNode];
+    if (exact.length) return exact;
+
+    const pathSubjectNode = pathMatches.find((id) => state.graph.nodes.get(id)?.type === "subject");
+    if (pathSubjectNode) return [pathSubjectNode];
+    return pathMatches;
+  }
+
+  function getCardAnchorNodeIds(card) {
+    const linked = getCardLinkedNodeIds(card);
+    if (linked.length) return linked;
+    return findDeckAnchorNodeIds(card);
+  }
+
+  function buildDotsGraphAnchors() {
+    const anchors = new Map();
+    (state.cards || []).forEach((card) => {
+      if (!card?.id) return;
+      const ids = getCardAnchorNodeIds(card);
+      let sx = 0;
+      let sy = 0;
+      let count = 0;
+      ids.forEach((id) => {
+        const pos = state.nodePositions.get(id);
+        if (!pos) return;
+        const screen = transformPoint(pos.x, pos.y);
+        sx += screen.x;
+        sy += screen.y;
+        count += 1;
+      });
+      if (count) anchors.set(card.id, { x: sx / count, y: sy / count });
+    });
+    return anchors;
+  }
+
   function buildDotsLayout({ animate = false, fromGraph = false } = {}) {
     if (!canvas) return;
 
@@ -1353,11 +1431,18 @@ const state = {
 
     if (animate) {
       const from = new Map();
+      const graphAnchors = fromGraph ? buildDotsGraphAnchors() : null;
       dots.forEach((dot, id) => {
         let start = null;
         if (fromGraph) {
-          const graphPos = state.nodePositions.get(id);
-          if (graphPos) start = transformPoint(graphPos.x, graphPos.y);
+          // Cards inherit the screen position of the quote/analysis/source
+          // node they came from. Unlinked cards emerge from their deck's
+          // section centre, so the layout still assembles as one surface.
+          start = graphAnchors.get(id) || null;
+          if (!start) {
+            const section = layoutSections[dot.sectionIndex];
+            if (section) start = { x: section.x + section.w / 2, y: section.y + section.h / 2 };
+          }
         } else if (previousPositions.has(id)) {
           start = previousPositions.get(id);
         }
@@ -1367,6 +1452,118 @@ const state = {
     } else {
       state.dotAnim = null;
     }
+  }
+
+  function startDotsToGraphMorph() {
+    if (!state.dotsLayout || !state.dotsLayout.dots.size) {
+      state.graphMorph = null;
+      state.graphSnapshot = null;
+      return;
+    }
+
+    const now = performance.now();
+    const dotPositions = getDotsDisplayPositions(now, state.dotsLayout, state.dotAnim);
+    const snapshot = state.graphSnapshot || new Map(state.nodePositions);
+    const to = new Map();
+    snapshot.forEach((pos, id) => to.set(id, { x: pos.x, y: pos.y }));
+    state.graph.nodes.forEach((node, id) => {
+      if (to.has(id)) return;
+      const pos = state.nodePositions.get(id);
+      if (pos) to.set(id, { x: pos.x, y: pos.y });
+    });
+
+    // Reverse the card -> knowledge mapping. Linked nodes start at the dot
+    // that represents their card; remaining nodes in the same deck start at
+    // that deck's dot cluster. The graph then reassembles from the card map.
+    const dotsByNode = new Map();
+    const dotsByDeck = new Map();
+    (state.cards || []).forEach((card) => {
+      const dot = card?.id ? dotPositions.get(card.id) : null;
+      if (!dot) return;
+      const deck = normalizeSubjectName(card.deck);
+      if (deck) {
+        if (!dotsByDeck.has(deck)) dotsByDeck.set(deck, []);
+        dotsByDeck.get(deck).push(dot);
+      }
+      getCardAnchorNodeIds(card).forEach((id) => {
+        if (!dotsByNode.has(id)) dotsByNode.set(id, []);
+        dotsByNode.get(id).push(dot);
+      });
+    });
+
+    const from = new Map();
+    state.graph.nodes.forEach((node, id) => {
+      const target = to.get(id) || state.nodePositions.get(id);
+      if (!target) return;
+
+      let dots = dotsByNode.get(id);
+      if ((!dots || !dots.length) && isNodeInScope(id)) {
+        const subject = normalizeSubjectName(getItemSubject(node.data));
+        dots = subject ? dotsByDeck.get(subject) : null;
+      }
+
+      if (!dots || !dots.length) {
+        from.set(id, { x: target.x, y: target.y });
+        return;
+      }
+
+      let sx = 0;
+      let sy = 0;
+      dots.forEach((dot) => {
+        sx += dot.x;
+        sy += dot.y;
+      });
+      const screen = { x: sx / dots.length, y: sy / dots.length };
+      from.set(id, inverseTransform(screen.x, screen.y));
+    });
+
+    state.graphMorph = {
+      from,
+      to,
+      start: now,
+      duration: DOT_MORPH_MS
+    };
+    state.graphMorph.from.forEach((start, id) => {
+      const pos = state.nodePositions.get(id);
+      if (!pos) return;
+      pos.x = start.x;
+      pos.y = start.y;
+    });
+    state.velocities.forEach((velocity) => {
+      velocity.x = 0;
+      velocity.y = 0;
+    });
+  }
+
+  function updateGraphMorph(now) {
+    const morph = state.graphMorph;
+    if (!morph) return false;
+    const elapsed = now - morph.start;
+    const progress = Math.max(0, Math.min(1, elapsed / morph.duration));
+    const eased = progress < 0.5
+      ? 4 * progress * progress * progress
+      : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+
+    morph.from.forEach((start, id) => {
+      const target = morph.to.get(id);
+      const pos = state.nodePositions.get(id);
+      if (!target || !pos) return;
+      pos.x = start.x + (target.x - start.x) * eased;
+      pos.y = start.y + (target.y - start.y) * eased;
+    });
+
+    if (progress >= 1) {
+      morph.to.forEach((target, id) => {
+        const pos = state.nodePositions.get(id);
+        if (!pos) return;
+        pos.x = target.x;
+        pos.y = target.y;
+      });
+      state.graphMorph = null;
+      state.graphSnapshot = null;
+      return false;
+    }
+    return true;
   }
 
   function drawRoundedRect(context, x, y, width, height, radius) {
@@ -1654,7 +1851,8 @@ const state = {
 
   function setViewMode(nextMode) {
     const mode = nextMode === "dots" ? "dots" : nextMode === "grid" ? "grid" : "graph";
-    const changed = state.viewMode !== mode;
+    const previousMode = state.viewMode;
+    const changed = previousMode !== mode;
     state.viewMode = mode;
 
     if (viewToggle) {
@@ -1676,7 +1874,29 @@ const state = {
     state.draggingNodeId = null;
     state.isPanning = false;
     state.hasDragged = false;
-    if (mode !== "dots") state.dotAnim = null;
+
+    if (mode === "dots") {
+      state.graphMorph = null;
+      if (changed) {
+        // Keep the graph's world positions so the return trip can land on
+        // exactly the map the learner left, not a freshly exploded layout.
+        state.graphSnapshot = new Map();
+        state.nodePositions.forEach((pos, id) => {
+          state.graphSnapshot.set(id, { x: pos.x, y: pos.y });
+        });
+      }
+    } else if (mode === "graph") {
+      if (changed && previousMode === "dots") {
+        // Capture the dots while they are still on screen, then let the graph
+        // reassemble from those positions.
+        startDotsToGraphMorph();
+      }
+      state.dotAnim = null;
+    } else {
+      state.dotAnim = null;
+      state.graphMorph = null;
+      state.graphSnapshot = null;
+    }
 
     if (mode === "grid" || mode === "dots") {
       updateEmptyState();
@@ -2549,7 +2769,9 @@ const state = {
   function tick() {
     if (state.viewMode === "graph") {
       frameCount++;
-      if (state.simulationRunning && !state.draggingNodeId) {
+      if (state.graphMorph) {
+        updateGraphMorph(performance.now());
+      } else if (state.simulationRunning && !state.draggingNodeId) {
         if (state.graph.nodes.size === 0) {
           buildGraph();
         }
@@ -2570,6 +2792,7 @@ const state = {
   }
 
   function fitCameraToGraph() {
+    if (state.graphMorph) return;
     if (state.graph.nodes.size === 0 || state.userInteracted || !canvas) return;
 
     const scopedPositions = [];
@@ -2986,6 +3209,18 @@ const state = {
     const layoutHeight = canvas?.parentElement?.clientHeight || 600;
     layoutRadial(layoutWidth, layoutHeight);
     lastCanvasSize = { width: layoutWidth, height: layoutHeight };
+
+    // A data refresh rebuilds the graph layout. Drop any in-flight morph and
+    // re-anchor the return snapshot to the fresh positions.
+    state.graphMorph = null;
+    if (state.viewMode === "dots") {
+      state.graphSnapshot = new Map();
+      state.nodePositions.forEach((pos, id) => {
+        state.graphSnapshot.set(id, { x: pos.x, y: pos.y });
+      });
+    } else {
+      state.graphSnapshot = null;
+    }
 
     if (state.viewMode === "grid") {
       renderGrid();
