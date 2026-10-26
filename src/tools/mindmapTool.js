@@ -5,6 +5,7 @@ export async function initMindmapTool(deps, context = {}) {
     getAllNodes,
     getAllQuotes,
     getAllCues,
+    getAllCards,
     getAllTags,
     addNode,
     addQuote,
@@ -55,6 +56,7 @@ const state = {
     focusSubjectId: null,
     scopeNodeIds: new Set(),
     nodeVisibility: new Map(),
+    cards: [],
     dotsLayout: null,
     dotAnim: null
   };
@@ -153,12 +155,19 @@ const state = {
     4: "#ff9b39",
     5: "#ff4d4d"
   };
-  const DOT_RECALL_FILLS = {
-    strong: "rgba(44, 255, 179, 0.55)",
-    medium: "rgba(255, 209, 102, 0.5)",
-    weak: "rgba(255, 107, 107, 0.5)",
-    unknown: "rgba(255, 255, 255, 0.07)"
-  };
+  // Dots are cards first. Both halves of a dot use the same five-step score
+  // scale so recall and accuracy stay directly comparable. These are solid
+  // fills, not tints or bars: the eye can rank a dot at a glance.
+  const DOT_SCORE_BINS = [
+    { min: 0, max: 0.2, color: "#ff4d4d", label: "0–20%" },
+    { min: 0.2, max: 0.4, color: "#ff8a3d", label: "20–40%" },
+    { min: 0.4, max: 0.6, color: "#ffa500", label: "40–60%" },
+    { min: 0.6, max: 0.8, color: "#a8d95f", label: "60–80%" },
+    { min: 0.8, max: 1, color: "#3fd07d", label: "80–100%" }
+  ];
+  const DOT_UNKNOWN_COLOR = "#33443d";
+  const GRADE_SCORES = { easy: 1, kinda: 0.6, didnt_know: 0.2, didntknow: 0.2 };
+  const RECALL_GRADE_SCORES = { easy: 0.9, kinda: 0.6, didnt_know: 0.2, didntknow: 0.2 };
   const DOT_MIN_CELL = 6;
   const DOT_MAX_CELL = 40;
   const DOT_MORPH_MS = 760;
@@ -297,6 +306,20 @@ const state = {
     const subjectItem = items.find((item) => normalizeSubjectName(getItemSubject(item)) === wanted);
     if (subjectItem) return String(getItemSubject(subjectItem) || "").trim();
 
+    // Dots are card-first, so a deck can be a valid scope even when it has no
+    // knowledge-layer subject node. Match either the deck itself or any part
+    // of its hierarchy path.
+    const card = (state.cards || []).find((entry) => {
+      if (normalizeSubjectName(entry?.deck) === wanted) return true;
+      return (Array.isArray(entry?.deckPath) ? entry.deckPath : [])
+        .some((part) => normalizeSubjectName(part) === wanted);
+    });
+    if (card) {
+      const pathMatch = (Array.isArray(card.deckPath) ? card.deckPath : [])
+        .find((part) => normalizeSubjectName(part) === wanted);
+      return String(pathMatch || card.deck || value || "").trim() || null;
+    }
+
     return String(value || "").trim() || null;
   }
 
@@ -311,6 +334,15 @@ const state = {
 
   function isNodeInScope(id) {
     return !state.focusSubject || state.scopeNodeIds.has(id);
+  }
+
+  function isCardInScope(card) {
+    if (!state.focusSubject) return true;
+    const wanted = normalizeSubjectName(state.focusSubject);
+    if (!wanted) return true;
+    if (normalizeSubjectName(card?.deck) === wanted) return true;
+    return (Array.isArray(card?.deckPath) ? card.deckPath : [])
+      .some((part) => normalizeSubjectName(part) === wanted);
   }
 
   function recomputeScope() {
@@ -719,23 +751,52 @@ const state = {
     return null;
   }
 
+  function clamp01(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return null;
+    return Math.min(1, Math.max(0, n));
+  }
+
+  function normalizeAccuracy(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n < 0) return null;
+    const ratio = n > 1 ? n / 100 : n;
+    return Math.min(1, Math.max(0, ratio));
+  }
+
+  function getGradeScore(grade, scale = GRADE_SCORES) {
+    return scale[String(grade || "").toLowerCase()];
+  }
+
+  function recallFromScore(score, derived = false, source = "observed") {
+    const value = clamp01(score);
+    if (value === null) {
+      return { level: "unknown", label: "No recall data", score: null, derived, source };
+    }
+    if (value >= 0.8) return { level: "strong", label: "Strong", score: value, derived, source };
+    if (value >= 0.5) return { level: "medium", label: "Partial", score: value, derived, source };
+    return { level: "weak", label: "Weak", score: value, derived, source };
+  }
+
   function getItemRecall(item, depth = 0) {
     const meta = item?.meta || {};
 
     const lastGrade = String(meta.lastGrade || "").toLowerCase();
-    if (lastGrade === "easy") return { level: "strong", label: "Strong", derived: false };
-    if (lastGrade === "kinda") return { level: "medium", label: "Partial", derived: false };
-    if (lastGrade === "didnt_know" || lastGrade === "didntknow") {
-      return { level: "weak", label: "Weak", derived: false };
-    }
+    const directGradeScore = getGradeScore(lastGrade, RECALL_GRADE_SCORES);
+    if (directGradeScore !== undefined) return recallFromScore(directGradeScore);
 
     const phase = String(meta.L_phase || "").toLowerCase();
-    if (phase === "mastered" || phase === "stable") {
-      return { level: "strong", label: "Strong", derived: false };
+    if (phase === "new") {
+      const confidence = normalizeAccuracy(meta.confidence);
+      return recallFromScore(confidence ?? 0.8, false, confidence !== null ? "prior" : "observed");
     }
-    if (phase === "stabilising" || phase === "warming") {
-      return { level: "medium", label: "Partial", derived: false };
-    }
+    const phaseScores = {
+      mastered: 0.95,
+      stable: 0.85,
+      stabilising: 0.65,
+      warming: 0.55
+    };
+    if (phaseScores[phase] !== undefined) return recallFromScore(phaseScores[phase]);
 
     const rawS = meta.S;
     const rawU = meta.U;
@@ -745,19 +806,19 @@ const state = {
     const uncertainty = hasU ? Number(rawU) : 0;
 
     if (hasS && hasU) {
-      if (uncertainty <= 0.4 && stability >= 0.9) return { level: "strong", label: "Strong", derived: false };
-      if (uncertainty <= 0.7 || stability >= 0.5) return { level: "medium", label: "Partial", derived: false };
-      return { level: "weak", label: "Weak", derived: false };
+      const stabilityScore = clamp01(stability / 1.5) ?? 0;
+      const certaintyScore = clamp01(1 - uncertainty) ?? 0;
+      const score = clamp01(stabilityScore * 0.55 + certaintyScore * 0.45);
+      return recallFromScore(score);
     }
-    if (hasU) {
-      if (uncertainty <= 0.4) return { level: "strong", label: "Strong", derived: false };
-      if (uncertainty <= 0.7) return { level: "medium", label: "Partial", derived: false };
-      return { level: "weak", label: "Weak", derived: false };
-    }
-    if (hasS) {
-      if (stability >= 1.5) return { level: "strong", label: "Strong", derived: false };
-      if (stability >= 0.5) return { level: "medium", label: "Partial", derived: false };
-      return { level: "weak", label: "Weak", derived: false };
+    if (hasU) return recallFromScore(clamp01(1 - uncertainty));
+    if (hasS) return recallFromScore(clamp01(stability / 1.5));
+
+    if (Array.isArray(meta.recentGrades) && meta.recentGrades.length) {
+      const scores = meta.recentGrades.map((grade) => getGradeScore(grade)).filter((score) => score !== undefined);
+      if (scores.length) {
+        return recallFromScore(scores.reduce((sum, score) => sum + score, 0) / scores.length);
+      }
     }
 
     if (depth < 4 && item?.type === "analysis") {
@@ -768,9 +829,8 @@ const state = {
         .map((quote) => getItemRecall(quote, depth + 1))
         .filter((recall) => recall.level !== "unknown");
       if (linked.length) {
-        const rank = { strong: 0, medium: 1, weak: 2 };
         const weakest = linked.reduce((worst, recall) =>
-          rank[recall.level] > rank[worst.level] ? recall : worst
+          (recall.score ?? 0) < (worst.score ?? 0) ? recall : worst
         );
         return { ...weakest, derived: true };
       }
@@ -787,34 +847,38 @@ const state = {
       }
     }
 
-    return { level: "unknown", label: "No recall data", derived: false };
-  }
+    // Creating a card is itself a revision pass, so a card with no reviews yet
+    // still gets a legitimate prior. Bulk imports can set a lower prior.
+    const confidence = normalizeAccuracy(meta.confidence);
+    if (confidence !== null) {
+      return { ...recallFromScore(confidence, false, "prior"), label: "Prior" };
+    }
 
-  function normalizeAccuracy(value) {
-    const n = Number(value);
-    if (!Number.isFinite(n) || n < 0) return null;
-    const ratio = n > 1 ? n / 100 : n;
-    return Math.min(1, Math.max(0, ratio));
+    return { level: "unknown", label: "No recall data", score: null, derived: false, source: "none" };
   }
 
   function getItemAccuracy(item) {
     const meta = item?.meta || {};
 
-    const accuracy = normalizeAccuracy(meta.accuracy);
-    if (accuracy !== null) return accuracy;
-
-    const confidence = normalizeAccuracy(meta.confidence);
-    if (confidence !== null) return confidence;
-
+    // Observed grades are the strongest evidence. They must beat the creation
+    // prior, otherwise every new card would read as 80% accurate forever.
     if (Array.isArray(meta.recentGrades) && meta.recentGrades.length) {
-      const gradeScores = { easy: 1, kinda: 0.6, didnt_know: 0.2, didntknow: 0.2 };
-      const scores = meta.recentGrades
-        .map((grade) => gradeScores[String(grade || "").toLowerCase()])
-        .filter((score) => score !== undefined);
+      const scores = meta.recentGrades.map((grade) => getGradeScore(grade)).filter((score) => score !== undefined);
       if (scores.length) {
         return scores.reduce((sum, score) => sum + score, 0) / scores.length;
       }
     }
+
+    const accuracy = normalizeAccuracy(meta.accuracy);
+    if (accuracy !== null) return accuracy;
+
+    const lastGradeScore = getGradeScore(meta.lastGrade);
+    if (lastGradeScore !== undefined) return lastGradeScore;
+
+    // The 0.8 prior is intentional: making a card is revision. Bulk imports
+    // can lower this initial value, and real grades replace it over time.
+    const confidence = normalizeAccuracy(meta.confidence);
+    if (confidence !== null) return confidence;
 
     if (item?.type === "pastpaper") {
       const percentages = (item.results || []).map(bestAttemptPct).filter((pct) => pct !== null);
@@ -826,8 +890,21 @@ const state = {
     return null;
   }
 
+  function getScoreBin(score) {
+    const normalized = normalizeAccuracy(score);
+    if (normalized === null) {
+      return { index: -1, color: DOT_UNKNOWN_COLOR, label: "No data" };
+    }
+    const index = Math.min(DOT_SCORE_BINS.length - 1, Math.floor(normalized / 0.2));
+    return { index, ...DOT_SCORE_BINS[index] };
+  }
+
   function getGridTags(item) {
-    const tags = Array.isArray(item?.meta?.tags) ? item.meta.tags : [];
+    const tags = Array.isArray(item?.tags)
+      ? item.tags
+      : Array.isArray(item?.meta?.tags)
+        ? item.meta.tags
+        : [];
     return tags
       .map((tag) => String(tag || "").trim())
       .filter((tag) => tag && tag.toLowerCase() !== "custom-deck");
@@ -913,6 +990,29 @@ const state = {
       recall,
       accuracy,
       tags
+    };
+  }
+
+  function buildCardDotItem(card) {
+    const front = String(card?.front || "").trim();
+    const back = String(card?.back || "").trim();
+    const deck = String(card?.deck || "").trim() || "Unsorted";
+
+    return {
+      id: card.id,
+      type: "card",
+      typeLabel: "Card",
+      icon: "▣",
+      title: front || "(untitled card)",
+      preview: back,
+      priority: getItemPriority(card),
+      recall: getItemRecall(card),
+      accuracy: getItemAccuracy(card),
+      tags: getGridTags(card),
+      deck,
+      deckPath: Array.isArray(card?.deckPath) ? card.deckPath : [],
+      order: Number.isFinite(Number(card?.order)) ? Number(card.order) : 0,
+      createdAt: Number(card?.createdAt) || 0
     };
   }
 
@@ -1058,29 +1158,29 @@ const state = {
   }
 
   function buildDotSections() {
-    const subjectMap = new Map();
+    const deckMap = new Map();
 
-    getAllItems().forEach((item) => {
-      if (!GRID_CARD_TYPES.has(item?.type)) return;
-      if (!isNodeInScope(item.id)) return;
-
-      const subject = getItemSubject(item) || "Unsorted";
-      if (!subjectMap.has(subject)) subjectMap.set(subject, []);
-      subjectMap.get(subject).push(buildGridCard(item));
+    (state.cards || []).forEach((card) => {
+      if (!card?.id || !isCardInScope(card)) return;
+      const deck = String(card.deck || "").trim() || "Unsorted";
+      if (!deckMap.has(deck)) deckMap.set(deck, []);
+      deckMap.get(deck).push(buildCardDotItem(card));
     });
 
-    return Array.from(subjectMap.entries())
-      .map(([subject, cards]) => {
+    return Array.from(deckMap.entries())
+      .map(([deck, cards]) => {
+        // Stable creation order is the default. Performance sorting belongs to
+        // the study queue, not this browse view.
         cards.sort((a, b) => {
-          const typeDelta = (GRID_TYPE_ORDER[a.type] ?? 9) - (GRID_TYPE_ORDER[b.type] ?? 9);
-          if (typeDelta !== 0) return typeDelta;
-          const priorityDelta = (b.priority || 0) - (a.priority || 0);
-          if (priorityDelta !== 0) return priorityDelta;
+          const orderDelta = a.order - b.order;
+          if (orderDelta !== 0) return orderDelta;
+          const createdDelta = a.createdAt - b.createdAt;
+          if (createdDelta !== 0) return createdDelta;
           return a.title.localeCompare(b.title);
         });
-        return { subject, cards, count: cards.length };
+        return { deck, cards, count: cards.length };
       })
-      .sort((a, b) => a.subject.localeCompare(b.subject, undefined, { sensitivity: "base" }));
+      .sort((a, b) => a.deck.localeCompare(b.deck, undefined, { sensitivity: "base" }));
   }
 
   function groupCardsByType(cards) {
@@ -1232,7 +1332,7 @@ const state = {
       });
 
       layoutSections.push({
-        subject: section.subject,
+        deck: section.deck,
         count: section.count,
         x,
         y,
@@ -1321,10 +1421,15 @@ const state = {
 
   function drawDotTooltip(dot, width, height, top) {
     const card = dot.card;
+    const recallScore = card.recall?.score;
+    const recall = recallScore === null || recallScore === undefined
+      ? "no recall"
+      : `${Math.round(recallScore * 100)}% recall${card.recall.source === "prior" ? " prior" : ""}`;
     const accuracy = card.accuracy === null
       ? "no accuracy"
       : `${Math.round(card.accuracy * 100)}% accuracy`;
     const priority = card.priority ? `P${card.priority}` : "no priority";
+    const deck = card.deck ? ` · ${card.deck}` : "";
     const tags = card.tags.slice(0, 4).map((tag) => `#${tag}`).join(" ");
     const maxTextWidth = Math.min(360, width - 48);
 
@@ -1333,7 +1438,7 @@ const state = {
     const title = truncateCanvasText(ctx, card.title, maxTextWidth);
     const meta = truncateCanvasText(
       ctx,
-      `${card.typeLabel} · ${priority} · ${card.recall.label} · ${accuracy}`,
+      `${card.typeLabel}${deck} · ${priority} · ${recall} · ${accuracy}`,
       maxTextWidth
     );
     const tagLine = tags ? truncateCanvasText(ctx, tags, maxTextWidth) : "";
@@ -1395,7 +1500,7 @@ const state = {
       ctx.fillText("No cards to chart yet", width / 2, height / 2 - 10);
       ctx.font = "13px Inter, system-ui, sans-serif";
       ctx.fillStyle = "rgba(230, 255, 245, 0.38)";
-      ctx.fillText("Add quotes, analyses, or cues to see them here.", width / 2, height / 2 + 14);
+      ctx.fillText("Add cards in Memory or Quick Add to see them here.", width / 2, height / 2 + 14);
       ctx.restore();
       updateStats();
       updateEmptyState();
@@ -1423,7 +1528,7 @@ const state = {
       ctx.font = "600 11px Inter, system-ui, sans-serif";
       ctx.fillStyle = "rgba(230, 255, 245, 0.82)";
       ctx.fillText(
-        truncateCanvasText(ctx, section.subject, Math.max(40, section.w - 58)),
+        truncateCanvasText(ctx, section.deck, Math.max(40, section.w - 58)),
         section.x + 18,
         section.y + 14
       );
@@ -1441,14 +1546,18 @@ const state = {
 
       const isHovered = state.hoveredNodeId === id;
       const isSelected = state.selectedNodeId === id;
-      const recall = dot.card.recall?.level || "unknown";
       const priorityColor = dot.card.priority
         ? GRID_IMPORTANCE_COLORS[dot.card.priority]
         : "rgba(255, 255, 255, 0.24)";
-      const typeColor = getNodeColor(dot.card.type);
+      const recallBin = getScoreBin(dot.card.recall?.score);
+      const accuracyBin = getScoreBin(dot.card.accuracy);
       const radius = layout.radius
         * (isHovered ? 1.35 : 1)
         * (isSelected ? 1.12 : 1);
+      const borderWidth = isSelected ? 2.5 : Math.max(1.2, Math.min(2.4, layout.cell * 0.085));
+      // Keep the importance ring visually separate from the score fill. The
+      // gap is structure, not another data channel.
+      const fillRadius = Math.max(1.2, radius - borderWidth - 0.35);
 
       ctx.save();
 
@@ -1459,43 +1568,35 @@ const state = {
         ctx.fill();
       }
 
-      if (dot.card.accuracy !== null && layout.cell >= 14) {
-        const arcRadius = radius + 3.5;
-        ctx.beginPath();
-        ctx.arc(position.x, position.y, arcRadius, 0, Math.PI * 2);
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-
-        if (dot.card.accuracy > 0) {
-          ctx.beginPath();
-          ctx.arc(
-            position.x,
-            position.y,
-            arcRadius,
-            -Math.PI / 2,
-            -Math.PI / 2 + Math.PI * 2 * dot.card.accuracy
-          );
-          ctx.strokeStyle = "rgba(230, 255, 245, 0.65)";
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
-        }
-      }
+      // Right half: accuracy. Paint the full inner disc first, then overwrite
+      // the left half with recall. Both halves are solid colour bins.
+      ctx.beginPath();
+      ctx.arc(position.x, position.y, fillRadius, 0, Math.PI * 2);
+      ctx.fillStyle = accuracyBin.color;
+      ctx.fill();
 
       ctx.beginPath();
-      ctx.arc(position.x, position.y, radius, 0, Math.PI * 2);
-      ctx.fillStyle = DOT_RECALL_FILLS[recall] || DOT_RECALL_FILLS.unknown;
+      ctx.arc(position.x, position.y, fillRadius, Math.PI / 2, Math.PI * 1.5, false);
+      ctx.closePath();
+      ctx.fillStyle = recallBin.color;
       ctx.fill();
-      ctx.strokeStyle = priorityColor;
-      ctx.lineWidth = isSelected ? 2.5 : Math.max(1.2, Math.min(2.4, layout.cell * 0.085));
-      ctx.stroke();
 
-      if (radius >= 3.5) {
+      if (fillRadius >= 1.5) {
         ctx.beginPath();
-        ctx.arc(position.x, position.y, Math.max(1.1, radius * 0.32), 0, Math.PI * 2);
-        ctx.fillStyle = typeColor;
-        ctx.fill();
+        ctx.moveTo(position.x, position.y - fillRadius);
+        ctx.lineTo(position.x, position.y + fillRadius);
+        ctx.strokeStyle = "rgba(7, 18, 13, 0.9)";
+        ctx.lineWidth = Math.max(1, Math.min(1.5, fillRadius * 0.2));
+        ctx.stroke();
       }
+
+      // Importance border. This is the only ring on the dot; there is no
+      // accuracy arc or type pip.
+      ctx.beginPath();
+      ctx.arc(position.x, position.y, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = priorityColor;
+      ctx.lineWidth = borderWidth;
+      ctx.stroke();
 
       if (isSelected) {
         ctx.beginPath();
@@ -2752,9 +2853,19 @@ const state = {
     const quoteItems = (state.quotes || []).filter((item) => isNodeInScope(item.id));
     const cueItems = (state.cues || []).filter((item) => isNodeInScope(item.id));
     const tagItems = (state.tags || []).filter((item) => isNodeInScope(item.id));
+    const scopedCards = (state.cards || []).filter(isCardInScope);
+    const dotsMode = state.viewMode === "dots";
 
-    if (totalNodes) totalNodes.textContent = nodeItems.length + quoteItems.length + cueItems.length + tagItems.length;
-    if (totalSubjects) totalSubjects.textContent = nodeItems.filter(i => i.type === "subject").length;
+    if (totalNodes) {
+      totalNodes.textContent = dotsMode
+        ? scopedCards.length
+        : nodeItems.length + quoteItems.length + cueItems.length + tagItems.length;
+    }
+    if (totalSubjects) {
+      totalSubjects.textContent = dotsMode
+        ? new Set(scopedCards.map((card) => String(card.deck || "").trim()).filter(Boolean)).size
+        : nodeItems.filter(i => i.type === "subject").length;
+    }
     if (totalSources) totalSources.textContent = nodeItems.filter(i => i.type === "source").length;
     if (totalQuotes) totalQuotes.textContent = quoteItems.length;
     if (totalAnalyses) totalAnalyses.textContent = nodeItems.filter(i => i.type === "analysis").length;
@@ -2776,16 +2887,19 @@ const state = {
   }
 
   async function refreshData() {
-    const [nodes, quotes, cues, tags] = await Promise.all([
+    const cardPromise = typeof getAllCards === "function" ? getAllCards() : Promise.resolve([]);
+    const [nodes, quotes, cues, tags, cards] = await Promise.all([
       getAllNodes(),
       getAllQuotes(),
       getAllCues(),
-      getAllTags()
+      getAllTags(),
+      cardPromise
     ]);
     state.nodes = nodes;
     state.quotes = quotes;
     state.cues = cues;
     state.tags = tags;
+    state.cards = cards || [];
     state.layerNodes = computeLayerNodesFromSources(nodes);
 
     const hadFocus = Boolean(state.focusSubject);

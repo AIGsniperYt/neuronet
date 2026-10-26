@@ -225,6 +225,17 @@
             <label for="quickAddBulkInput">Paste one card per line: <code>front&lt;TAB&gt;back</code> or <code>front | back</code></label>
             <textarea id="quickAddBulkInput" class="builder-input anki-import-area quick-add-bulk-area" placeholder="What is the powerhouse of the cell?&#9;Mitochondria&#10;What is the function of ribosomes? | Protein synthesis"></textarea>
           </div>
+          <div class="form-group quick-add-confidence-group">
+            <label for="quickAddBulkConfidence">Initial confidence <span class="quick-add-optional">until real reviews</span></label>
+            <select id="quickAddBulkConfidence" class="builder-select">
+              <option value="0.2">20% — cold import</option>
+              <option value="0.35">35% — mostly unfamiliar</option>
+              <option value="0.5" selected>50% — seen before</option>
+              <option value="0.65">65% — fairly familiar</option>
+              <option value="0.8">80% — already know it</option>
+            </select>
+          </div>
+          <p class="quick-add-hint">A starting estimate only. Real grades replace it as you review.</p>
           <div class="quick-add-footer">
             <span id="quickAddBulkStatus" class="quick-add-status">Paste cards to import</span>
             <div class="quick-add-actions">

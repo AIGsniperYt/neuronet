@@ -591,11 +591,35 @@
     display: none;
   }
 
-  .dots-legend-types {
-    gap: 6px 10px;
+  .dots-split-sample {
+    display: inline-flex;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 2px solid #9aa4ad;
+    box-sizing: border-box;
+    flex: 0 0 auto;
   }
 
-  .dots-legend-type {
+  .dots-split-sample .dots-split-left {
+    width: 50%;
+    height: 100%;
+    background: #ffa500;
+    border-right: 1px solid rgba(7, 18, 13, 0.9);
+  }
+
+  .dots-split-sample .dots-split-right {
+    width: 50%;
+    height: 100%;
+    background: #3fd07d;
+  }
+
+  .dots-score-legend {
+    gap: 5px 8px;
+  }
+
+  .dots-score-bin {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -604,28 +628,20 @@
     white-space: nowrap;
   }
 
-  .dots-type-pip {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
+  .dots-score-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    background: currentColor;
     flex: 0 0 auto;
   }
 
-  .dots-type-pip.analysis { background: #2cffb3; }
-  .dots-type-pip.quote { background: #ff9b39; }
-  .dots-type-pip.cue { background: #ff79c6; }
-  .dots-type-pip.source { background: #4da6ff; }
-  .dots-type-pip.pastpaper { background: #ffd166; }
-
-  .dots-legend-arc {
-    width: 11px;
-    height: 11px;
-    border-radius: 50%;
-    border: 1.5px solid rgba(230, 255, 245, 0.18);
-    border-top-color: rgba(230, 255, 245, 0.8);
-    border-right-color: rgba(230, 255, 245, 0.8);
-    transform: rotate(-45deg);
-  }
+  .dots-score-bin.score-0 { color: #ff4d4d; }
+  .dots-score-bin.score-1 { color: #ff8a3d; }
+  .dots-score-bin.score-2 { color: #ffa500; }
+  .dots-score-bin.score-3 { color: #a8d95f; }
+  .dots-score-bin.score-4 { color: #3fd07d; }
+  .dots-score-bin.score-unknown { color: #33443d; }
 
   @media (pointer: coarse) {
     .dots-legend-hover-note { display: none; }
@@ -637,7 +653,7 @@
       padding: 6px 8px;
     }
     .mindmap-dots-legend .grid-legend-title,
-    .mindmap-dots-legend .dots-legend-type {
+    .mindmap-dots-legend .dots-score-bin {
       font-size: 0.72rem;
     }
   }
@@ -1506,35 +1522,32 @@
 
     <div id="mindmapDotsLegend" class="mindmap-dots-legend" aria-label="Dots signal legend" hidden>
       <div class="grid-legend-group">
+        <span class="grid-legend-title">Dot</span>
+        <span class="dots-split-sample" aria-hidden="true">
+          <span class="dots-split-left"></span>
+          <span class="dots-split-right"></span>
+        </span>
+        <span class="grid-legend-note">left recall · right accuracy</span>
+      </div>
+      <div class="grid-legend-group">
         <span class="grid-legend-title">Border</span>
         <span class="grid-legend-swatch swatch-1" title="Priority 1"></span>
         <span class="grid-legend-swatch swatch-2" title="Priority 2"></span>
         <span class="grid-legend-swatch swatch-3" title="Priority 3"></span>
         <span class="grid-legend-swatch swatch-4" title="Priority 4"></span>
         <span class="grid-legend-swatch swatch-5" title="Priority 5"></span>
-        <span class="grid-legend-note">priority</span>
+        <span class="grid-legend-note">importance</span>
       </div>
-      <div class="grid-legend-group">
-        <span class="grid-legend-title">Fill</span>
-        <span class="grid-legend-chip recall-strong">Strong</span>
-        <span class="grid-legend-chip recall-medium">Partial</span>
-        <span class="grid-legend-chip recall-weak">Weak</span>
-        <span class="grid-legend-note">recall</span>
+      <div class="grid-legend-group dots-score-legend">
+        <span class="grid-legend-title">Score</span>
+        <span class="dots-score-bin score-0"><span class="dots-score-swatch"></span>0–20%</span>
+        <span class="dots-score-bin score-1"><span class="dots-score-swatch"></span>20–40%</span>
+        <span class="dots-score-bin score-2"><span class="dots-score-swatch"></span>40–60%</span>
+        <span class="dots-score-bin score-3"><span class="dots-score-swatch"></span>60–80%</span>
+        <span class="dots-score-bin score-4"><span class="dots-score-swatch"></span>80–100%</span>
+        <span class="dots-score-bin score-unknown"><span class="dots-score-swatch"></span>No data</span>
       </div>
-      <div class="grid-legend-group dots-legend-types">
-        <span class="grid-legend-title">Center</span>
-        <span class="dots-legend-type"><span class="dots-type-pip analysis"></span>Analysis</span>
-        <span class="dots-legend-type"><span class="dots-type-pip quote"></span>Quote</span>
-        <span class="dots-legend-type"><span class="dots-type-pip cue"></span>Cue</span>
-        <span class="dots-legend-type"><span class="dots-type-pip source"></span>Source</span>
-        <span class="dots-legend-type"><span class="dots-type-pip pastpaper"></span>Paper</span>
-      </div>
-      <div class="grid-legend-group">
-        <span class="grid-legend-title">Arc</span>
-        <span class="dots-legend-arc" aria-hidden="true"></span>
-        <span class="grid-legend-note">accuracy</span>
-      </div>
-      <span class="grid-legend-note dots-legend-hover-note">Hover a dot for details</span>
+      <span class="grid-legend-note dots-legend-hover-note">Hover a dot for exact values · cards only</span>
     </div>
 
     <div id="emptyState" class="empty-state">

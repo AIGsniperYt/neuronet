@@ -220,7 +220,7 @@ export async function initMemoryTool(deps, context = {}) {
   let quickAddModal, quickAddOverlay, closeQuickAddBtn, quickAddDeckInput, quickAddDeckOptions;
   let quickAddSingleView, quickAddBulkView, quickAddFront, quickAddBack, quickAddPriorityPills;
   let quickAddTags, quickAddStatus, quickAddSaveCloseBtn, quickAddSaveNextBtn;
-  let quickAddBulkInput, quickAddBulkStatus, quickAddBulkImportBtn, quickAddLaunchBtn, quickAddHeaderBtn;
+  let quickAddBulkInput, quickAddBulkStatus, quickAddBulkImportBtn, quickAddBulkConfidence, quickAddLaunchBtn, quickAddHeaderBtn;
   // Middle UI elements
   let middleUI, middleHeader, middleBackBtn, middleSubjectName, middleStudyBtn;
   let middleModeSelector, andFilterBtn, orFilterBtn, filterModeHint;
@@ -353,6 +353,7 @@ export async function initMemoryTool(deps, context = {}) {
     quickAddBulkInput = document.getElementById("quickAddBulkInput");
     quickAddBulkStatus = document.getElementById("quickAddBulkStatus");
     quickAddBulkImportBtn = document.getElementById("quickAddBulkImportBtn");
+    quickAddBulkConfidence = document.getElementById("quickAddBulkConfidence");
     quickAddLaunchBtn = document.getElementById("quickAddLaunchBtn");
     quickAddHeaderBtn = document.getElementById("quickAddHeaderBtn");
 
@@ -4959,9 +4960,10 @@ export async function initMemoryTool(deps, context = {}) {
     return nextOrder;
   }
 
-  async function persistQuickAddCard({ deck, front, back, priority, tags }) {
+  async function persistQuickAddCard({ deck, front, back, priority, tags, initialConfidence = 0.8 }) {
     const now = Date.now();
     const deckOrder = await getNextDeckOrder(deck);
+    const confidence = clampNumber(Number(initialConfidence ?? 0.8), 0, 1);
 
     const card = {
       id: crypto.randomUUID(),
@@ -4973,7 +4975,7 @@ export async function initMemoryTool(deps, context = {}) {
       priority,
       order: deckOrder,
       meta: {
-        confidence: 0.8,
+        confidence,
         nextReview: now,
         interval: 1,
         ease: 2.5,
@@ -5090,13 +5092,14 @@ export async function initMemoryTool(deps, context = {}) {
 
     const tags = parseQuickAddTags(quickAddTags?.value);
     const priority = quickAddState.priority || 3;
+    const initialConfidence = clampNumber(Number(quickAddBulkConfidence?.value ?? 0.5), 0, 1);
     let imported = 0;
     let failed = 0;
 
     setQuickAddBusy(true);
     for (const card of cards) {
       try {
-        await persistQuickAddCard({ deck, ...card, priority, tags });
+        await persistQuickAddCard({ deck, ...card, priority, tags, initialConfidence });
         imported += 1;
       } catch (error) {
         failed += 1;

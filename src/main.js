@@ -120,6 +120,7 @@ const tools = {
       getAllNodes,
       getAllQuotes,
       getAllCues,
+      getAllCards,
       addNode,
       addQuote,
       addCue,
