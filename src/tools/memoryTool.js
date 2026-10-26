@@ -195,7 +195,14 @@ export async function initMemoryTool(deps, context = {}) {
       modeSwitchFrequency: 0,
       reasoningSteps: [],
       explanation: ""
-    }
+    },
+    // The knowledge-context rail is a viewport-side companion to the card, not
+    // part of the card. It starts collapsed on narrow screens so the card keeps
+    // its full width until the learner opens it.
+    contextRailCollapsed: typeof window !== "undefined" && typeof window.matchMedia === "function"
+      ? window.matchMedia("(max-width: 1000px)").matches
+      : false,
+    contextRailToken: 0
   };
 
   let memoryTool, modeSelect, newSessionBtn, statsBtn, backToDecksBtn;
@@ -205,6 +212,7 @@ export async function initMemoryTool(deps, context = {}) {
   let evidenceMatchingContainer, evidencePrompt, quoteOptions, evidenceFeedback;
   let memoryStats, statsContent, closeStatsBtn, roundProgress, resetMemoryBtn;
   let systemThinkingText;
+  let studyContextRail, studyContextBody, studyContextCollapseBtn, contextToggleBtn;
   // Deck builder elements
   let deckBuilderModal, deckNameInput, deckDescriptionInput, createDeckBtn, closeDeckBuilderBtn;
   let step1DeckInfo, step2Flashcards, step3Success;
@@ -285,6 +293,10 @@ export async function initMemoryTool(deps, context = {}) {
     roundProgress = document.getElementById("roundProgress");
     resetMemoryBtn = document.getElementById("resetMemoryBtn");
     systemThinkingText = document.getElementById("systemThinkingText");
+    contextToggleBtn = document.getElementById("contextToggleBtn");
+    studyContextRail = document.getElementById("studyContextRail");
+    studyContextBody = document.getElementById("studyContextBody");
+    studyContextCollapseBtn = document.getElementById("studyContextCollapseBtn");
 
     // Deck builder elements
     deckBuilderModal = document.getElementById("deckBuilderModal");
@@ -428,6 +440,17 @@ export async function initMemoryTool(deps, context = {}) {
         renderUI();
       });
     }
+
+    const toggleStudyContext = () => {
+      if (!studyContextRail || studyContextRail.hidden) return;
+      state.contextRailCollapsed = !state.contextRailCollapsed;
+      applyStudyContextState();
+      if (!state.contextRailCollapsed) {
+        renderStudyContext(state.flashcards[state.currentIndex]);
+      }
+    };
+    contextToggleBtn?.addEventListener("click", toggleStudyContext);
+    studyContextCollapseBtn?.addEventListener("click", toggleStudyContext);
 
     if (newSessionBtn) {
       newSessionBtn.addEventListener("click", async () => {
@@ -2691,6 +2714,165 @@ export async function initMemoryTool(deps, context = {}) {
     }
   }
 
+  function applyStudyContextState() {
+    if (!studyContextRail) return;
+    const collapsed = !!state.contextRailCollapsed;
+    // On wide screens a collapsed rail is still a visible strip with its own
+    // expand button, so only hide it from assistive tech when it is the
+    // off-screen narrow drawer.
+    const narrow = typeof window.matchMedia === "function"
+      && window.matchMedia("(max-width: 1000px)").matches;
+    studyContextRail.classList.toggle("collapsed", collapsed);
+    studyContextRail.setAttribute("aria-hidden", collapsed && narrow ? "true" : "false");
+
+    if (contextToggleBtn) {
+      contextToggleBtn.classList.toggle("active", !collapsed);
+      contextToggleBtn.setAttribute("aria-expanded", String(!collapsed));
+    }
+    if (studyContextCollapseBtn) {
+      studyContextCollapseBtn.setAttribute("aria-expanded", String(!collapsed));
+      const label = collapsed ? "Expand knowledge context" : "Collapse knowledge context";
+      studyContextCollapseBtn.setAttribute("aria-label", label);
+      studyContextCollapseBtn.title = label;
+    }
+  }
+
+  function hideStudyContext() {
+    // Bump the request token so an in-flight lookup cannot paint stale context
+    // after the learner has left the study view.
+    state.contextRailToken = Number(state.contextRailToken || 0) + 1;
+    if (studyContextRail) {
+      studyContextRail.hidden = true;
+      studyContextRail.classList.add("collapsed");
+      studyContextRail.setAttribute("aria-hidden", "true");
+    }
+    if (studyContextBody) studyContextBody.innerHTML = "";
+    if (contextToggleBtn) {
+      contextToggleBtn.style.display = "none";
+      contextToggleBtn.classList.remove("active");
+      contextToggleBtn.setAttribute("aria-expanded", "false");
+    }
+  }
+
+  function studyContextEmptyHtml(title, copy) {
+    return `
+      <div class="study-context-empty">
+        <div class="study-context-empty-icon" aria-hidden="true">◇</div>
+        <strong>${escapeHtml(title)}</strong>
+        <span>${escapeHtml(copy)}</span>
+      </div>
+    `;
+  }
+
+  async function renderStudyContext(flashcardData) {
+    if (!studyContextBody || !flashcardData?.record) return;
+    const card = flashcardData.record;
+    const links = card.links && typeof card.links === "object" ? card.links : {};
+    const hasExternalLinks = ["quoteId", "analysisId", "nodeId", "sourceId"]
+      .some((key) => Boolean(links[key]));
+    const token = Number(state.contextRailToken || 0) + 1;
+    state.contextRailToken = token;
+
+    if (!hasExternalLinks) {
+      studyContextBody.innerHTML = studyContextEmptyHtml(
+        "No linked knowledge context",
+        "This card stands on its own. Link a quote, analysis, or source when you want context beside it."
+      );
+      return;
+    }
+
+    studyContextBody.innerHTML = `<div class="study-context-loading">Loading linked context…</div>`;
+
+    const quote = links.quoteId && typeof getQuote === "function"
+      ? await getQuote(links.quoteId).catch(() => null)
+      : null;
+    if (token !== state.contextRailToken) return;
+
+    const nodeIds = [...new Set([
+      links.analysisId,
+      links.nodeId,
+      links.sourceId,
+      quote?.link?.sourceId
+    ].filter(Boolean))];
+    const nodes = nodeIds.length && typeof getNode === "function"
+      ? await Promise.all(nodeIds.map((id) => getNode(id).catch(() => null)))
+      : [];
+    if (token !== state.contextRailToken) return;
+
+    const nodeMap = new Map(nodes.filter(Boolean).map((node) => [node.id, node]));
+    const linkedNode = links.nodeId ? nodeMap.get(links.nodeId) : null;
+    const analysisNode = (links.analysisId ? nodeMap.get(links.analysisId) : null)
+      || (linkedNode?.type === "analysis" ? linkedNode : null);
+    const sourceNode = (links.sourceId ? nodeMap.get(links.sourceId) : null)
+      || (quote?.link?.sourceId ? nodeMap.get(quote.link.sourceId) : null)
+      || (linkedNode?.type === "source" ? linkedNode : null);
+
+    const sections = [];
+    if (quote) {
+      const section = String(quote.section || "").trim();
+      sections.push(`
+        <section class="study-context-section" data-context-kind="quote">
+          <div class="study-context-label">Linked quote</div>
+          <blockquote class="study-context-quote">${escapeHtml(quote.quote || "")}</blockquote>
+          ${section ? `<div class="study-context-meta">${escapeHtml(section)}</div>` : ""}
+        </section>
+      `);
+    }
+    if (analysisNode) {
+      const title = String(analysisNode.title || "").trim();
+      const analysis = String(analysisNode.analysis || analysisNode.content || "").trim();
+      sections.push(`
+        <section class="study-context-section" data-context-kind="analysis">
+          <div class="study-context-label">Linked analysis</div>
+          ${title ? `<div class="study-context-section-title">${escapeHtml(title)}</div>` : ""}
+          ${analysis ? `<div class="study-context-analysis">${formatAnalysisForDisplay(analysis)}</div>` : ""}
+        </section>
+      `);
+    }
+    if (sourceNode) {
+      const title = String(sourceNode.title || sourceNode.name || "Untitled source").trim();
+      const meta = [sourceNode.subject, sourceNode.section]
+        .map((part) => String(part || "").trim())
+        .filter(Boolean)
+        .join(" · ");
+      sections.push(`
+        <section class="study-context-section" data-context-kind="source">
+          <div class="study-context-label">Source</div>
+          <div class="study-context-section-title">${escapeHtml(title)}</div>
+          ${meta ? `<div class="study-context-meta">${escapeHtml(meta)}</div>` : ""}
+        </section>
+      `);
+    }
+
+    if (!sections.length) {
+      studyContextBody.innerHTML = studyContextEmptyHtml(
+        "Linked context is unavailable",
+        "The linked record may have been deleted. This card still stands on its own."
+      );
+      return;
+    }
+
+    studyContextBody.innerHTML = sections.join("");
+  }
+
+  function updateStudyContext(flashcardData) {
+    const isCardStudy = state.view === "study"
+      && state.currentMode === "card-learning"
+      && !!flashcardData?.record
+      && (flashcardData.memoryKind === "card" || flashcardData.type === "card-learning");
+
+    if (!isCardStudy) {
+      hideStudyContext();
+      return;
+    }
+
+    if (!studyContextRail) return;
+    studyContextRail.hidden = false;
+    if (contextToggleBtn) contextToggleBtn.style.display = "inline-block";
+    applyStudyContextState();
+    renderStudyContext(flashcardData);
+  }
+
   function renderUI() {
     if (!flashcardContainer || !flashcardContent || !flashcardBackContent) {
       getDOMElements();
@@ -2704,6 +2886,7 @@ export async function initMemoryTool(deps, context = {}) {
       if (newSessionBtn) newSessionBtn.style.display = "none";
       if (statsBtn) statsBtn.style.display = "none";
       if (backToDecksBtn) backToDecksBtn.style.display = "none";
+      hideStudyContext();
       return;
     } else if (state.view === "middle-ui") {
       if (memoryLaunchpad) memoryLaunchpad.style.display = "none";
@@ -2713,6 +2896,7 @@ export async function initMemoryTool(deps, context = {}) {
       if (newSessionBtn) newSessionBtn.style.display = "none";
       if (statsBtn) statsBtn.style.display = "none";
       if (backToDecksBtn) backToDecksBtn.style.display = "none";
+      hideStudyContext();
       renderMiddleUI();
       return;
     } else {
@@ -2741,6 +2925,7 @@ export async function initMemoryTool(deps, context = {}) {
     if (!state.currentSubject) {
       if (flashcardContent) flashcardContent.textContent = "Select a subject to start studying.";
       if (flashcardBackContent) flashcardBackContent.textContent = "Use the sidebar to enter a subject.";
+      hideStudyContext();
       return;
     }
 
@@ -2786,6 +2971,8 @@ export async function initMemoryTool(deps, context = {}) {
         if (priorityCtrl) priorityCtrl.style.display = "none";
       }
     }
+
+    updateStudyContext(currentCard);
 
     if (state.currentMode === "evidence-matching") {
       renderEvidenceMatchingUI();

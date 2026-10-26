@@ -21,48 +21,53 @@ add task management to neuronet to handle todos
 
 ## Agent Work Log — 2026-10-26 (current)
 
-**Goal:** cards are the first-class study unit; knowledge is optional context. Dots and Cards are now card-first diagnostic surfaces for importance, recall, and accuracy. The next slice is the external knowledge-context rail in Memory study.
+**Goal:** cards are the first-class study unit; knowledge is optional context. Dots and Cards are card-first diagnostic surfaces, and Memory now has an external knowledge-context rail beside the card. Next work is polish, not a new entry path.
 
 ### Shipped / committed
 - Card model: `73d5c98` (`Make cards the first-class study unit`), with follow-up docs `7ba7433`, `574df8a`, `969e48d`, and deck-builder guard fix `9e18d88`.
 - Dots card-first slice: `62ed19d` (`Make Dots a card-first diagnostic surface`).
+- Cards/Grid card-first slice: `fbbc593` (`Make Cards a card-first deck grid`).
 - `cards` store at DB v9: `id`, `front`, `back`, `deck`, `deckPath`, `tags`, `priority`, `order`, `meta` (SRS), `links`, `origin`, `createdAt`, `updatedAt`. `deck` is a topic, not necessarily a subject.
 - Quick Add writes cards only. Bulk paste accepts tab or pipe separators and stable orders. Manual cards start with `0.8` confidence; bulk imports default to `0.5` with a selectable initial confidence (`0.2`–`0.8`).
 - Memory study queue, grading, priority editing, launchpad counts, middle UI, explorer, dashboard due counts, subject rename/delete, export, and import all use cards.
 - Deck builder is card-aware and preserves card/SRS/tag/order state; legacy quote+cue pairs remain only for Analysis compatibility.
 - JSON export/import is the canonical backup path and includes `cards`. Cloud sync remains legacy/optional with no cards endpoint.
 
-### Dots + Cards slice — Cards uncommitted
-- `getAllCards` is passed into Mindmap and loaded in `refreshData()`.
-- `buildCardSections()` groups cards by deck and sorts by stable `order`, then `createdAt`; `buildCardItem()` maps a card to the shared item/score shape. Both Dots and Cards use it.
+### Dots + Cards behavior (committed)
+- `buildCardSections()` groups cards by deck and sorts by stable `order`, then `createdAt`; both Dots and Cards use it. A deeper `deckPath` becomes a Grid sub-group.
 - `isCardInScope()` and `resolveFocusSubject()` accept decks and any `deckPath` part, so Quick Add-only decks are visible and a card-only focus survives a refresh.
-- Dot anatomy: border = importance; left half = recall; right half = accuracy. Solid five-bin palette (`#ff4d4d`, `#ff8a3d`, `#ffa500`, `#a8d95f`, `#3fd07d`); unknown is `#33443d`. Removed the accuracy arc, type centre pip, tints, and bars.
-- `getItemRecall()` returns numeric `score` plus label. Resolver: `lastGrade` → `L_phase` → `S`/`U` → `recentGrades` → `confidence` prior.
-- `getItemAccuracy()` resolver: `recentGrades` → `meta.accuracy` → `lastGrade` → `confidence` prior; observed grades beat the creation prior.
-- Cards/Grid is now card-first: deck sections, `deckPath` sub-groups, stable order, solid `R`/`A` score chips using the same five bins, importance border, and a tooltip with deck/priority/percentages/tags.
-- Clicking a Grid card opens the shared sidebar with front/back and metadata. The sidebar is read-only for cards: no graph connections, no delete, and **Open in Memory** routes to the deck.
-- Card-mode stats show card/deck counts and hide knowledge-layer pills. Empty states and legends now describe cards.
-- Bulk confidence selector added to Quick Add: default `0.5`, selectable `0.2`, `0.35`, `0.5`, `0.65`, `0.8`; single cards keep `0.8`.
+- Dots: border = importance; left half = recall; right half = accuracy. Solid five-bin palette (`#ff4d4d`, `#ff8a3d`, `#ffa500`, `#a8d95f`, `#3fd07d`); unknown is `#33443d`.
+- Recall resolver: `lastGrade` → `L_phase` → `S`/`U` → `recentGrades` → `confidence` prior. Accuracy resolver: `recentGrades` → `meta.accuracy` → `lastGrade` → `confidence` prior.
+- Cards/Grid uses the same five bins as solid `R`/`A` chips, with an importance border, deck sections, and a tooltip containing deck/priority/percentages/tags.
+- Clicking a Grid card opens the shared read-only sidebar: front/back, no graph connections, no delete, **Open in Memory** routes to the deck.
+- Card-mode stats show card/deck counts and hide knowledge-layer pills. Empty states and legends describe cards only.
+
+### Context rail — committed
+- `#studyContextRail` sits beside `#flashcard` inside a new `#studyStage`; it is not inside either card face and does not touch flip/grading.
+- Context comes from the current card's `links`: `quoteId` (plus `quote.link.sourceId`), `analysisId`, `nodeId`, and `sourceId`. It renders linked quote, analysis, and source cards.
+- No external links → muted empty state (“No linked knowledge context”). Missing linked records → “Linked context is unavailable”.
+- Header **Context** button and the in-rail chevron toggle it. Wide screens collapse to a 46px strip; `<=1000px` turns the rail into an overlay drawer. It starts collapsed on narrow viewports.
+- Rail is hidden on launchpad, middle UI, Analysis Learning, Evidence Matching, and Blurt. Async lookups are token-guarded against card changes.
+- Narrow drawers use an opaque background and `aria-hidden` only when off-screen; wide collapsed strips stay accessible.
 
 ### Test status
 - Card model: 22/22. Deck builder: 28/28. New deck: 10/10. Bulk Quick Add: 6/6.
-- Dots smoke test: 21/21 (legend anatomy, five bins, no arc/type pip, canvas colours, hover tooltip, deck focus stats).
-- Cards/Grid smoke test: 21/21 (deck sections, `deckPath` groups, solid R/A chips, importance border, legend, card sidebar, focus, card-only focus refresh).
-- Bulk-confidence smoke test: 7/7 (default 50%, selectable 20%, single-card 80%, stable order).
-- Screenshots checked: `/tmp/opencode/dots.png`, `/tmp/opencode/dots-hover.png`, `/tmp/opencode/dots-focused.png`, `/tmp/opencode/grid-cards.png`, `/tmp/opencode/grid-card-sidebar.png`, `/tmp/opencode/grid-cards-focused.png`.
-- `node --check` passes for `src/main.js`, `src/tools/mindmapTool.js`, and `src/tools/memoryTool.js`.
+- Dots: 21/21. Cards/Grid: 21/21. Bulk confidence: 7/7.
+- Context rail smoke test: 23/23 (three linked section kinds, outside card face, beside card, toggle/aria, flip/grading, hide on launchpad, empty state, collapse/expand, narrow overlay drawer, no page exceptions).
+- Screenshots checked: `/tmp/opencode/context-rail.png`, `/tmp/opencode/context-rail-narrow.png`, plus the earlier Dots/Grid screenshots.
+- `node --check` passes for `src/main.js`, `src/tools/memoryTool.js`, and `src/tools/mindmapTool.js`.
 - These are one-off checks in `/tmp/opencode/`, not a test suite.
 
 ### Next steps
-1. Add the external knowledge-context rail in Memory study without placing it inside the card face.
-2. Update `../project.md` after each slice. Keep this log replaced, not appended.
-3. Optional later: batch-decreasing bulk confidence and a dim “show knowledge context” toggle in Dots/Grid.
+1. Optional later: batch-decreasing bulk confidence and a dim “show knowledge context” toggle in Dots/Grid.
+2. Keep `../project.md` updated after each slice; replace this log rather than appending.
 
 ### Problems / risks
 - The card sidebar is intentionally read-only; editing/deleting still lives in Memory.
 - Cloud sync (`src/sync.js`) has no cards endpoint; cards are local-only. JSON export/import is the backup path.
 - Legacy quote/cue records remain by design for source anchoring and Analysis.
 - `custom-deck` can persist in old quote records and some legacy UI until those paths are cleaned up.
-- Dots/Grid intentionally omit knowledge context. Context, when added, must stay visually external to the card face.
+- The context rail is read-only and only appears in Cards mode; it is not a general knowledge browser.
+- Dots/Grid intentionally omit knowledge context; the graph remains the knowledge-network surface.
 
 
