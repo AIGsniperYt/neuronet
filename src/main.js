@@ -1,4 +1,4 @@
-import { cleanupOldDemoDatabases, initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, addSubject, deleteSubject, renameSubject, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, syncCardsFromLegacy } from "./db.js";
+import { cleanupOldDemoDatabases, initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, addSubject, deleteSubject, renameSubject, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, clearTags, syncCardsFromLegacy } from "./db.js";
 import { syncLocalWithCloud, syncToCloud, deleteCloudNode, deleteCloudQuote, deleteCloudCue, fetchCloudNodes, fetchCloudQuotes, fetchCloudCues } from "./sync.js";
 import { initAnalysisToolV2 } from "./tools/analysisTool.js";
 import { dialog } from "./tools/dialog.js";
@@ -764,8 +764,8 @@ async function upgradeStoredDatabaseIfNeeded() {
 // ========== DEMO DATA & DELETE DATA ==========
 
 async function importDemoData() {
-  const cur = await currentFingerprint();
-  const empty = cur === fingerprintDataset([], [], []);
+  const [cur, cards] = await Promise.all([currentFingerprint(), getAllCards()]);
+  const empty = cur === fingerprintDataset([], [], []) && (cards || []).length === 0;
   if (!empty) {
     const ok = await dialog.confirm(
       "Importing demo data will overwrite YOUR current NeuroNet database. Continue?",
@@ -785,8 +785,13 @@ async function importDemoData() {
 }
 
 async function deleteAllData() {
-  const [nodes, quotes, cues] = await Promise.all([getAllNodes(), getAllQuotes(), getAllCues()]);
-  const isDemo = await isOnDemoData(nodes, quotes, cues);
+  const [nodes, quotes, cues, cards] = await Promise.all([
+    getAllNodes(),
+    getAllQuotes(),
+    getAllCues(),
+    getAllCards()
+  ]);
+  const isDemo = await isOnDemoData(nodes, quotes, cues, cards);
 
   // Easy path: pristine demo data, fully recoverable via re-import.
   if (isDemo) {
@@ -803,7 +808,7 @@ async function deleteAllData() {
 
   // Modified / user data: full caution flow.
   const gate = await dialog.confirm(
-    "Delete ALL of your NeuroNet data? This removes every subject, source, analysis, quote, cue and past paper from this browser. This is a danger zone.\n\nContinue?",
+    "Delete ALL of your NeuroNet data? This removes every subject, source, analysis, quote, cue, card and past paper from this browser. This is a danger zone.\n\nContinue?",
     "Continue to delete",
     "danger"
   );
@@ -844,16 +849,27 @@ async function deleteAllData() {
   toast("All data deleted. Your database is now empty.");
 }
 
-async function isOnDemoData(nodes, quotes, cues) {
+async function isOnDemoData(nodes, quotes, cues, cards = []) {
   const demoFp = await demoFingerprint();
   if (demoFp == null) return false;
-  return fingerprintDataset(nodes, quotes, cues) === demoFp;
+  if (fingerprintDataset(nodes, quotes, cues) !== demoFp) return false;
+
+  // The demo payload is legacy-only. A pristine demo therefore has exactly
+  // the cards backfilled from its quotes; user-created cards break the match
+  // even though they are not part of the legacy fingerprint.
+  const expectedCards = (quotes || []).filter(
+    (quote) => quote?.id && quote?.subject && String(quote.quote || "").trim()
+  ).length;
+  return (cards || []).length === expectedCards
+    && (cards || []).every((card) => card?.origin === "legacy");
 }
 
 async function wipeDatabase() {
   await clearNodes();
   await clearQuotes();
   await clearCues();
+  await clearCards();
+  await clearTags();
   if (USE_BACKEND && window.currentUser) {
     try {
       const [cloudNodes, cloudQuotes, cloudCues] = await Promise.all([
@@ -1995,9 +2011,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     const visited = !!localStorage.getItem(visitedKey);
     if (!visited) localStorage.setItem(visitedKey, "1");
 
-    const [nodes, quotes, cues] = await Promise.all([getAllNodes(), getAllQuotes(), getAllCues()]);
-    const isEmpty = nodes.length === 0 && quotes.length === 0 && cues.length === 0;
-    const isDemo = await isOnDemoData(nodes, quotes, cues);
+    const [nodes, quotes, cues, cards] = await Promise.all([
+      getAllNodes(),
+      getAllQuotes(),
+      getAllCues(),
+      getAllCards()
+    ]);
+    const isEmpty = nodes.length === 0 && quotes.length === 0 && cues.length === 0 && cards.length === 0;
+    const isDemo = await isOnDemoData(nodes, quotes, cues, cards);
 
     if (isEmpty || isDemo || !visited) {
       setTimeout(() => {

@@ -1630,6 +1630,25 @@ export function deleteTag(id) {
   });
 }
 
+export function clearTags() {
+  return new Promise((resolve, reject) => {
+    if (!db || !tagStoreExists()) {
+      resolve();
+      return;
+    }
+
+    const tx = db.transaction("tags", "readwrite");
+    const req = tx.objectStore("tags").clear();
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => {
+      emitDBChange({ type: "clear", store: "tags" });
+      resolve();
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
 // ========== SSS (Semantic Search System) ENGINE ==========
 
 function escapeHtmlForDB(value) {
