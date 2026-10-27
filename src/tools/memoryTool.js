@@ -214,7 +214,7 @@ export async function initMemoryTool(deps, context = {}) {
   let systemThinkingText;
   let studyContextRail, studyContextBody, studyContextCollapseBtn, contextToggleBtn;
   // Deck builder elements
-  let deckBuilderModal, deckNameInput, deckDescriptionInput, createDeckBtn, closeDeckBuilderBtn;
+  let deckBuilderModal, deckNameInput, deckDescriptionInput, deckCardTags, createDeckBtn, closeDeckBuilderBtn;
   let step1DeckInfo, step2Flashcards, step3Success;
   let cueInput, quoteInput, priorityPills, saveCardBtn, cancelCardBtn, clearFormBtn, deleteCardBtn;
   let nextToDeckBtn, addNewCardBtn, backToDeckInfoBtn, finishDeckBtn;
@@ -237,7 +237,9 @@ export async function initMemoryTool(deps, context = {}) {
 
   // Deck builder state
   const deckBuilderState = {
-    cards: [], // Array of {cueId, cueFront, quoteId, quoteBack, priority, layers: [], isExisting}
+    // The builder edits cards directly. `front`/`back` are the only content
+    // fields; legacy quote/cue records are never created or rewritten here.
+    cards: [], // Array of {cardId, front, back, priority, tags, isExisting}
     deckName: "",
     deckDescription: "",
     currentCardIndex: -1,
@@ -245,14 +247,11 @@ export async function initMemoryTool(deps, context = {}) {
     editingSubject: null,
     deletedCardIds: [], // Track deleted card IDs for editing
     isMassEditMode: false, // Track if we're in mass edit mode
-    massEditData: null, // Deep copy of cards for mass edit
-    layerPillState: {
-      selectedLayers: []   // currently selected layer names for the editing card (max 3)
-    }
+    massEditData: null // Deep copy of cards for mass edit
   };
 
-  // Quick Add: card-first capture that persists each card immediately. It writes
-  // legacy quote + cue records for now so Memory works without a migration.
+  // Quick Add: card-first capture that persists each card immediately. It
+  // writes only the card store, so it is usable for any subject.
   const quickAddState = {
     isOpen: false,
     saving: false,
@@ -302,6 +301,7 @@ export async function initMemoryTool(deps, context = {}) {
     deckBuilderModal = document.getElementById("deckBuilderModal");
     deckNameInput = document.getElementById("deckNameInput");
     deckDescriptionInput = document.getElementById("deckDescriptionInput");
+    deckCardTags = document.getElementById("deckCardTags");
     createDeckBtn = document.getElementById("createDeckBtn");
     editDecksBtn = document.getElementById("editDecksBtn");
     closeDeckBuilderBtn = document.getElementById("closeDeckBuilderBtn");
@@ -433,7 +433,7 @@ export async function initMemoryTool(deps, context = {}) {
 
     if (modeSelect) {
       modeSelect.addEventListener("click", async () => {
-        const modes = ["card-learning", "analysis-learning", "evidence-matching", "blurt"];
+        const modes = ["card-learning", "quote-learning", "analysis-learning", "evidence-matching", "blurt"];
         const currentIndex = modes.indexOf(state.currentMode);
         state.currentMode = modes[(currentIndex + 1) % modes.length];
         await loadFlashcards();
@@ -745,16 +745,16 @@ export async function initMemoryTool(deps, context = {}) {
 
     if (saveCardBtn) {
       saveCardBtn.addEventListener("click", () => {
-        const cueFront = cueInput?.value?.trim() || "";
-        const quoteBack = quoteInput?.value?.trim() || "";
-        if (!cueFront || !quoteBack) {
+        const front = cueInput?.value?.trim() || "";
+        const back = quoteInput?.value?.trim() || "";
+        if (!front || !back) {
           dialog.alert("Please enter both front and back of the card");
           return;
         }
         // Get selected priority from pills
         const activePill = priorityPills?.querySelector(".priority-pill.active");
         const priority = activePill ? parseInt(activePill.dataset.priority) : 3;
-        saveFlashcard(cueFront, quoteBack, priority);
+        saveFlashcard(front, back, priority);
       });
     }
 
@@ -1284,10 +1284,11 @@ export async function initMemoryTool(deps, context = {}) {
         renderUI();
       });
 
-      // Card click - go to middle UI for filters
+      // Card click - go to middle UI for filters. Cards are the primary mode.
       card.addEventListener("click", async () => {
         if (state.editMode) return;
         state.currentSubject = subject;
+        state.currentMode = "card-learning";
         state.view = "middle-ui";
         await loadMiddleUIData();
         renderUI();
@@ -1321,6 +1322,9 @@ export async function initMemoryTool(deps, context = {}) {
 
     if (state.currentMode === "card-learning") {
       await buildCardLearningQueue();
+      drawNextCardFromHeap();
+    } else if (state.currentMode === "quote-learning") {
+      await buildQuoteLearningQueue();
       drawNextCardFromHeap();
     } else if (state.currentMode === "analysis-learning") {
       await buildAnalysisLearningQueue();
@@ -2302,7 +2306,6 @@ export async function initMemoryTool(deps, context = {}) {
     } else if (candidate.memoryKind === "quote") {
       const quote = candidate.record;
       const analyses = await getAnalysesReferencingQuote(quote.id);
-      const cueNode = candidate.cueNode || null;
       // Fetch source node to enable formatted quote rendering
       let sourceNode = null;
       if (quote.link?.sourceId) {
@@ -2316,9 +2319,8 @@ export async function initMemoryTool(deps, context = {}) {
         record: quote,
         review: { required: true, graded: false, grade: null, responseTimeMs: null },
         front: {
-          content: getCueForQuote(quote, cueNode),
-          isCue: true,
-          cueNode
+          content: quote.section ? `Recall the quote from: ${quote.section}` : "Recall this quote",
+          isCue: true
         },
         back: {
           content: quote.quote,
@@ -2414,16 +2416,52 @@ export async function initMemoryTool(deps, context = {}) {
     enqueueLearningCards(filteredCards, nowMs);
   }
 
-  function getCueForQuote(quote, cueNode = null) {
-     // Check for custom cue (from deck builder or manually added)
-     if (cueNode?.cue) {
-       return cueNode.cue;
-     }
-     // Fallback: show truncated quote as cue
-     const words = quote.quote.split(' ');
-     if (words.length <= 4) return quote.quote;
-     return `${words[0]} ... ${words[words.length - 1]}`;
-   }
+  // Quotes are optional knowledge, not the study unit. This mode is a plain
+  // recall pass over the deck's linked quotes; it never reads or writes the
+  // legacy cue pair.
+  async function buildQuoteLearningQueue() {
+    const nowMs = Date.now();
+    const [allQuotes, allSources] = await Promise.all([
+      getQuotesForSubject(state.currentSubject),
+      getAllNodes().then((nodes) => (nodes || []).filter((node) => node.type === "source"))
+    ]);
+
+    const sourcesById = new Map((allSources || []).map((source) => [source.id, source]));
+    state.session.surprisePool = [];
+
+    const cards = await Promise.all(
+      (allQuotes || []).map(async (quote) => {
+        const analyses = await getAnalysesReferencingQuote(quote.id);
+        const sourceNode = sourcesById.get(quote.link?.sourceId) || null;
+        return {
+          id: quote.id,
+          memoryKind: "quote",
+          type: "quote-learning",
+          record: quote,
+          review: { required: true, graded: false, grade: null, responseTimeMs: null },
+          front: {
+            content: quote.section ? `Recall the quote from: ${quote.section}` : "Recall this quote",
+            isCue: true
+          },
+          back: {
+            content: quote.quote,
+            isQuote: true,
+            quoteData: quote,
+            sourceNode,
+            analyses
+          },
+          memoryState: getMemoryStateFromMeta(quote.meta || {}, "quote")
+        };
+      })
+    );
+
+    let filteredCards = cards;
+    if (state.sessionFilter) {
+      filteredCards = cards.filter((card) => passesFilter(card, state.sessionFilter));
+    }
+
+    enqueueLearningCards(filteredCards, nowMs);
+  }
 
   async function buildAnalysisLearningQueue() {
     const nowMs = Date.now();
@@ -2575,7 +2613,7 @@ export async function initMemoryTool(deps, context = {}) {
         targetKind,
         targetRecord,
         review: { required: true, graded: false, grade: null, responseTimeMs: null },
-        front: { content: cue.cue, isCue: true, cueNode: cue },
+        front: { content: cue.cue, isCue: true },
         back: {
           isBlurtInput: true,
           targetContent: targetKind === "quote" ? targetRecord.quote : targetRecord.analysis,
@@ -2912,7 +2950,8 @@ export async function initMemoryTool(deps, context = {}) {
     if (modeSelect) {
       modeSelect.textContent =
         state.currentMode === "card-learning" ? "Cards" :
-        state.currentMode === "analysis-learning" ? "Analysis Learning" :
+        state.currentMode === "quote-learning" ? "Quotes" :
+        state.currentMode === "analysis-learning" ? "Analysis" :
         state.currentMode === "blurt" ? "Blurt" :
         "Evidence Matching";
     }
@@ -3060,7 +3099,6 @@ export async function initMemoryTool(deps, context = {}) {
        // For blurt cards pointing at a quote, render the cue more prominently
        const isBlurtQuoteCard = flashcardData.type === "blurt" && flashcardData.targetKind === "quote";
        const isBlurtAnalysisCard = flashcardData.type === "blurt" && flashcardData.targetKind === "analysis";
-       const isCustomDeckCard = front.isCustomDeck;
 
        if (isBlurtQuoteCard) {
          flashcardContent.innerHTML = `
@@ -3070,12 +3108,6 @@ export async function initMemoryTool(deps, context = {}) {
        } else if (isBlurtAnalysisCard) {
          flashcardContent.innerHTML = `
            <div class="blurt-prompt-label">Recall the analysis:</div>
-           <div class="cue">${escapeHtml(front.content || "")}</div>
-         `;
-       } else if (isCustomDeckCard) {
-         // Custom deck: show cue prominently on front
-         flashcardContent.innerHTML = `
-           <div class="custom-deck-label">${escapeHtml(flashcardData.record?.subject || "Custom Deck")}</div>
            <div class="cue">${escapeHtml(front.content || "")}</div>
          `;
        } else {
@@ -3104,7 +3136,7 @@ export async function initMemoryTool(deps, context = {}) {
             ? getFormattedQuote(quoteData, sourceNode)
             : escapeHtml(front.content || "");
           flashcardContent.innerHTML = `<div class="quote" id="front-quote-container">${formatted}</div>`;
-        if (quoteData && !quoteData.meta?.tags?.includes("custom-deck")) {
+        if (quoteData) {
           const section = quoteData.section || sourceNode?.section || "unknown source";
           flashcardContent.innerHTML += `<div class="quote-meta">From: ${escapeHtml(section)}</div>`;
         }
@@ -3125,7 +3157,7 @@ export async function initMemoryTool(deps, context = {}) {
           ? getFormattedQuote(back.quoteData, sourceNode)
           : escapeHtml(back.content || "");
         flashcardBackContent.innerHTML = `<div class="quote" id="back-quote-container">${formatted}</div>`;
-        if (back.quoteData && !back.quoteData.meta?.tags?.includes("custom-deck")) {
+        if (back.quoteData) {
           const section = back.quoteData.section || sourceNode?.section || "unknown source";
           flashcardBackContent.innerHTML += `<div class="quote-meta">From: ${escapeHtml(section)}</div>`;
         }
@@ -3182,10 +3214,11 @@ export async function initMemoryTool(deps, context = {}) {
           const targetText = back.targetContent || "";
           const isQuoteTarget = back.targetKind === "quote";
           // Use formatted quote if sourceNode is available
+          const quoteMeta = `<div class="quote-meta">From: ${escapeHtml(back.targetRecord?.section || "unknown source")}</div>`;
           const formattedTarget = isQuoteTarget
             ? (back.sourceNode && back.targetRecord)
-              ? `<div class="quote">${getFormattedQuote(back.targetRecord, back.sourceNode)}</div>${back.targetRecord?.meta?.tags?.includes("custom-deck") ? "" : `<div class="quote-meta">From: ${escapeHtml(back.targetRecord.section || "unknown source")}</div>`}`
-              : `<div class="quote">${escapeHtml(targetText)}</div>${back.targetRecord?.meta?.tags?.includes("custom-deck") ? "" : `<div class="quote-meta">From: ${escapeHtml(back.targetRecord.section || "unknown source")}</div>`}`
+              ? `<div class="quote">${getFormattedQuote(back.targetRecord, back.sourceNode)}</div>${quoteMeta}`
+              : `<div class="quote">${escapeHtml(targetText)}</div>${quoteMeta}`
             : `<div class="analysis">${formatAnalysisForDisplay(targetText)}</div>`;
           flashcardBackContent.innerHTML = `
             <div class="blurt-comparison">
@@ -4268,12 +4301,10 @@ export async function initMemoryTool(deps, context = {}) {
       for (const card of orderedCards) {
         deckBuilderState.cards.push({
           cardId: card.id,
-          cueId: card.links?.cueId || crypto.randomUUID(),
-          cueFront: card.front,
-          quoteId: card.links?.quoteId || crypto.randomUUID(),
-          quoteBack: card.back,
+          front: card.front,
+          back: card.back,
           priority: card.priority || 3,
-          layers: (card.deckPath || []).slice(1, 4),
+          tags: [...(card.tags || [])],
           isExisting: true,
           meta: card.meta || {},
           createdAt: card.createdAt,
@@ -4282,7 +4313,9 @@ export async function initMemoryTool(deps, context = {}) {
         });
       }
     } else {
-      // Fallback for a deck whose legacy pairs have not been backfilled yet.
+      // Last-resort fallback for a deck whose legacy pairs were never
+      // backfilled. It is read-only context: saving creates a card that links
+      // to the pair, but never writes the quote or cue again.
       const quotes = await getQuotesForSubject(subject) || [];
       const cues = await getCuesForSubject(subject) || [];
       const orderedQuotes = [...quotes].sort((a, b) => {
@@ -4294,22 +4327,20 @@ export async function initMemoryTool(deps, context = {}) {
       for (const quote of orderedQuotes) {
         const cardCues = cues.filter(c => c.quoteId === quote.id);
         const cue = cardCues.length > 0 ? cardCues[0] : null;
-        const path = quote.meta?.hierarchyPath || [];
-        const layers = path.filter(Boolean).slice(1, 4);
 
         deckBuilderState.cards.push({
           cardId: null,
-          cueId: cue ? cue.id : crypto.randomUUID(),
-          cueFront: cue ? cue.cue : "",
-          quoteId: quote.id,
-          quoteBack: quote.quote,
+          front: cue?.cue || quote.quote,
+          back: quote.quote,
           priority: quote.priority || 3,
-          layers,
-          isExisting: true,
+          tags: (quote.meta?.tags || []).filter((tag) => tag !== "custom-deck"),
+          isExisting: false,
           meta: quote.meta || {},
           createdAt: quote.createdAt,
           origin: "legacy",
-          links: { quoteId: quote.id, cueId: cue?.id }
+          links: { quoteId: quote.id, cueId: cue?.id },
+          legacyQuoteId: quote.id,
+          legacyCueId: cue?.id || null
         });
       }
     }
@@ -4333,9 +4364,6 @@ export async function initMemoryTool(deps, context = {}) {
     deckBuilderState.isEditingCard = false;
     deckBuilderState.editingSubject = null;
     deckBuilderState.deletedCardIds = [];
-    deckBuilderState.layerPillState = {
-      selectedLayers: []
-    };
     if (deckNameInput) deckNameInput.value = "";
     if (deckDescriptionInput) deckDescriptionInput.value = "";
     if (finishDeckBtn) finishDeckBtn.textContent = "Finish Deck";
@@ -4356,10 +4384,7 @@ export async function initMemoryTool(deps, context = {}) {
     if (step3Success) step3Success.style.display = step === 3 ? "block" : "none";
     // Reset form on step 2
     if (step === 2) {
-      deckBuilderState.layerPillState.selectedLayers = [];
       renderPriorityPills();
-      renderLayerRows();
-      setupNewLayerButtons();
       clearForm();
     }
   }
@@ -4393,208 +4418,15 @@ export async function initMemoryTool(deps, context = {}) {
     });
   }
 
-  // ========== LAYER ROWS SYSTEM ==========
-
-  function renderLayerRows() {
-    renderLayerRow(1);
-    renderLayerRow(2);
-    renderLayerRow(3);
-    updateLayerRowStates();
-  }
-
-  function getLayersForLevel(level) {
-    // L1: all unique L1 names from all cards
-    // L2: L2 names only if L1 is selected
-    // L3: L3 names only if L1 and L2 are selected
-    const cards = deckBuilderState.cards;
-    const selected = deckBuilderState.layerPillState.selectedLayers; // [l1, l2, l3] (may be shorter)
-
-    if (level === 1) {
-      const set = new Set();
-      cards.forEach(c => { if (c.layers && c.layers[0]) set.add(c.layers[0]); });
-      // Include currently selected L1 even if not in any card yet
-      if (selected[0]) set.add(selected[0]);
-      return Array.from(set).sort();
-    }
-
-    if (level === 2) {
-      const l1 = selected[0];
-      if (!l1) return [];
-      const set = new Set();
-      cards.forEach(c => {
-        if (c.layers && c.layers[0] === l1 && c.layers[1]) set.add(c.layers[1]);
-      });
-      if (selected[1]) set.add(selected[1]);
-      return Array.from(set).sort();
-    }
-
-    if (level === 3) {
-      const l1 = selected[0];
-      const l2 = selected[1];
-      if (!l1 || !l2) return [];
-      const set = new Set();
-      cards.forEach(c => {
-        if (c.layers && c.layers[0] === l1 && c.layers[1] === l2 && c.layers[2]) {
-          set.add(c.layers[2]);
-        }
-      });
-      if (selected[2]) set.add(selected[2]);
-      return Array.from(set).sort();
-    }
-
-    return [];
-  }
-
-  function renderLayerRow(level) {
-    const container = document.getElementById(`layer${level}Pills`);
-    if (!container) return;
-
-    const layers = getLayersForLevel(level);
-    const selected = deckBuilderState.layerPillState.selectedLayers;
-    const selectedForLevel = selected[level - 1] || null;
-
-    let html = layers.map(name => {
-      const isActive = name === selectedForLevel;
-      return `<button type="button" class="layer-pill ${isActive ? 'active' : ''}" data-level="${level}" data-layer="${escapeHtml(name)}">${escapeHtml(name)}</button>`;
-    }).join("");
-
-    container.innerHTML = html;
-
-    // Attach click events
-    container.querySelectorAll(".layer-pill").forEach(btn => {
-      btn.addEventListener("click", () => {
-        selectLayerPill(parseInt(btn.dataset.level), btn.dataset.layer);
-      });
+  function setPriorityPillSelection(priority = 3) {
+    if (!priorityPills) return;
+    priorityPills.querySelectorAll(".priority-pill").forEach((button) => {
+      const value = parseInt(button.dataset.priority, 10);
+      const isActive = value === priority;
+      button.classList.toggle("active", isActive);
+      button.style.color = isActive ? getPriorityColor(value) : "var(--text-muted)";
+      button.style.borderColor = isActive ? getPriorityColor(value) : "rgba(255,255,255,0.15)";
     });
-  }
-
-  function selectLayerPill(level, layerName) {
-    const selected = deckBuilderState.layerPillState.selectedLayers;
-    // Pad array to length (level-1) with undefined
-    while (selected.length < level - 1) selected.push(undefined);
-    const current = selected[level - 1];
-
-    if (current === layerName) {
-      // Deselect this level and all levels below
-      selected.splice(level - 1);
-    } else {
-      // Set this level, clear all below
-      selected[level - 1] = layerName;
-      selected.length = level; // truncate anything below
-    }
-
-    renderLayerRows();
-  }
-
-  function updateLayerRowStates() {
-    const selected = deckBuilderState.layerPillState.selectedLayers;
-    const l1Row = document.getElementById("layer1Row");
-    const l2Row = document.getElementById("layer2Row");
-    const l3Row = document.getElementById("layer3Row");
-    const l2Btn = document.querySelector('#layer2Row .layer-new-pill');
-    const l3Btn = document.querySelector('#layer3Row .layer-new-pill');
-
-    // L1 always enabled
-    if (l1Row) l1Row.classList.remove("disabled");
-
-    // L2 enabled only if L1 selected
-    if (l2Row) {
-      if (selected[0]) {
-        l2Row.classList.remove("disabled");
-        if (l2Btn) l2Btn.disabled = false;
-      } else {
-        l2Row.classList.add("disabled");
-        if (l2Btn) l2Btn.disabled = true;
-      }
-    }
-
-    // L3 enabled only if L1 and L2 selected
-    if (l3Row) {
-      if (selected[0] && selected[1]) {
-        l3Row.classList.remove("disabled");
-        if (l3Btn) l3Btn.disabled = false;
-      } else {
-        l3Row.classList.add("disabled");
-        if (l3Btn) l3Btn.disabled = true;
-      }
-    }
-  }
-
-  function setupNewLayerButtons() {
-    document.querySelectorAll(".layer-new-pill").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const level = parseInt(btn.dataset.level);
-        const row = btn.closest(".layer-row");
-        if (row && row.classList.contains("disabled")) return;
-        showNewLayerInput(level);
-      });
-    });
-  }
-
-  function showNewLayerInput(level) {
-    const container = document.getElementById(`layer${level}Pills`);
-    const newBtn = document.querySelector(`#layer${level}Row .layer-new-pill`);
-    if (!container || !newBtn) return;
-
-    const existingInput = document.getElementById(`newLayerInput${level}`);
-    if (existingInput) return; // already open
-
-    const wrapper = document.createElement("div");
-    wrapper.style.display = "flex";
-    wrapper.style.gap = "6px";
-    wrapper.id = `newLayerWrapper${level}`;
-
-    wrapper.innerHTML = `
-      <input type="text" id="newLayerInput${level}" class="layer-input-inline" placeholder="Layer name...">
-      <button type="button" id="confirmLayerBtn${level}" class="layer-confirm-btn">Add</button>
-    `;
-
-    newBtn.style.display = "none";
-    container.parentNode.insertBefore(wrapper, container.nextSibling);
-
-    const input = document.getElementById(`newLayerInput${level}`);
-    const confirmBtn = document.getElementById(`confirmLayerBtn${level}`);
-
-    if (input) {
-      input.focus();
-      input.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          confirmNewLayer(level);
-        }
-        if (e.key === "Escape") {
-          cancelNewLayer(level);
-        }
-      });
-    }
-
-    if (confirmBtn) {
-      confirmBtn.addEventListener("click", () => confirmNewLayer(level));
-    }
-  }
-
-  function confirmNewLayer(level) {
-    const input = document.getElementById(`newLayerInput${level}`);
-    if (!input) return;
-    const newLayer = input.value.trim();
-    if (!newLayer) return;
-
-    // Select it directly — it will appear in the row via getLayersForLevel
-    // since getLayersForLevel scans cards, we just need to set selected state
-    const selected = deckBuilderState.layerPillState.selectedLayers;
-    while (selected.length < level - 1) selected.push(undefined);
-    selected[level - 1] = newLayer;
-    selected.length = level;
-
-    cancelNewLayer(level);
-    renderLayerRows();
-  }
-
-  function cancelNewLayer(level) {
-    const wrapper = document.getElementById(`newLayerWrapper${level}`);
-    const newBtn = document.querySelector(`#layer${level}Row .layer-new-pill`);
-    if (wrapper) wrapper.remove();
-    if (newBtn) newBtn.style.display = "";
   }
 
   function startEditingCard(index) {
@@ -4609,51 +4441,25 @@ export async function initMemoryTool(deps, context = {}) {
 
     if (index >= 0 && index < deckBuilderState.cards.length) {
       const card = deckBuilderState.cards[index];
-      if (cueInput) cueInput.value = card.cueFront;
-      if (quoteInput) quoteInput.value = card.quoteBack;
-      // Set priority pill
-      if (priorityPills) {
-        priorityPills.querySelectorAll(".priority-pill").forEach(b => {
-          const p = parseInt(b.dataset.priority);
-          const isActive = p === card.priority;
-          b.classList.toggle("active", isActive);
-          b.style.color = isActive ? getPriorityColor(p) : "var(--text-muted)";
-          b.style.borderColor = isActive ? getPriorityColor(p) : "rgba(255,255,255,0.15)";
-        });
-      }
-      // Set layer rows state: populate selectedLayers from card.layers
-      deckBuilderState.layerPillState.selectedLayers = [...(card.layers || [])];
-      renderLayerRows();
-      // Show delete button
+      if (cueInput) cueInput.value = card.front || "";
+      if (quoteInput) quoteInput.value = card.back || "";
+      if (deckCardTags) deckCardTags.value = (card.tags || []).join(", ");
+      setPriorityPillSelection(card.priority || 3);
       if (deleteCardBtn) deleteCardBtn.style.display = "inline-block";
-      // Update form title
       const formTitle = document.getElementById("formTitle");
       if (formTitle) formTitle.textContent = "Edit Card";
     } else {
-      // New card
       if (cueInput) cueInput.value = "";
       if (quoteInput) quoteInput.value = "";
-      deckBuilderState.layerPillState.selectedLayers = [];
-      renderLayerRows();
+      if (deckCardTags) deckCardTags.value = "";
+      setPriorityPillSelection(3);
       if (deleteCardBtn) deleteCardBtn.style.display = "none";
-      // Reset priority to default (Medium)
-      if (priorityPills) {
-        priorityPills.querySelectorAll(".priority-pill").forEach(b => {
-          const p = parseInt(b.dataset.priority);
-          const isActive = p === 3;
-          b.classList.toggle("active", isActive);
-          b.style.color = isActive ? getPriorityColor(p) : "var(--text-muted)";
-          b.style.borderColor = isActive ? getPriorityColor(p) : "rgba(255,255,255,0.15)";
-        });
-      }
-      // Update form title
       const formTitle = document.getElementById("formTitle");
       if (formTitle) formTitle.textContent = "Add New Card";
     }
 
     if (cueInput) cueInput.focus();
 
-    // Update save button state
     if (saveCardBtn && cueInput && quoteInput) {
       const hasContent = cueInput.value.trim() && quoteInput.value.trim();
       saveCardBtn.disabled = !hasContent;
@@ -4672,24 +4478,11 @@ export async function initMemoryTool(deps, context = {}) {
   function clearForm() {
     if (cueInput) cueInput.value = "";
     if (quoteInput) quoteInput.value = "";
-    // Reset layer rows
-    deckBuilderState.layerPillState.selectedLayers = [];
-    renderLayerRows();
-    // Reset priority to default (Medium)
-    if (priorityPills) {
-      priorityPills.querySelectorAll(".priority-pill").forEach(b => {
-        const p = parseInt(b.dataset.priority);
-        const isActive = p === 3;
-        b.classList.toggle("active", isActive);
-        b.style.color = isActive ? getPriorityColor(p) : "var(--text-muted)";
-        b.style.borderColor = isActive ? getPriorityColor(p) : "rgba(255,255,255,0.15)";
-      });
-    }
+    if (deckCardTags) deckCardTags.value = "";
+    setPriorityPillSelection(3);
     if (deleteCardBtn) deleteCardBtn.style.display = "none";
-    // Update form title
     const formTitle = document.getElementById("formTitle");
     if (formTitle) formTitle.textContent = "Add New Card";
-    // Update save button state
     if (saveCardBtn) {
       saveCardBtn.disabled = true;
       saveCardBtn.style.opacity = "0.4";
@@ -4697,58 +4490,46 @@ export async function initMemoryTool(deps, context = {}) {
     }
   }
 
-  function saveFlashcard(cueFront, quoteBack, priority) {
-    // Build layers array from selectedLayers, filtering out undefined
-    const layers = deckBuilderState.layerPillState.selectedLayers
-      .filter(Boolean)
-      .map(s => s.trim())
-      .filter(Boolean);
+  function saveFlashcard(front, back, priority) {
+    const tags = parseQuickAddTags(deckCardTags?.value);
     const existing = deckBuilderState.currentCardIndex >= 0
       ? deckBuilderState.cards[deckBuilderState.currentCardIndex]
       : null;
     const card = {
       cardId: existing?.cardId || null,
-      cueId: existing?.cueId || crypto.randomUUID(),
-      cueFront,
-      quoteId: existing?.quoteId || crypto.randomUUID(),
-      quoteBack,
+      front,
+      back,
       priority,
-      layers, // array of up to 3 layer names [l1, l2, l3]
+      tags,
       isExisting: !!existing?.isExisting,
       meta: existing?.meta,
       createdAt: existing?.createdAt,
       origin: existing?.origin,
-      links: existing?.links
+      links: existing?.links,
+      legacyQuoteId: existing?.legacyQuoteId || null,
+      legacyCueId: existing?.legacyCueId || null
     };
 
     if (deckBuilderState.currentCardIndex >= 0) {
-      // Update existing card
       deckBuilderState.cards[deckBuilderState.currentCardIndex] = {
         ...deckBuilderState.cards[deckBuilderState.currentCardIndex],
         ...card,
         isExisting: deckBuilderState.cards[deckBuilderState.currentCardIndex].isExisting
       };
     } else {
-      // Add new card
       deckBuilderState.cards.push(card);
     }
 
     finishEditingCard();
-    // Update card count
     if (cardCount) cardCount.textContent = deckBuilderState.cards.length;
-    // After save: clear inputs and focus cue
     if (cueInput) cueInput.focus();
   }
 
   function deleteFlashcard(index) {
     if (index >= 0 && index < deckBuilderState.cards.length) {
       const card = deckBuilderState.cards[index];
-      if (card.isExisting) {
-        deckBuilderState.deletedCardIds.push({
-          cardId: card.cardId || null,
-          quoteId: card.quoteId,
-          cueId: card.cueId
-        });
+      if (card.isExisting && card.cardId) {
+        deckBuilderState.deletedCardIds.push({ cardId: card.cardId });
       }
       deckBuilderState.cards.splice(index, 1);
       renderFlashcardList();
@@ -4758,24 +4539,10 @@ export async function initMemoryTool(deps, context = {}) {
   function renderFlashcardList() {
     if (!flashcardList) return;
 
-    // Update card count
     if (cardCount) cardCount.textContent = deckBuilderState.cards.length;
-
-    // Filter cards based on selected layer filters
-    const filters = deckBuilderState.layerPillState.selectedLayers.filter(Boolean);
-    const filteredCards = filters.length === 0 ? deckBuilderState.cards : deckBuilderState.cards.filter(card => {
-      for (let i = 0; i < filters.length; i++) {
-        if (!card.layers || card.layers[i] !== filters[i]) return false;
-      }
-      return true;
-    });
-
     flashcardList.innerHTML = "";
 
-    filteredCards.forEach((card, filteredIndex) => {
-      // Find the real index in the full cards array
-      const realIndex = deckBuilderState.cards.indexOf(card);
-
+    deckBuilderState.cards.forEach((card, realIndex) => {
       const item = document.createElement("div");
       item.className = "flashcard-item";
       if (realIndex === deckBuilderState.currentCardIndex) {
@@ -4784,15 +4551,14 @@ export async function initMemoryTool(deps, context = {}) {
 
       const title = document.createElement("div");
       title.className = "flashcard-item-title";
-      title.textContent = `${realIndex + 1}. ${(card.cueFront || "").substring(0, 50)}`;
+      title.textContent = `${realIndex + 1}. ${(card.front || "").substring(0, 50)}`;
 
-      // Show layers as subtle text below title
-      if (card.layers && card.layers.length > 0) {
-        const layersDiv = document.createElement("div");
-        layersDiv.className = "flashcard-item-layers";
-        layersDiv.textContent = card.layers.join(" > ");
+      if (card.tags && card.tags.length > 0) {
+        const tagsDiv = document.createElement("div");
+        tagsDiv.className = "flashcard-item-layers";
+        tagsDiv.textContent = card.tags.map((tag) => `#${tag}`).join(" ");
         title.appendChild(document.createElement("br"));
-        title.appendChild(layersDiv);
+        title.appendChild(tagsDiv);
       }
 
       const actions = document.createElement("div");
@@ -4816,21 +4582,79 @@ export async function initMemoryTool(deps, context = {}) {
 
       actions.appendChild(editBtn);
       actions.appendChild(deleteBtn);
-
       item.appendChild(title);
       item.appendChild(actions);
       flashcardList.appendChild(item);
     });
+  }
 
-    // Show filter indicator
-    if (filters.length > 0) {
-      const indicator = document.createElement("div");
-      indicator.className = "flashcard-item-layers";
-      indicator.style.padding = "8px 12px";
-      indicator.style.fontStyle = "italic";
-      indicator.textContent = `Filtering by: ${filters.join(" > ")} (${filteredCards.length} of ${deckBuilderState.cards.length})`;
-      flashcardList.prepend(indicator);
+  async function persistDeckCards() {
+    const subjectName = deckBuilderState.deckName;
+    const isEditing = !!deckBuilderState.editingSubject;
+
+    if (isEditing && deckBuilderState.editingSubject !== subjectName) {
+      await renameSubject(deckBuilderState.editingSubject, subjectName);
     }
+
+    // Delete only the card records removed from the builder. Linked quotes
+    // and cues are knowledge context, not builder-owned content, so they are
+    // left untouched.
+    for (const deleted of deckBuilderState.deletedCardIds) {
+      if (deleted.cardId) await deleteCard(deleted.cardId);
+    }
+    deckBuilderState.deletedCardIds = [];
+
+    const deckCards = await getCardsForDeck(subjectName) || [];
+    let nextOrder = deckCards.reduce(
+      (max, existing) => Math.max(max, Number(existing.order) || 0),
+      -1
+    ) + 1;
+
+    for (const card of deckBuilderState.cards) {
+      const now = Date.now();
+      const existingCard = card.cardId ? await getCard(card.cardId) : null;
+      const order = Number.isFinite(Number(existingCard?.order))
+        ? Number(existingCard.order)
+        : nextOrder++;
+      const deckPath = Array.isArray(existingCard?.deckPath) && existingCard.deckPath.length
+        ? existingCard.deckPath
+        : [subjectName];
+      const links = { ...(existingCard?.links || card.links || {}) };
+      // A legacy fallback pair is linked once so its context still appears in
+      // the sidebar. The pair itself is never rewritten.
+      if (!links.quoteId && card.legacyQuoteId) links.quoteId = card.legacyQuoteId;
+      if (!links.cueId && card.legacyCueId) links.cueId = card.legacyCueId;
+      const cardId = existingCard?.id || card.cardId || crypto.randomUUID();
+      const tags = [...new Set(
+        (Array.isArray(card.tags) ? card.tags : [])
+          .map((tag) => String(tag || "").trim())
+          .filter(Boolean)
+      )];
+
+      await addCard({
+        id: cardId,
+        front: card.front,
+        back: card.back,
+        deck: subjectName,
+        deckPath,
+        tags,
+        priority: card.priority,
+        order,
+        meta: { ...(existingCard?.meta || card.meta || {}) },
+        links,
+        origin: existingCard?.origin || card.origin || "manual",
+        createdAt: existingCard?.createdAt || card.createdAt || now,
+        updatedAt: now
+      });
+
+      // Keep the in-memory builder in sync so a second save (e.g. mass edit
+      // followed by Finish Deck) updates these cards instead of duplicating.
+      card.cardId = cardId;
+      card.isExisting = true;
+      card.tags = tags;
+    }
+
+    return { subjectName, isEditing };
   }
 
   async function saveDeckToDB() {
@@ -4844,137 +4668,27 @@ export async function initMemoryTool(deps, context = {}) {
       return;
     }
 
-     try {
-        const subjectName = deckBuilderState.deckName;
-        const isEditing = !!deckBuilderState.editingSubject;
+    try {
+      const { isEditing } = await persistDeckCards();
 
-        // Handle subject rename
-        if (isEditing && deckBuilderState.editingSubject !== subjectName) {
-          await renameSubject(deckBuilderState.editingSubject, subjectName);
-        }
-
-        // Delete removed cards. Cards are the study source of truth; the
-        // legacy quote/cue pair is removed alongside them.
-        for (const deleted of deckBuilderState.deletedCardIds) {
-          if (deleted.cardId) {
-            await deleteCard(deleted.cardId);
-          } else if (deleted.quoteId) {
-            const linkedCards = await getCardsForQuote(deleted.quoteId);
-            for (const linked of linkedCards || []) {
-              await deleteCard(linked.id);
-            }
-          }
-          if (deleted.cueId) await deleteCue(deleted.cueId);
-          if (deleted.quoteId) await deleteQuote(deleted.quoteId);
-        }
-
-        // New builder cards append after the deck's current stable order.
-        const deckCards = await getCardsForDeck(subjectName) || [];
-        let nextOrder = deckCards.reduce(
-          (max, existing) => Math.max(max, Number(existing.order) || 0),
-          -1
-        ) + 1;
-
-        // Save all cards (update existing, add new)
-        for (const card of deckBuilderState.cards) {
-           // Build hierarchyPath from layers array [l1, l2, l3]
-          const hierarchyPath = [
-            subjectName,
-            ...(card.layers || [])
-          ].filter(Boolean);
-          const now = Date.now();
-
-          const existingQuote = card.isExisting ? await getQuote(card.quoteId) : null;
-          const existingCue = card.isExisting ? await getCue(card.cueId) : null;
-          const quote = {
-            id: card.quoteId,
-            type: "quote",
-            subject: subjectName,
-            quote: card.quoteBack,
-            title: subjectName,
-            priority: card.priority,
-            createdAt: existingQuote?.createdAt || now,
-            updatedAt: now,
-            meta: {
-              tags: ["custom-deck"],
-              hierarchyPath: hierarchyPath,
-              confidence: 0.8,
-              nextReview: now,
-              interval: 1,
-              ease: 2.5,
-              repetitions: 0
-            }
-          };
-          await addQuote(quote);
-
-          const cue = {
-            id: card.cueId,
-            subject: subjectName,
-            quoteId: card.quoteId,
-            cue: card.cueFront,
-            priority: card.priority,
-            type: "cue",
-            createdAt: existingCue?.createdAt || now,
-            updatedAt: now,
-            meta: {
-              nextReview: now,
-              interval: 1,
-              ease: 2.5,
-              repetitions: 0
-            }
-          };
-          await addCue(cue);
-
-          // Write the card itself. Content comes from the builder, while SRS,
-          // stable order, tags, and creation time stay card-owned.
-          const existingCard = card.cardId ? await getCard(card.cardId) : null;
-          const order = Number.isFinite(Number(existingCard?.order))
-            ? Number(existingCard.order)
-            : nextOrder++;
-          await addCard({
-            id: existingCard?.id || card.cardId || crypto.randomUUID(),
-            front: card.cueFront,
-            back: card.quoteBack,
-            deck: subjectName,
-            deckPath: hierarchyPath,
-            tags: [...new Set([
-              ...(existingCard?.tags || []),
-              ...(Array.isArray(card.tags) ? card.tags : [])
-            ])],
-            priority: card.priority,
-            order,
-            meta: { ...(existingCard?.meta || card.meta || {}) },
-            links: {
-              ...(existingCard?.links || {}),
-              quoteId: card.quoteId,
-              cueId: card.cueId
-            },
-            origin: existingCard?.origin || card.origin || "manual",
-            legacyUpdatedAt: now,
-            createdAt: existingCard?.createdAt || card.createdAt || now,
-            updatedAt: now
-          });
-        }
-
-       // Show success screen (or close modal if editing)
-       if (isEditing) {
-         closeDeckBuilder();
-         state.editMode = false;
-         if (editDecksBtn) editDecksBtn.classList.remove("active");
-       } else {
-         if (deckNameDisplay) deckNameDisplay.textContent = deckBuilderState.deckName;
-         if (cardCountDisplay) cardCountDisplay.textContent = deckBuilderState.cards.length;
-         showDeckBuilderStep(3);
-       }
-
-       await loadLaunchpad();
-       renderUI();
-
-      } catch (error) {
-        console.error("Error saving deck:", error);
-        dialog.alert("Error saving deck: " + error.message);
+      // Show success screen (or close modal if editing)
+      if (isEditing) {
+        closeDeckBuilder();
+        state.editMode = false;
+        if (editDecksBtn) editDecksBtn.classList.remove("active");
+      } else {
+        if (deckNameDisplay) deckNameDisplay.textContent = deckBuilderState.deckName;
+        if (cardCountDisplay) cardCountDisplay.textContent = deckBuilderState.cards.length;
+        showDeckBuilderStep(3);
       }
-   }
+
+      await loadLaunchpad();
+      renderUI();
+    } catch (error) {
+      console.error("Error saving deck:", error);
+      dialog.alert("Error saving deck: " + error.message);
+    }
+  }
 
   // ========== QUICK ADD ==========
   //
@@ -5103,11 +4817,9 @@ export async function initMemoryTool(deps, context = {}) {
     setQuickAddTab("single", { focus: false });
 
     requestAnimationFrame(() => {
-      if (!presetDeck) {
-        quickAddDeckInput?.focus();
-      } else {
-        quickAddFront?.focus();
-      }
+      // The deck is optional now: a blank deck saves to Unsorted, so the
+      // fastest path is always to start typing the card.
+      quickAddFront?.focus();
     });
   }
 
@@ -5148,6 +4860,9 @@ export async function initMemoryTool(deps, context = {}) {
   }
 
   async function persistQuickAddCard({ deck, front, back, priority, tags, initialConfidence = 0.8 }) {
+    // A card can always be saved. If the deck field is blank, it lands in the
+    // default Unsorted deck and can be organised later.
+    deck = String(deck || "").trim() || "Unsorted";
     const now = Date.now();
     const deckOrder = await getNextDeckOrder(deck);
     const confidence = clampNumber(Number(initialConfidence ?? 0.8), 0, 1);
@@ -5182,17 +4897,12 @@ export async function initMemoryTool(deps, context = {}) {
   async function quickAddSaveCard({ allowEmptyClose = false } = {}) {
     if (quickAddState.saving) return false;
 
-    const deck = quickAddDeckInput?.value?.trim() || "";
+    const deck = quickAddDeckInput?.value?.trim() || "Unsorted";
     const front = quickAddFront?.value?.trim() || "";
     const back = quickAddBack?.value?.trim() || "";
 
     if (!front && !back && allowEmptyClose) return true;
 
-    if (!deck) {
-      setQuickAddStatus(quickAddStatus, "Choose or type a deck first", "error");
-      quickAddDeckInput?.focus();
-      return false;
-    }
     if (!front || !back) {
       setQuickAddStatus(quickAddStatus, "Add both a front and a back", "error");
       (!front ? quickAddFront : quickAddBack)?.focus();
@@ -5260,12 +4970,7 @@ export async function initMemoryTool(deps, context = {}) {
   async function quickAddBulkImport() {
     if (quickAddState.saving) return;
 
-    const deck = quickAddDeckInput?.value?.trim() || "";
-    if (!deck) {
-      setQuickAddStatus(quickAddBulkStatus, "Choose or type a deck first", "error");
-      quickAddDeckInput?.focus();
-      return;
-    }
+    const deck = quickAddDeckInput?.value?.trim() || "Unsorted";
 
     const { cards, skipped } = parseAnkiCards(quickAddBulkInput?.value);
     if (!cards.length) {
@@ -5331,8 +5036,8 @@ export async function initMemoryTool(deps, context = {}) {
 
     // Format cards as Anki tab-separated format
     const ankiText = cards.map(card => {
-      const front = (card.cueFront || "").replace(/\t/g, ' ').replace(/\n/g, ' ');
-      const back = (card.quoteBack || "").replace(/\t/g, ' ').replace(/\n/g, ' ');
+      const front = (card.front || "").replace(/\t/g, ' ').replace(/\n/g, ' ');
+      const back = (card.back || "").replace(/\t/g, ' ').replace(/\n/g, ' ');
       return `${front}\t${back}`;
     }).join('\n');
 
@@ -5429,7 +5134,6 @@ export async function initMemoryTool(deps, context = {}) {
       cardDiv.className = "mass-edit-card";
       cardDiv.dataset.index = index;
 
-      const layers = card.layers || [];
       const priority = card.priority || 3;
 
       cardDiv.innerHTML = `
@@ -5438,12 +5142,12 @@ export async function initMemoryTool(deps, context = {}) {
           <button class="delete-card-btn" data-index="${index}">Delete</button>
         </div>
         <div class="form-group">
-          <label>Front (Cue)</label>
-          <textarea class="mass-edit-cue" data-index="${index}" placeholder="Enter the question or prompt...">${escapeHtml(card.cueFront || "")}</textarea>
+          <label>Front</label>
+          <textarea class="mass-edit-front" data-index="${index}" placeholder="Question, prompt, or term...">${escapeHtml(card.front || "")}</textarea>
         </div>
         <div class="form-group">
-          <label>Back (Answer)</label>
-          <textarea class="mass-edit-quote" data-index="${index}" placeholder="Enter the answer or explanation...">${escapeHtml(card.quoteBack || "")}</textarea>
+          <label>Back</label>
+          <textarea class="mass-edit-back" data-index="${index}" placeholder="Answer, definition, or explanation...">${escapeHtml(card.back || "")}</textarea>
         </div>
         <div class="form-group">
           <label>Priority</label>
@@ -5459,24 +5163,8 @@ export async function initMemoryTool(deps, context = {}) {
           </div>
         </div>
         <div class="form-group">
-          <label>Layers</label>
-          <div class="layer-controls" data-index="${index}">
-            <div class="layer-row">
-              <span class="layer-row-label">L1</span>
-              <div class="layer-pills-row">${renderMassEditLayerPills(1, index, layers)}</div>
-              <button type="button" class="layer-new-pill" data-level="1" data-index="${index}">+ New</button>
-            </div>
-            <div class="layer-row ${layers[0] ? '' : 'disabled'}">
-              <span class="layer-row-label">L2</span>
-              <div class="layer-pills-row">${renderMassEditLayerPills(2, index, layers)}</div>
-              <button type="button" class="layer-new-pill" data-level="2" data-index="${index}" ${layers[0] ? '' : 'disabled'}>+ New</button>
-            </div>
-            <div class="layer-row ${layers[0] && layers[1] ? '' : 'disabled'}">
-              <span class="layer-row-label">L3</span>
-              <div class="layer-pills-row">${renderMassEditLayerPills(3, index, layers)}</div>
-              <button type="button" class="layer-new-pill" data-level="3" data-index="${index}" ${layers[0] && layers[1] ? 'disabled' : ''}>+ New</button>
-            </div>
-          </div>
+          <label>Tags</label>
+          <input class="builder-input mass-edit-tags" data-index="${index}" type="text" value="${escapeHtml((card.tags || []).join(', '))}" placeholder="comma, separated" />
         </div>
       `;
 
@@ -5485,27 +5173,6 @@ export async function initMemoryTool(deps, context = {}) {
 
     // Attach event listeners
     attachMassEditEventListeners();
-  }
-
-  function renderMassEditLayerPills(level, cardIndex, layers) {
-    // Get unique layer names for this level from all cards
-    const allCards = deckBuilderState.massEditData || deckBuilderState.cards;
-    const layerSet = new Set();
-
-    allCards.forEach(card => {
-      if (card.layers && card.layers[level - 1]) {
-        layerSet.add(card.layers[level - 1]);
-      }
-    });
-
-    const layerNames = Array.from(layerSet).sort();
-    const selectedLayer = layers[level - 1] || null;
-
-    return layerNames.map(name => {
-      const isActive = name === selectedLayer;
-      return `<button type="button" class="layer-pill ${isActive ? 'active' : ''}"
-        data-level="${level}" data-layer="${escapeHtml(name)}" data-index="${cardIndex}">${escapeHtml(name)}</button>`;
-    }).join("");
   }
 
   function attachMassEditEventListeners() {
@@ -5532,79 +5199,30 @@ export async function initMemoryTool(deps, context = {}) {
       });
     });
 
-    // Layer pill clicks
-    massEditCards.querySelectorAll(".layer-pill").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const index = parseInt(btn.dataset.index);
-        const level = parseInt(btn.dataset.level);
-        const layerName = btn.dataset.layer;
+    // Content changes
+    massEditCards.querySelectorAll(".mass-edit-front").forEach(textarea => {
+      textarea.addEventListener("input", () => {
+        const index = parseInt(textarea.dataset.index);
         if (deckBuilderState.massEditData[index]) {
-          const card = deckBuilderState.massEditData[index];
-          if (!card.layers) card.layers = [];
-          if (card.layers[level - 1] === layerName) {
-            // Deselect
-            card.layers[level - 1] = undefined;
-            card.layers.length = level - 1; // Truncate below
-          } else {
-            card.layers[level - 1] = layerName;
-            card.layers.length = level; // Truncate below
-          }
-          renderMassEditCards(); // Re-render to update cascade
+          deckBuilderState.massEditData[index].front = textarea.value;
         }
       });
     });
 
-    // Layer new buttons
-    massEditCards.querySelectorAll(".layer-new-pill").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const index = parseInt(btn.dataset.index);
-        const level = parseInt(btn.dataset.level);
-        const cardDiv = massEditCards.querySelector(`[data-index="${index}"]`);
-        if (!cardDiv) return;
-
-        const input = document.createElement("input");
-        input.type = "text";
-        input.className = "layer-input-inline";
-        input.placeholder = "Layer name...";
-        btn.parentNode.insertBefore(input, btn);
-        btn.style.display = "none";
-        input.focus();
-
-        input.addEventListener("keydown", (e) => {
-          if (e.key === "Enter") {
-            const newLayer = input.value.trim();
-            if (newLayer && deckBuilderState.massEditData[index]) {
-              if (!deckBuilderState.massEditData[index].layers) {
-                deckBuilderState.massEditData[index].layers = [];
-              }
-              deckBuilderState.massEditData[index].layers[level - 1] = newLayer;
-              deckBuilderState.massEditData[index].layers.length = level;
-              renderMassEditCards();
-            }
-          }
-          if (e.key === "Escape") {
-            input.remove();
-            btn.style.display = "";
-          }
-        });
-      });
-    });
-
-    // Textarea changes
-    massEditCards.querySelectorAll(".mass-edit-cue").forEach(textarea => {
+    massEditCards.querySelectorAll(".mass-edit-back").forEach(textarea => {
       textarea.addEventListener("input", () => {
         const index = parseInt(textarea.dataset.index);
         if (deckBuilderState.massEditData[index]) {
-          deckBuilderState.massEditData[index].cueFront = textarea.value;
+          deckBuilderState.massEditData[index].back = textarea.value;
         }
       });
     });
 
-    massEditCards.querySelectorAll(".mass-edit-quote").forEach(textarea => {
-      textarea.addEventListener("input", () => {
-        const index = parseInt(textarea.dataset.index);
+    massEditCards.querySelectorAll(".mass-edit-tags").forEach(input => {
+      input.addEventListener("input", () => {
+        const index = parseInt(input.dataset.index);
         if (deckBuilderState.massEditData[index]) {
-          deckBuilderState.massEditData[index].quoteBack = textarea.value;
+          deckBuilderState.massEditData[index].tags = parseQuickAddTags(input.value);
         }
       });
     });
@@ -5626,39 +5244,27 @@ export async function initMemoryTool(deps, context = {}) {
   async function saveAllMassEditChanges() {
     if (!deckBuilderState.massEditData) return;
 
-    // Update main cards array
-    deckBuilderState.cards = [...deckBuilderState.massEditData];
-
-    // Persist changes to IndexedDB
+    // Cards removed in mass edit are real deletions. Track them before the
+    // builder state is replaced so persistDeckCards() can delete just those
+    // records without touching any linked knowledge context.
+    const remainingIds = new Set(
+      deckBuilderState.massEditData.map((card) => card.cardId).filter(Boolean)
+    );
     for (const card of deckBuilderState.cards) {
-      if (card.quoteId && card.quoteBack) {
-        await addQuote({
-          id: card.quoteId,
-          type: "quote",
-          subject: deckBuilderState.deckName,
-          quote: card.quoteBack,
-          priority: card.priority || 3,
-          meta: { tags: [], layers: card.layers || [] }
-        });
-      }
-      if (card.cueId && card.cueFront) {
-        await addCue({
-          id: card.cueId,
-          type: "cue",
-          subject: deckBuilderState.deckName,
-          cue: card.cueFront,
-          quoteId: card.quoteId
-        });
+      if (card.cardId && card.isExisting && !remainingIds.has(card.cardId)) {
+        deckBuilderState.deletedCardIds.push({ cardId: card.cardId });
       }
     }
 
-    // Update card count
+    deckBuilderState.cards = deckBuilderState.massEditData.map((card) => ({ ...card }));
+    await persistDeckCards();
+
     if (cardCount) cardCount.textContent = deckBuilderState.cards.length;
 
     exitMassEditMode();
     renderFlashcardList();
 
-    dialog.alert(`Saved ${deckBuilderState.cards.length} cards to database!`);
+    dialog.alert(`Saved ${deckBuilderState.cards.length} cards.`);
   }
 
   function processAnkiImport() {
@@ -5675,12 +5281,11 @@ export async function initMemoryTool(deps, context = {}) {
 
     cards.forEach(({ front, back }) => {
       deckBuilderState.cards.push({
-        cueId: crypto.randomUUID(),
-        cueFront: front,
-        quoteId: crypto.randomUUID(),
-        quoteBack: back,
-        priority: 3, // Default to Medium
-        layers: [], // populated via layer rows after import
+        cardId: null,
+        front,
+        back,
+        priority: 3,
+        tags: [],
         isExisting: false
       });
     });
@@ -5900,6 +5505,14 @@ export async function initMemoryTool(deps, context = {}) {
     if (!middleSubjectName) return;
 
     middleSubjectName.textContent = state.currentSubject;
+
+    // Keep the mode pills in sync with the actual study mode. Opening a deck
+    // resets to Cards, so a stale Quotes/Analysis pill must not stay active.
+    if (middleModeSelector) {
+      middleModeSelector.querySelectorAll(".mode-pill").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.mode === state.currentMode);
+      });
+    }
 
     // Render priority checkboxes
     if (priorityCheckboxes) {

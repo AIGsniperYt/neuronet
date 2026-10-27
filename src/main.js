@@ -697,6 +697,37 @@ async function importDatabaseJson(file) {
   await importPayload(payload);
 }
 
+// `custom-deck` was an internal marker on legacy quote records, never a user
+// tag. Strip it from stored quotes and the tag store so it cannot resurface in
+// tag pickers, Grid filters, or Analysis.
+async function stripReservedTagMetadata() {
+  const RESERVED = "custom-deck";
+  try {
+    const quotes = await getAllQuotes();
+    for (const quote of quotes) {
+      if (!Array.isArray(quote?.meta?.tags) || !quote.meta.tags.includes(RESERVED)) {
+        continue;
+      }
+      await addQuote({
+        ...quote,
+        meta: {
+          ...quote.meta,
+          tags: quote.meta.tags.filter((tag) => tag !== RESERVED)
+        }
+      });
+    }
+
+    const tags = await getAllTags();
+    for (const tag of tags) {
+      const title = String(tag?.title || tag?.name || "").trim().toLowerCase();
+      const isReserved = title === RESERVED || String(tag?.id || "") === `tag-${RESERVED}`;
+      if (isReserved && tag?.id) await deleteTag(tag.id);
+    }
+  } catch (error) {
+    console.warn("Could not strip reserved custom-deck tag:", error);
+  }
+}
+
 async function importPayload(payload) {
   // Auto-upgrade any legacy data to the markdown-first schema on the way in,
   // so old export files work as-is (no manual migration needed).
@@ -718,6 +749,7 @@ async function importPayload(payload) {
   // Older exports have no cards. Rebuild them from the legacy pairs so an
   // imported backup is immediately studyable.
   await syncCardsFromLegacy();
+  await stripReservedTagMetadata();
 
   if (USE_BACKEND && window.currentUser) {
     const [cloudNodes, cloudQuotes, cloudCues] = await Promise.all([
@@ -1703,9 +1735,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   // Cards are the study source of truth. Backfill them from any legacy
-  // quote + cue pairs so existing decks and the legacy deck builder remain
-  // studyable while the rest of the app catches up.
+  // quote + cue pairs so existing decks remain studyable, then remove the
+  // old reserved deck marker from stored knowledge metadata.
   await syncCardsFromLegacy();
+  await stripReservedTagMetadata();
 
   loadingMessage.textContent = "Authenticating with the cloud...";
   let user;

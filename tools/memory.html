@@ -14,7 +14,7 @@
   <div id="memoryLaunchpad" class="memory-launchpad">
     <div class="launchpad-header">
       <h2>Select a Deck</h2>
-      <p>Choose a subject to start studying its flashcards.</p>
+      <p>Choose a deck to study its cards.</p>
     </div>
     <div class="launchpad-controls">
       <button id="quickAddLaunchBtn" class="memory-btn primary">Add Cards +</button>
@@ -94,12 +94,12 @@
               <!-- Card Edit Form (persistent) -->
               <div id="cardEditForm">
                 <div class="form-group">
-                  <label for="cueInput">Front of Card (Question/Cue)</label>
-                  <textarea id="cueInput" class="builder-input" placeholder="Enter the question or prompt..."></textarea>
+                  <label for="cueInput">Front</label>
+                  <textarea id="cueInput" class="builder-input" placeholder="Question, prompt, or term..."></textarea>
                 </div>
                 <div class="form-group">
-                  <label for="quoteInput">Back of Card (Answer)</label>
-                  <textarea id="quoteInput" class="builder-input" placeholder="Enter the answer or explanation..."></textarea>
+                  <label for="quoteInput">Back</label>
+                  <textarea id="quoteInput" class="builder-input" placeholder="Answer, definition, or explanation..."></textarea>
                 </div>
                 <div class="form-group">
                   <label>Priority</label>
@@ -108,24 +108,8 @@
                   </div>
                 </div>
                 <div class="form-group">
-                  <label>Layers</label>
-                  <div id="layerRowsContainer">
-                    <div class="layer-row" id="layer1Row">
-                      <span class="layer-row-label">L1</span>
-                      <div class="layer-pills-row" id="layer1Pills"></div>
-                      <button type="button" class="layer-new-pill" data-level="1">+ New</button>
-                    </div>
-                    <div class="layer-row disabled" id="layer2Row">
-                      <span class="layer-row-label">L2</span>
-                      <div class="layer-pills-row" id="layer2Pills"></div>
-                      <button type="button" class="layer-new-pill" data-level="2" disabled>+ New</button>
-                    </div>
-                    <div class="layer-row disabled" id="layer3Row">
-                      <span class="layer-row-label">L3</span>
-                      <div class="layer-pills-row" id="layer3Pills"></div>
-                      <button type="button" class="layer-new-pill" data-level="3" disabled>+ New</button>
-                    </div>
-                  </div>
+                  <label for="deckCardTags">Tags <span class="quick-add-optional">optional</span></label>
+                  <input id="deckCardTags" class="builder-input" type="text" placeholder="cell-biology, exam-2026" autocomplete="off" />
                 </div>
                 <div class="builder-sticky-actions">
                   <div>
@@ -182,8 +166,8 @@
       <div class="deck-builder-content">
         <div class="quick-add-toolbar">
           <div class="form-group quick-add-deck-group">
-            <label for="quickAddDeckInput">Deck</label>
-            <input id="quickAddDeckInput" class="builder-input" list="quickAddDeckOptions" placeholder="Type a new deck or choose one" autocomplete="off" />
+            <label for="quickAddDeckInput">Deck <span class="quick-add-optional">optional</span></label>
+            <input id="quickAddDeckInput" class="builder-input" list="quickAddDeckOptions" placeholder="Leave blank for Unsorted, or type a new deck" autocomplete="off" />
             <datalist id="quickAddDeckOptions"></datalist>
           </div>
           <div class="quick-add-tabs" role="tablist" aria-label="Add mode">
@@ -255,11 +239,12 @@
       <h2 id="middleSubjectName" style="margin: 0 16px; flex: 1; text-align: center;"></h2>
       <button id="middleStudyBtn" class="memory-btn primary">Study</button>
     </div>
-    <div id="middleModeSelector">
-      <button class="mode-pill active" data-mode="quote-learning">Quote Learning</button>
-      <button class="mode-pill" data-mode="analysis-learning">Analysis Learning</button>
-      <button class="mode-pill" data-mode="evidence-matching">Evidence Matching</button>
-      <button class="mode-pill" data-mode="blurt">Blurt</button>
+    <div id="middleModeSelector" aria-label="Study mode">
+      <button class="mode-pill active" data-mode="card-learning" title="Study the deck's cards">Cards</button>
+      <button class="mode-pill" data-mode="quote-learning" title="Study linked quote knowledge">Quotes</button>
+      <button class="mode-pill" data-mode="analysis-learning" title="Study linked analyses">Analysis</button>
+      <button class="mode-pill" data-mode="evidence-matching" title="Match evidence to analyses">Evidence</button>
+      <button class="mode-pill" data-mode="blurt" title="Free recall">Blurt</button>
     </div>
     <div id="filterModeToggle">
       <span class="filter-mode-label">Filter Mode:</span>
@@ -1488,16 +1473,6 @@
     margin-bottom: 16px;
   }
 
-  .custom-deck-label {
-    font-size: var(--text-sm, 0.87rem);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--accent, #4a9eff);
-    margin-bottom: 12px;
-    opacity: 0.8;
-  }
-
   .stat-item {
     flex: 1;
     min-width: 100px;
@@ -2054,140 +2029,6 @@
   margin:0;
   font-size: 1.1rem;
 }
-
-  /* Layer Rows - three distinct rows with cascade logic */
-  #layerRowsContainer {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .layer-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .layer-row.disabled {
-    opacity: 0.4;
-    pointer-events: none;
-    filter: grayscale(0.8);
-  }
-
-  .layer-row.disabled .layer-row-label {
-    color: var(--text-muted);
-    opacity: 0.5;
-  }
-
-  .layer-row:not(.disabled) .layer-row-label {
-    color: var(--accent-soft);
-  }
-
-  .layer-row-label {
-    font-size: var(--text-xs, 0.82rem);
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: var(--text-muted);
-    min-width: 24px;
-    flex-shrink: 0;
-  }
-
-  .layer-pills-row {
-    display: flex;
-    gap: 6px;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    flex: 1;
-    min-width: 0;
-  }
-
-  .layer-pill {
-    padding: 5px 12px;
-    border-radius: 999px;
-    border: 1px solid rgba(255,255,255,0.15);
-    background: transparent;
-    color: var(--text-muted);
-    cursor: pointer;
-    font-size: var(--text-base, 0.92rem);
-    font-family: inherit;
-    transition: all 0.15s ease;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  .layer-pill:hover {
-    border-color: var(--accent-soft);
-    color: var(--text-main);
-  }
-
-  .layer-pill.active {
-    border-color: var(--accent);
-    color: var(--accent);
-    background: rgba(44,255,179,0.12);
-    font-weight: 600;
-  }
-
-  .layer-new-pill {
-    padding: 5px 10px;
-    border-radius: 999px;
-    border: 1px dashed rgba(255,255,255,0.2);
-    background: transparent;
-    color: var(--text-muted);
-    cursor: pointer;
-    font-size: var(--text-sm, 0.87rem);
-    font-family: inherit;
-    transition: all 0.15s ease;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  .layer-new-pill:hover:not(:disabled) {
-    border-color: var(--accent-soft);
-    color: var(--accent);
-  }
-
-  .layer-new-pill:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
-  }
-
-  .layer-input-inline {
-    padding: 5px 10px;
-    border-radius: 999px;
-    border: 1px solid var(--accent-soft);
-    background: rgba(44,255,179,0.06);
-    color: var(--text-main);
-    font-size: var(--text-base, 0.92rem);
-    font-family: inherit;
-    outline: none;
-    min-width: 80px;
-    max-width: 140px;
-    box-sizing: border-box;
-  }
-
-  .layer-input-inline:focus {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 2px rgba(44,255,179,0.1);
-  }
-
-  .layer-confirm-btn {
-    padding: 5px 10px;
-    border-radius: 999px;
-    border: 1px solid rgba(44,255,179,0.3);
-    background: rgba(44,255,179,0.1);
-    color: var(--accent);
-    cursor: pointer;
-    font-size: var(--text-sm, 0.87rem);
-    font-family: inherit;
-    transition: all 0.15s ease;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  .layer-confirm-btn:hover {
-    background: rgba(44,255,179,0.2);
-  }
 
   .anki-import-area {
     width: 100%;
@@ -2753,8 +2594,7 @@
     outline: none;
   }
 
-  .mass-edit-card .priority-pills,
-  .mass-edit-card .layer-row {
+  .mass-edit-card .priority-pills {
     margin-top: 4px;
   }
 
@@ -2828,61 +2668,6 @@
     flex: 1;
     overflow-y: auto;
     padding: 16px;
-  }
-
-  .mass-edit-card .layer-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 8px;
-  }
-
-  .mass-edit-card .layer-pills-row {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
-
-  .mass-edit-card .layer-pill {
-    padding: 4px 10px;
-    border-radius: 999px;
-    border: 1px solid rgba(255,255,255,0.15);
-    background: transparent;
-    color: var(--text-muted);
-    cursor: pointer;
-    font-size: var(--text-sm, 0.87rem);
-    font-family: inherit;
-    transition: all 0.15s ease;
-    white-space: nowrap;
-  }
-
-  .mass-edit-card .layer-pill.active {
-    border-color: var(--accent);
-    color: var(--accent);
-    background: rgba(44,255,179,0.12);
-    font-weight: 600;
-  }
-
-  .mass-edit-card .layer-new-pill {
-    padding: 4px 10px;
-    border-radius: 999px;
-    border: 1px dashed rgba(255,255,255,0.2);
-    background: transparent;
-    color: var(--text-muted);
-    cursor: pointer;
-    font-size: var(--text-sm, 0.87rem);
-    font-family: inherit;
-    transition: all 0.15s ease;
-  }
-
-  .mass-edit-card .layer-new-pill:hover:not(:disabled) {
-    border-color: var(--accent-soft);
-    color: var(--accent);
-  }
-
-  .mass-edit-card .layer-new-pill:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
   }
 
   .mass-edit-card .delete-card-btn {
