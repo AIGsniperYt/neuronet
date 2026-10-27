@@ -1,4 +1,4 @@
-import { cleanupOldDemoDatabases, initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, addSubject, deleteSubject, renameSubject, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, clearTags, syncCardsFromLegacy } from "./db.js";
+import { cleanupOldDemoDatabases, initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, addSubject, deleteSubject, renameSubject, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, clearTags, addHeap, addHeaps, getAllHeaps, getHeap, deleteHeap, clearHeaps } from "./db.js";
 import { syncLocalWithCloud, syncToCloud, deleteCloudNode, deleteCloudQuote, deleteCloudCue, fetchCloudNodes, fetchCloudQuotes, fetchCloudCues } from "./sync.js";
 import { initAnalysisToolV2 } from "./tools/analysisTool.js";
 import { dialog } from "./tools/dialog.js";
@@ -110,7 +110,11 @@ const tools = {
       getCard,
       getCardsForDeck,
       getCardsForQuote,
-      deleteCard
+      deleteCard,
+      addHeap,
+      getAllHeaps,
+      getHeap,
+      deleteHeap
     }, context)
   },
 
@@ -127,6 +131,7 @@ const tools = {
       deleteNode,
       deleteQuote,
       deleteCue,
+      deleteCard,
       removeNodeEverywhere,
       removeQuoteEverywhere,
       removeCueEverywhere,
@@ -135,7 +140,11 @@ const tools = {
       deleteTag,
       escapeHtml,
       linkAnalysisToQuote,
-      unlinkAnalysisFromQuote
+      unlinkAnalysisFromQuote,
+      addHeap,
+      getAllHeaps,
+      getHeap,
+      deleteHeap
     }, context)
   },
   tracker: {
@@ -257,6 +266,10 @@ async function loadTool(toolName, context = {}) {
   currentToolName = toolName;
   currentSubject = context.subject || null;
   setActiveTool(toolName);
+  // Keep the shell's subject pills in sync when a tool is opened with an
+  // explicit subject. Without this, Memory could silently scope to Macbeth
+  // while the sidebar still showed "All".
+  await renderSidebarSubjects();
   logActivity(context.subject || currentSubject, toolName);
 
   const tool = tools[toolName];
@@ -676,11 +689,12 @@ async function fetchDemoPayload() {
 }
 
 async function exportDatabaseJson() {
-  const [nodes, quotes, cues, cards] = await Promise.all([
+  const [nodes, quotes, cues, cards, heaps] = await Promise.all([
     getAllNodes(),
     getAllQuotes(),
     getAllCues(),
-    getAllCards()
+    getAllCards(),
+    getAllHeaps()
   ]);
   const payload = {
     schemaVersion: SCHEMA_VERSION,
@@ -688,7 +702,8 @@ async function exportDatabaseJson() {
     nodes,
     quotes,
     cues,
-    cards
+    cards,
+    heaps
   };
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
@@ -789,23 +804,22 @@ async function importPayload(payload) {
   const quotes = Array.isArray(dataset?.quotes) ? dataset.quotes : [];
   const cues = Array.isArray(dataset?.cues) ? dataset.cues : [];
   const cards = Array.isArray(dataset?.cards) ? dataset.cards : [];
+  const heaps = Array.isArray(dataset?.heaps) ? dataset.heaps : [];
 
   await clearNodes();
   await clearQuotes();
   await clearCues();
   await clearCards();
   await clearTags();
+  await clearHeaps();
   await addNodes(nodes);
   await addQuotes(quotes);
   await addCues(cues);
   await addCards(cards);
-  // Older exports have no cards. Rebuild them from the legacy pairs so an
-  // imported backup is immediately studyable.
-  await syncCardsFromLegacy();
+  await addHeaps(heaps);
   await stripReservedTagMetadata();
-  // Rebuild the derived tag index from the final imported records, including
-  // any cards backfilled above. This also removes stale tags from the DB the
-  // import replaced.
+  // Rebuild the derived tag index from the final imported records. This also
+  // removes stale tags from the DB the import replaced.
   const [finalNodes, finalQuotes, finalCards] = await Promise.all([
     getAllNodes(),
     getAllQuotes(),
@@ -979,6 +993,7 @@ async function wipeDatabase() {
   await clearCues();
   await clearCards();
   await clearTags();
+  await clearHeaps();
   if (USE_BACKEND && window.currentUser) {
     try {
       const [cloudNodes, cloudQuotes, cloudCues] = await Promise.all([
@@ -1811,10 +1826,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     await performMigration(getAllNodes, addNode, addQuote);
   }
 
-  // Cards are the study source of truth. Backfill them from any legacy
-  // quote + cue pairs so existing decks remain studyable, then remove the
-  // old reserved deck marker from stored knowledge metadata.
-  await syncCardsFromLegacy();
+  // Cards are the study source of truth. Legacy quote/cue pairs are optional
+  // context only; they are never auto-converted into cards.
   await stripReservedTagMetadata();
 
   // The tag store is a derived index. Reconcile it with the records so an old
@@ -1848,7 +1861,6 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     if (user) {
       await syncAfterLogin();
-      await syncCardsFromLegacy();
     }
   } else {
     loadingMessage.textContent = "Loading page content complete!";
@@ -1882,9 +1894,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   window.addEventListener("neuronet-open-tool", (e) => {
-    const { tool, nodeId, subject } = e.detail || {};
+    const { tool, nodeId, cardId, heapId, view, subject } = e.detail || {};
     if (tool) {
-      loadTool(tool, { nodeId, subject });
+      loadTool(tool, { nodeId, cardId, heapId, view, subject });
     }
   });
 

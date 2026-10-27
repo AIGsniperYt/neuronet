@@ -1,6 +1,6 @@
 let db;
 
-const DB_VERSION = 9;
+const DB_VERSION = 10;
 
 function getDBName() {
   return window.DEMO_MODE ? `neuronet-${window.APP_VERSION}` : "neuronet";
@@ -103,6 +103,11 @@ export function initDB() {
         cardStore.createIndex("quoteId", "links.quoteId", { unique: false });
         cardStore.createIndex("order", "order", { unique: false });
         cardStore.createIndex("createdAt", "createdAt", { unique: false });
+      }
+
+      if (!db.objectStoreNames.contains("heaps")) {
+        const heapStore = db.createObjectStore("heaps", { keyPath: "id" });
+        heapStore.createIndex("updatedAt", "updatedAt", { unique: false });
       }
     };
 
@@ -997,19 +1002,6 @@ function normalizeCardRecord(card = {}) {
   };
 }
 
-function buildFallbackCue(text, section = "") {
-  const words = String(text || "").trim().split(/\s+/).filter(Boolean);
-  if (words.length <= 4) {
-    const label = String(section || "").trim();
-    return label ? `Recall the quote from ${label}` : "Recall this quote";
-  }
-  const lead = words.slice(0, 6).join(" ");
-  const label = String(section || "").trim();
-  return label
-    ? `Complete the quote from ${label}: “${lead}…”`
-    : `Complete the quote: “${lead}…”`;
-}
-
 export function addCard(card) {
   return new Promise((resolve, reject) => {
     if (!db || !cardStoreExists()) {
@@ -1216,161 +1208,153 @@ export function clearCards() {
   });
 }
 
-/**
- * Idempotently backfill cards from legacy quote + cue pairs.
- *
- * This is the bridge for data created before cards existed and for the legacy
- * deck builder. It only creates missing cards, and only refreshes content when
- * the legacy record changed since the last sync. Card-owned SRS is never
- * overwritten by stale quote metadata.
- */
-export async function syncCardsFromLegacy({ deck = "" } = {}) {
-  if (!db || !cardStoreExists()) {
-    return { created: 0, updated: 0, skipped: 0, total: 0 };
+// ========== HEAPS ==========
+//
+// A heap is metadata only: a named, ordered list of card IDs. It is not a
+// deck, tag, or copy of card content. Card records remain the source of truth;
+// IDs that no longer resolve are skipped by consumers.
+
+function heapStoreExists() {
+  return db && db.objectStoreNames.contains("heaps");
+}
+
+function normalizeHeapRecord(heap = {}) {
+  const now = Date.now();
+  const seen = new Set();
+  const cardIds = [];
+  for (const rawId of Array.isArray(heap.cardIds) ? heap.cardIds : []) {
+    const id = String(rawId || "").trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    cardIds.push(id);
   }
-
-  const targetDeck = String(deck || "").trim();
-  const [quotes, cues, cards] = await Promise.all([
-    getAllQuotes(),
-    getAllCues(),
-    getAllCards()
-  ]);
-
-  const cueByQuoteId = new Map();
-  for (const cue of cues || []) {
-    if (cue?.quoteId && !cueByQuoteId.has(cue.quoteId)) {
-      cueByQuoteId.set(cue.quoteId, cue);
-    }
-  }
-
-  const cardByQuoteId = new Map();
-  for (const card of cards || []) {
-    if (card?.links?.quoteId) cardByQuoteId.set(card.links.quoteId, card);
-  }
-
-  const usedOrders = new Map();
-  const maxOrders = new Map();
-  for (const card of cards || []) {
-    const deckName = card?.deck;
-    if (!deckName) continue;
-    if (!usedOrders.has(deckName)) usedOrders.set(deckName, new Set());
-    const order = Number(card.order) || 0;
-    usedOrders.get(deckName).add(order);
-    maxOrders.set(deckName, Math.max(maxOrders.get(deckName) ?? -1, order));
-  }
-
-  const takeOrder = (deckName, preferred) => {
-    if (!usedOrders.has(deckName)) usedOrders.set(deckName, new Set());
-    const used = usedOrders.get(deckName);
-    let next = Number.isFinite(Number(preferred))
-      ? Number(preferred)
-      : (maxOrders.get(deckName) ?? -1) + 1;
-    if (next < 0) next = 0;
-    while (used.has(next)) next += 1;
-    used.add(next);
-    maxOrders.set(deckName, Math.max(maxOrders.get(deckName) ?? -1, next));
-    return next;
-  };
-
-  const toAdd = [];
-  const toUpdate = [];
-  let skipped = 0;
-
-  const sourceQuotes = (quotes || [])
-    .filter((quote) => quote?.id && quote?.subject && String(quote.quote || "").trim())
-    .filter((quote) => !targetDeck || quote.subject === targetDeck)
-    .sort((a, b) => (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0));
-
-  for (const quote of sourceQuotes) {
-    const cue = cueByQuoteId.get(quote.id) || null;
-    const existing = cardByQuoteId.get(quote.id) || null;
-    const legacyTags = Array.isArray(quote.meta?.tags) ? quote.meta.tags : [];
-    // A cue is the authored prompt. Without one, a completion prompt is a
-    // usable fallback; the quote itself is never duplicated as both faces.
-    const front = String(
-      cue?.cue || buildFallbackCue(quote.quote, quote.section) || ""
-    ).trim();
-    const back = String(quote.quote || "").trim();
-    if (!front || !back) {
-      skipped += 1;
-      continue;
-    }
-
-    const { deck: deckName, deckPath } = normalizeDeckPath({
-      deck: quote.subject,
-      deckPath: quote.meta?.hierarchyPath
-    });
-    if (!deckName) {
-      skipped += 1;
-      continue;
-    }
-
-    const tags = normalizeCardTags([
-      ...legacyTags,
-      ...(Array.isArray(cue?.meta?.tags) ? cue.meta.tags : [])
-    ]);
-    const legacyUpdatedAt = Math.max(
-      Number(quote.updatedAt || 0),
-      Number(cue?.updatedAt || 0),
-      Number(quote.createdAt || 0)
-    );
-    const links = { quoteId: quote.id };
-    if (cue?.id) links.cueId = cue.id;
-    if (quote.link?.sourceId) links.sourceId = quote.link.sourceId;
-
-    if (!existing) {
-      const preferred = Number.isFinite(Number(quote.meta?.deckOrder))
-        ? Number(quote.meta.deckOrder)
-        : null;
-      const order = takeOrder(deckName, preferred);
-      const legacyMeta = { ...(cue?.meta || {}), ...(quote.meta || {}) };
-      toAdd.push({
-        id: `card-${quote.id}`,
-        front,
-        back,
-        deck: deckName,
-        deckPath,
-        tags,
-        priority: quote.priority ?? cue?.priority ?? 3,
-        order,
-        meta: legacyMeta,
-        links,
-        origin: "legacy",
-        legacyUpdatedAt,
-        createdAt: Number(quote.createdAt) || Number(cue?.createdAt) || Date.now(),
-        updatedAt: legacyUpdatedAt || Date.now()
-      });
-    } else if (
-      existing.origin === "legacy"
-      && legacyUpdatedAt > Number(existing.legacyUpdatedAt || 0)
-    ) {
-      // Only refresh cards this bridge owns. A user-authored card may link to
-      // a quote as context, but its front/back must never be overwritten by
-      // legacy sync. Card-owned SRS and stable order are always preserved.
-      toUpdate.push({
-        ...existing,
-        front,
-        back,
-        deck: deckName,
-        deckPath,
-        tags: normalizeCardTags([...(existing.tags || []), ...tags]),
-        priority: quote.priority ?? cue?.priority ?? existing.priority,
-        links: { ...(existing.links || {}), ...links },
-        legacyUpdatedAt,
-        updatedAt: Date.now()
-      });
-    }
-  }
-
-  if (toAdd.length > 0) await addCards(toAdd);
-  if (toUpdate.length > 0) await addCards(toUpdate);
 
   return {
-    created: toAdd.length,
-    updated: toUpdate.length,
-    skipped,
-    total: (cards || []).length + toAdd.length
+    ...heap,
+    id: heap.id || crypto.randomUUID(),
+    type: "heap",
+    name: String(heap.name || "").trim() || "Untitled Heap",
+    cardIds,
+    createdAt: Number(heap.createdAt) || now,
+    updatedAt: Number(heap.updatedAt) || now
   };
+}
+
+export function addHeap(heap) {
+  return new Promise((resolve, reject) => {
+    if (!db || !heapStoreExists()) {
+      reject(new Error("Heaps store not available"));
+      return;
+    }
+
+    const record = normalizeHeapRecord(heap);
+    const tx = db.transaction("heaps", "readwrite");
+    const req = tx.objectStore("heaps").put(record);
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => {
+      emitDBChange({ type: "upsert-heap", ids: [record.id] });
+      resolve(record);
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export function addHeaps(heaps) {
+  return new Promise((resolve, reject) => {
+    if (!db || !heapStoreExists()) {
+      resolve([]);
+      return;
+    }
+
+    const records = (heaps || []).map(normalizeHeapRecord);
+    if (records.length === 0) {
+      resolve([]);
+      return;
+    }
+
+    const tx = db.transaction("heaps", "readwrite");
+    const store = tx.objectStore("heaps");
+    for (const record of records) store.put(record);
+    tx.oncomplete = () => {
+      emitDBChange({ type: "bulk-upsert-heap", ids: records.map((record) => record.id) });
+      resolve(records);
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export function getAllHeaps() {
+  return new Promise((resolve, reject) => {
+    if (!db || !heapStoreExists()) {
+      resolve([]);
+      return;
+    }
+
+    const tx = db.transaction("heaps", "readonly");
+    const req = tx.objectStore("heaps").getAll();
+    req.onsuccess = () => {
+      const heaps = req.result || [];
+      heaps.sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0));
+      resolve(heaps);
+    };
+    req.onerror = () => reject(req.error);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export function getHeap(id) {
+  return new Promise((resolve, reject) => {
+    if (!db || !heapStoreExists()) {
+      resolve(null);
+      return;
+    }
+
+    const tx = db.transaction("heaps", "readonly");
+    const req = tx.objectStore("heaps").get(id);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export function deleteHeap(id) {
+  return new Promise((resolve, reject) => {
+    if (!db || !heapStoreExists()) {
+      resolve(id);
+      return;
+    }
+
+    const tx = db.transaction("heaps", "readwrite");
+    const req = tx.objectStore("heaps").delete(id);
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => {
+      emitDBChange({ type: "delete-heap", ids: [id] });
+      resolve(id);
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export function clearHeaps() {
+  return new Promise((resolve, reject) => {
+    if (!db || !heapStoreExists()) {
+      resolve();
+      return;
+    }
+
+    const tx = db.transaction("heaps", "readwrite");
+    const req = tx.objectStore("heaps").clear();
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => {
+      emitDBChange({ type: "clear", store: "heaps" });
+      resolve();
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
 }
 
 // ========== PINNED TOOLS ==========

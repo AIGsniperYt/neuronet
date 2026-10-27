@@ -14,7 +14,12 @@ export async function initMindmapTool(deps, context = {}) {
     deleteNode,
     deleteQuote,
     deleteCue,
+    deleteCard,
     deleteTag,
+    addHeap,
+    getAllHeaps,
+    getHeap,
+    deleteHeap,
     removeNodeEverywhere,
     removeQuoteEverywhere,
     removeCueEverywhere,
@@ -23,7 +28,7 @@ export async function initMindmapTool(deps, context = {}) {
     escapeHtml
   } = deps;
 
-  const { subject: contextSubject } = context;
+  const { subject: contextSubject, heapId: contextHeapId, view: contextView } = context;
 
   if (typeof window.__neuronetMindmapCleanup === "function") {
     window.__neuronetMindmapCleanup();
@@ -42,7 +47,7 @@ const state = {
     isPanning: false,
     panStartPos: { x: 0, y: 0 },
     simulationRunning: true,
-    viewMode: "graph",
+    viewMode: contextView === "grid" || contextHeapId ? "grid" : "graph",
     sidebarView: "content",
     selectedNodeId: null,
     layerNodes: [],
@@ -57,12 +62,19 @@ const state = {
     scopeNodeIds: new Set(),
     nodeVisibility: new Map(),
     cards: [],
+    // Named, ordered card-ID lists. Heap content lives in the cards store;
+    // these records are metadata only.
+    heaps: [],
+    activeHeapId: String(contextHeapId || "").trim() || null,
+    heapSidebarOpen: Boolean(contextHeapId),
+    // One scene object per card for the whole tool session. The object is also
+    // the card's entry in `nodePositions`, so `x/y` is the single canonical
+    // position shared by Graph, Dots, hit-testing, dragging, and transitions.
+    cardScene: new Map(),
+    // Dots geometry only (sections + cached slot indices). Card positions are
+    // never duplicated into a second graph/dot map.
     dotsLayout: null,
-    dotAnim: null,
-    // World-space positions captured when Dots opens. The return trip lerps
-    // graph nodes back to exactly where the learner left them.
-    graphSnapshot: null,
-    graphMorph: null
+    sceneTransition: null
   };
 
   const physicsConfig = {
@@ -91,6 +103,19 @@ const state = {
   const gridContainer = document.getElementById("mindmapGrid");
   const dotsLegend = document.getElementById("mindmapDotsLegend");
   const viewToggle = document.getElementById("mindmapViewToggle");
+  const libraryHeapBar = document.getElementById("libraryHeapBar");
+  const libraryHeapSelect = document.getElementById("libraryHeapSelect");
+  const libraryHeapStatus = document.getElementById("libraryHeapStatus");
+  const newHeapBtn = document.getElementById("newHeapBtn");
+  const studyHeapBtn = document.getElementById("studyHeapBtn");
+  const toggleHeapSidebarBtn = document.getElementById("toggleHeapSidebarBtn");
+  const libraryHeapSidebar = document.getElementById("libraryHeapSidebar");
+  const libraryHeapSidebarName = document.getElementById("libraryHeapSidebarName");
+  const libraryHeapSidebarMeta = document.getElementById("libraryHeapSidebarMeta");
+  const libraryHeapItems = document.getElementById("libraryHeapItems");
+  const closeHeapSidebarBtn = document.getElementById("closeHeapSidebarBtn");
+  const heapSidebarStudyBtn = document.getElementById("heapSidebarStudyBtn");
+  const deleteHeapBtn = document.getElementById("deleteHeapBtn");
   const emptyState = document.getElementById("emptyState");
   const nodeSidebar = document.getElementById("nodeSidebar");
   const nodeSidebarBackdrop = document.getElementById("nodeSidebarBackdrop");
@@ -127,7 +152,8 @@ const state = {
       "quote": 0.9,
       "analysis": 0.9,
       "cue": 1.0,
-      "pastpaper": 0.65
+      "pastpaper": 0.65,
+      "card": 0.9
     },
     colors: {
       subject: "#ff6b6b",
@@ -139,7 +165,11 @@ const state = {
       analysis: "#2cffb3",
       cue: "#ff79c6",
       tag: "#f1fa8c",
-      pastpaper: "#ffd166"
+      pastpaper: "#ffd166",
+      // Cards are the only node type without a knowledge role, so they get
+      // the one hue the knowledge palette does not already use: cyan. It stays
+      // distinct from source blue and analysis green on the dark canvas.
+      card: "#22d3ee"
     }
   };
 
@@ -159,14 +189,65 @@ const state = {
     { min: 0.4, max: 0.6, color: "#ffa500", label: "40–60%" },
     { min: 0.6, max: 0.8, color: "#a8d95f", label: "60–80%" },
     { min: 0.8, max: 1, color: "#3fd07d", label: "80–100%" }
-  ];
+  ].map((bin) => ({ ...bin, rgb: hexToRgb(bin.color) }));
   const DOT_UNKNOWN_COLOR = "#33443d";
   const GRADE_SCORES = { easy: 1, kinda: 0.6, didnt_know: 0.2, didntknow: 0.2 };
   const RECALL_GRADE_SCORES = { easy: 0.9, kinda: 0.6, didnt_know: 0.2, didntknow: 0.2 };
   const DOT_MIN_CELL = 6;
   const DOT_MAX_CELL = 40;
-  const DOT_MORPH_MS = 760;
-  const DOT_MORPH_STAGGER_MS = 180;
+  // One global duration, one global t. Cards do not stagger: the transition
+  // reads as a single surface changing shape, not a sequence of pop-ins.
+  const DOT_MORPH_MS = 680;
+  const CARD_COLOR_RGB = hexToRgb(config.colors.card);
+  const CARD_UNKNOWN_RGB = hexToRgb(DOT_UNKNOWN_COLOR);
+  // Graph nodes are hollow. Cards start with the same dark fill as every
+  // other node and only fill with score colour once Dots takes over.
+  const CARD_GRAPH_FILL_RGB = [10, 30, 22];
+
+  function hexToRgb(hex) {
+    const value = String(hex || "").replace("#", "").trim();
+    if (value.length === 3) {
+      return [
+        parseInt(value[0] + value[0], 16),
+        parseInt(value[1] + value[1], 16),
+        parseInt(value[2] + value[2], 16)
+      ];
+    }
+    if (value.length !== 6) return [154, 164, 173];
+    return [
+      parseInt(value.slice(0, 2), 16),
+      parseInt(value.slice(2, 4), 16),
+      parseInt(value.slice(4, 6), 16)
+    ];
+  }
+
+  function mixRgb(from, to, t) {
+    return [
+      from[0] + (to[0] - from[0]) * t,
+      from[1] + (to[1] - from[1]) * t,
+      from[2] + (to[2] - from[2]) * t
+    ];
+  }
+
+  function rgbCss(rgb) {
+    return `rgb(${rgb[0] | 0}, ${rgb[1] | 0}, ${rgb[2] | 0})`;
+  }
+
+  function clamp01Number(value) {
+    return value < 0 ? 0 : value > 1 ? 1 : value;
+  }
+
+  function smoothstep(value) {
+    const t = clamp01Number(value);
+    return t * t * (3 - 2 * t);
+  }
+
+  function easeInOutCubic(value) {
+    const t = clamp01Number(value);
+    return t < 0.5
+      ? 4 * t * t * t
+      : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  }
 
   // QuadTree implementation for efficient spatial indexing
   class QuadTree {
@@ -351,6 +432,10 @@ const state = {
 
     const scoped = new Set();
     state.graph.nodes.forEach((node, id) => {
+      if (node.type === "card") {
+        if (isCardInScope(node.data)) scoped.add(id);
+        return;
+      }
       if (normalizeSubjectName(getItemSubject(node.data)) === wanted) scoped.add(id);
     });
     if (state.focusSubjectId) scoped.add(state.focusSubjectId);
@@ -1016,6 +1101,177 @@ const state = {
     };
   }
 
+  // Resolve a card's graph anchors once per graph rebuild. Cards are real
+  // scene objects, so their context links are cached rather than re-walked
+  // every frame.
+  function getCardAnchorIdsForGraph(card, graph) {
+    const links = card?.links && typeof card.links === "object" ? card.links : {};
+    const ids = [];
+    const add = (id) => {
+      if (!id || ids.includes(id)) return;
+      const node = graph.nodes.get(id);
+      if (!node || node.type === "card") return;
+      ids.push(id);
+    };
+    add(links.quoteId);
+    add(links.cueId);
+    add(links.analysisId);
+    add(links.nodeId);
+    add(links.sourceId);
+    if (ids.length) return ids;
+
+    const deck = normalizeSubjectName(card?.deck);
+    const deckPath = (Array.isArray(card?.deckPath) ? card.deckPath : [])
+      .map((part) => normalizeSubjectName(part))
+      .filter(Boolean);
+    if (!deck && !deckPath.length) return ids;
+
+    let exactSubjectId = null;
+    let pathSubjectId = null;
+    graph.nodes.forEach((node, id) => {
+      if (node.type === "card") return;
+      const subject = normalizeSubjectName(getItemSubject(node.data));
+      if (!subject) return;
+      if (subject === deck && node.type === "subject") exactSubjectId = id;
+      else if (!pathSubjectId && deckPath.includes(subject) && node.type === "subject") pathSubjectId = id;
+    });
+    if (exactSubjectId) return [exactSubjectId];
+    if (pathSubjectId) return [pathSubjectId];
+
+    // A deck can exist as a card-only scope with no subject node yet. In that
+    // case attach the card to any knowledge node in the same subject rather
+    // than dropping it at the centre of the map.
+    let fallbackId = null;
+    graph.nodes.forEach((node, id) => {
+      if (fallbackId || node.type === "card") return;
+      if (normalizeSubjectName(getItemSubject(node.data)) === deck) fallbackId = id;
+    });
+    return fallbackId ? [fallbackId] : ids;
+  }
+
+  // The card scene object is the card's position record. `nodePositions`
+  // points at the same object, so Graph physics, dragging, hit-testing, and
+  // the Dots transition all read/write one canonical x/y.
+  function ensureCardSceneObjects() {
+    const cards = Array.isArray(state.cards) ? state.cards : [];
+    const seen = new Set();
+
+    cards.forEach((card) => {
+      if (!card?.id) return;
+      seen.add(card.id);
+      let scene = state.cardScene.get(card.id);
+      if (!scene) {
+        scene = {
+          isCardScene: true,
+          id: card.id,
+          card,
+          item: null,
+          x: NaN,
+          y: NaN,
+          homeX: 0,
+          homeY: 0,
+          homeValid: false,
+          seeded: false,
+          anchorIds: [],
+          dotSection: -1,
+          dotGroup: 0,
+          dotRow: 0,
+          dotCol: 0,
+          recallRgb: CARD_UNKNOWN_RGB,
+          accuracyRgb: CARD_UNKNOWN_RGB,
+          priority: null,
+          priorityColor: null,
+          priorityRgb: null
+        };
+        state.cardScene.set(card.id, scene);
+        state.nodePositions.set(card.id, scene);
+        state.velocities.set(card.id, { x: 0, y: 0 });
+      } else {
+        scene.card = card;
+      }
+
+      const item = buildCardItem(card);
+      scene.item = item;
+      const recallBin = getScoreBin(item.recall?.score);
+      const accuracyBin = getScoreBin(item.accuracy);
+      scene.recallRgb = recallBin.rgb || CARD_UNKNOWN_RGB;
+      scene.accuracyRgb = accuracyBin.rgb || CARD_UNKNOWN_RGB;
+      scene.priority = item.priority;
+      scene.priorityColor = item.priority ? GRID_IMPORTANCE_COLORS[item.priority] : null;
+      scene.priorityRgb = item.priority ? hexToRgb(GRID_IMPORTANCE_COLORS[item.priority]) : null;
+    });
+
+    for (const id of [...state.cardScene.keys()]) {
+      if (seen.has(id)) continue;
+      state.cardScene.delete(id);
+      state.nodePositions.delete(id);
+      state.velocities.delete(id);
+      state.nodeVisibility.delete(id);
+    }
+  }
+
+  // New cards appear next to the context they came from. Existing cards keep
+  // their session position; only the one-time home snapshot is used by the
+  // Dots return trip.
+  function seedCardScenePositions() {
+    const width = canvas?.width || canvas?.parentElement?.clientWidth || 800;
+    const height = canvas?.height || canvas?.parentElement?.clientHeight || 600;
+    const fallback = { x: width / 2, y: height / 2 };
+    let index = 0;
+
+    state.cardScene.forEach((scene) => {
+      if (scene.seeded && Number.isFinite(scene.x) && Number.isFinite(scene.y)) {
+        index += 1;
+        return;
+      }
+
+      let anchorX = 0;
+      let anchorY = 0;
+      let anchorCount = 0;
+      scene.anchorIds.forEach((id) => {
+        const pos = state.nodePositions.get(id);
+        if (!pos) return;
+        anchorX += pos.x;
+        anchorY += pos.y;
+        anchorCount += 1;
+      });
+
+      if (anchorCount > 0) {
+        anchorX /= anchorCount;
+        anchorY /= anchorCount;
+      } else {
+        anchorX = fallback.x;
+        anchorY = fallback.y;
+      }
+
+      // Deterministic golden-angle spread keeps sibling cards from stacking
+      // without a per-frame layout pass or a second coordinate map.
+      const angle = index * 2.399963229728653;
+      const radius = 34 + (index % 4) * 9;
+      scene.x = anchorX + Math.cos(angle) * radius;
+      scene.y = anchorY + Math.sin(angle) * radius;
+      scene.seeded = true;
+      const velocity = state.velocities.get(scene.id);
+      if (velocity) {
+        velocity.x = 0;
+        velocity.y = 0;
+      } else {
+        state.velocities.set(scene.id, { x: 0, y: 0 });
+      }
+      index += 1;
+    });
+  }
+
+  function setWorldPosition(id, x, y) {
+    const existing = state.nodePositions.get(id);
+    if (existing?.isCardScene) {
+      existing.x = x;
+      existing.y = y;
+      return;
+    }
+    state.nodePositions.set(id, { x, y });
+  }
+
   function compareCardBrowseOrder(a, b) {
     const orderDelta = a.order - b.order;
     if (orderDelta !== 0) return orderDelta;
@@ -1080,9 +1336,223 @@ const state = {
     });
   }
 
+  function getActiveHeap() {
+    if (!state.activeHeapId) return null;
+    return (state.heaps || []).find((heap) => heap.id === state.activeHeapId) || null;
+  }
+
+  function getHeapCards(heap) {
+    if (!heap) return [];
+    const cardsById = new Map((state.cards || []).map((card) => [card.id, card]));
+    return (heap.cardIds || []).map((id) => cardsById.get(id)).filter(Boolean);
+  }
+
+  function positionHeapSidebar() {
+    if (!libraryHeapSidebar || !libraryHeapBar || !blueprintArea) return;
+    const areaRect = blueprintArea.getBoundingClientRect();
+    const barRect = libraryHeapBar.getBoundingClientRect();
+    // Keep the heap panel below the toolbar so Study Heap stays clickable
+    // even while the panel is open.
+    const top = Math.max(14, Math.round(barRect.bottom - areaRect.top + 10));
+    libraryHeapSidebar.style.top = `${top}px`;
+  }
+
+  function updateHeapSidebarVisibility() {
+    const heap = getActiveHeap();
+    const visible = state.viewMode === "grid" && Boolean(heap) && state.heapSidebarOpen;
+    if (libraryHeapSidebar) libraryHeapSidebar.hidden = !visible;
+    if (gridView) gridView.classList.toggle("heap-open", visible);
+    if (toggleHeapSidebarBtn) {
+      toggleHeapSidebarBtn.setAttribute("aria-expanded", String(visible));
+    }
+    if (visible) positionHeapSidebar();
+  }
+
+  function renderHeapSidebar() {
+    const heap = getActiveHeap();
+    if (libraryHeapSidebarName) {
+      libraryHeapSidebarName.textContent = heap?.name || "No heap selected";
+    }
+
+    const availableCards = getHeapCards(heap);
+    const missingCount = heap ? Math.max(0, (heap.cardIds || []).length - availableCards.length) : 0;
+
+    if (libraryHeapSidebarMeta) {
+      libraryHeapSidebarMeta.textContent = heap
+        ? `${availableCards.length} card${availableCards.length === 1 ? "" : "s"} in study order${missingCount ? ` · ${missingCount} deleted card${missingCount === 1 ? "" : "s"} skipped` : ""}`
+        : "Select or create a heap to start collecting cards.";
+    }
+
+    if (libraryHeapItems) {
+      libraryHeapItems.innerHTML = !heap
+        ? `<div class="library-heap-empty">No heap selected.</div>`
+        : availableCards.length === 0
+          ? `<div class="library-heap-empty">This heap is empty. Hover a card and use <strong>+ Heap</strong> to add it.</div>`
+          : availableCards.map((card, index) => `
+              <div class="library-heap-item">
+                <div class="library-heap-item-title">${escapeHtml(card.front || "Untitled card")}</div>
+                <div class="library-heap-item-meta">${index + 1}. ${escapeHtml(card.deck || "Unsorted")}</div>
+                <div class="library-heap-item-actions">
+                  <button type="button" data-heap-action="up" data-heap-card-id="${escapeHtml(card.id)}" title="Move up" ${index === 0 ? "disabled" : ""}>\u2191</button>
+                  <button type="button" data-heap-action="down" data-heap-card-id="${escapeHtml(card.id)}" title="Move down" ${index === availableCards.length - 1 ? "disabled" : ""}>\u2193</button>
+                  <button type="button" data-heap-action="remove" data-heap-card-id="${escapeHtml(card.id)}" title="Remove from heap">\u00d7</button>
+                </div>
+              </div>
+            `).join("");
+    }
+
+    if (heapSidebarStudyBtn) heapSidebarStudyBtn.disabled = availableCards.length === 0;
+    if (deleteHeapBtn) deleteHeapBtn.disabled = !heap;
+  }
+
+  function renderHeapControls() {
+    const heap = getActiveHeap();
+    const availableCards = getHeapCards(heap);
+
+    if (libraryHeapSelect) {
+      const options = [
+        `<option value="">No heap selected</option>`,
+        ...(state.heaps || []).map((entry) => `<option value="${escapeHtml(entry.id)}">${escapeHtml(entry.name)} (${(entry.cardIds || []).length})</option>`)
+      ];
+      libraryHeapSelect.innerHTML = options.join("");
+      libraryHeapSelect.value = heap?.id || "";
+    }
+
+    if (libraryHeapStatus) {
+      libraryHeapStatus.classList.toggle("is-warning", !heap && (state.heaps || []).length === 0);
+      if (!(state.heaps || []).length) {
+        libraryHeapStatus.textContent = "No heaps yet. Create one, then collect cards from the library.";
+      } else if (!heap) {
+        libraryHeapStatus.textContent = "Select a heap, or create a new one, then add cards with + Heap.";
+      } else {
+        libraryHeapStatus.textContent = `${heap.name}: ${availableCards.length} card${availableCards.length === 1 ? "" : "s"}. Study follows this order exactly; grades still update SRS.`;
+      }
+    }
+
+    if (studyHeapBtn) studyHeapBtn.disabled = availableCards.length === 0;
+    if (toggleHeapSidebarBtn) {
+      toggleHeapSidebarBtn.textContent = `Heap (${availableCards.length})`;
+    }
+
+    renderHeapSidebar();
+    updateHeapSidebarVisibility();
+  }
+
+  async function createHeap() {
+    if (typeof addHeap !== "function") {
+      dialog.alert("Heap creation is unavailable.");
+      return null;
+    }
+    const name = await dialog.prompt("Name this heap:");
+    if (name === null) return null;
+    const trimmed = name.trim();
+    if (!trimmed) {
+      dialog.alert("Please enter a heap name.");
+      return null;
+    }
+
+    try {
+      const heap = await addHeap({ name: trimmed, cardIds: [] });
+      state.heaps = [heap, ...(state.heaps || []).filter((entry) => entry.id !== heap.id)];
+      state.activeHeapId = heap.id;
+      state.heapSidebarOpen = true;
+      renderHeapControls();
+      renderGrid();
+      return heap;
+    } catch (error) {
+      console.error("Failed to create heap:", error);
+      dialog.alert("Failed to create heap: " + error.message);
+      return null;
+    }
+  }
+
+  async function ensureActiveHeap() {
+    return getActiveHeap() || createHeap();
+  }
+
+  async function saveHeapCardIds(heap, cardIds) {
+    if (!heap || typeof addHeap !== "function") return null;
+    const saved = await addHeap({
+      ...heap,
+      cardIds,
+      updatedAt: Date.now()
+    });
+    state.heaps = (state.heaps || []).map((entry) => entry.id === saved.id ? saved : entry);
+    state.activeHeapId = saved.id;
+    renderHeapControls();
+    renderGrid();
+    return saved;
+  }
+
+  async function toggleCardInActiveHeap(cardId) {
+    const heap = await ensureActiveHeap();
+    if (!heap) return;
+    const cardIds = Array.isArray(heap.cardIds) ? heap.cardIds : [];
+    const nextIds = cardIds.includes(cardId)
+      ? cardIds.filter((id) => id !== cardId)
+      : [...cardIds, cardId];
+    try {
+      await saveHeapCardIds(heap, nextIds);
+    } catch (error) {
+      console.error("Failed to update heap:", error);
+      dialog.alert("Failed to update heap: " + error.message);
+    }
+  }
+
+  async function removeHeapCard(cardId) {
+    const heap = getActiveHeap();
+    if (!heap) return;
+    await saveHeapCardIds(heap, (heap.cardIds || []).filter((id) => id !== cardId));
+  }
+
+  async function moveHeapCard(cardId, delta) {
+    const heap = getActiveHeap();
+    if (!heap) return;
+    const cardIds = [...(heap.cardIds || [])];
+    const index = cardIds.indexOf(cardId);
+    const nextIndex = index + delta;
+    if (index < 0 || nextIndex < 0 || nextIndex >= cardIds.length) return;
+    [cardIds[index], cardIds[nextIndex]] = [cardIds[nextIndex], cardIds[index]];
+    await saveHeapCardIds(heap, cardIds);
+  }
+
+  function studyActiveHeap() {
+    const heap = getActiveHeap();
+    if (!heap) {
+      dialog.alert("Create or select a heap first.");
+      return;
+    }
+    if (getHeapCards(heap).length === 0) {
+      dialog.alert("This heap is empty. Add some cards first.");
+      return;
+    }
+    window.dispatchEvent(new CustomEvent("neuronet-open-tool", {
+      detail: { tool: "memory", heapId: heap.id }
+    }));
+  }
+
+  async function deleteActiveHeap() {
+    const heap = getActiveHeap();
+    if (!heap || typeof deleteHeap !== "function") return;
+    const confirmed = await dialog.confirm(`Delete the heap "${heap.name}"? Cards and their SRS data are not affected.`, "Delete", "danger");
+    if (!confirmed) return;
+    try {
+      await deleteHeap(heap.id);
+      state.heaps = (state.heaps || []).filter((entry) => entry.id !== heap.id);
+      state.activeHeapId = state.heaps[0]?.id || null;
+      state.heapSidebarOpen = Boolean(state.activeHeapId);
+      renderHeapControls();
+      renderGrid();
+    } catch (error) {
+      console.error("Failed to delete heap:", error);
+      dialog.alert("Failed to delete heap: " + error.message);
+    }
+  }
+
   function renderGrid() {
     if (!gridContainer) return;
 
+    renderHeapControls();
     const decks = buildGridData();
     updateStats();
 
@@ -1100,9 +1570,12 @@ const state = {
     }
 
     let cardIndex = 0;
+    const activeHeap = getActiveHeap();
+    const activeHeapCardIds = new Set(activeHeap?.cardIds || []);
     const html = decks.map((section, sectionIndex) => {
       const groups = section.groups.map((group) => {
         const cards = group.cards.map((card) => {
+          const inHeap = activeHeapCardIds.has(card.id);
           const importanceColor = card.priority
             ? GRID_IMPORTANCE_COLORS[card.priority]
             : "rgba(255, 255, 255, 0.14)";
@@ -1140,7 +1613,8 @@ const state = {
           ].filter(Boolean).join(" · ");
 
           return `
-            <button type="button" class="mindmap-grid-card${isSelected ? " selected" : ""}" data-node-id="${escapeHtml(card.id)}" style="--importance-color: ${importanceColor}; animation-delay: ${delay}ms" title="${escapeHtml(titleAttr)}">
+            <div class="mindmap-grid-card${isSelected ? " selected" : ""}${inHeap ? " in-heap" : ""}" role="button" tabindex="0" data-node-id="${escapeHtml(card.id)}" style="--importance-color: ${importanceColor}; animation-delay: ${delay}ms" title="${escapeHtml(titleAttr)}">
+              <button type="button" class="mindmap-grid-heap-btn${inHeap ? " in-heap" : ""}" data-heap-card-id="${escapeHtml(card.id)}" aria-pressed="${inHeap}" title="${inHeap ? "Remove from heap" : "Add to heap"}">${inHeap ? "\u2713 In Heap" : "+ Heap"}</button>
               <span class="mindmap-grid-card-top">
                 <span class="mindmap-grid-card-icon" aria-hidden="true">${card.icon}</span>
                 <span class="mindmap-grid-card-type">${escapeHtml(card.typeLabel)}</span>
@@ -1153,7 +1627,7 @@ const state = {
                 <span class="mindmap-grid-score${accuracyBin.index === -1 ? " is-unknown" : ""}" style="--score-color: ${accuracyBin.color}" title="Accuracy ${escapeHtml(accuracyLabel)}">A ${accuracyLabel}</span>
                 ${tagChips}${tagOverflow}
               </span>
-            </button>
+            </div>
           `;
         }).join("");
 
@@ -1200,119 +1674,48 @@ const state = {
     return groups;
   }
 
-  function getDotsDisplayPositions(now, layout = state.dotsLayout, anim = state.dotAnim) {
-    const positions = new Map();
-    if (!layout) return positions;
+  function dotTargetScreenX(scene, layout) {
+    const section = layout.sections[scene.dotSection];
+    if (!section) return NaN;
+    return section.contentX + scene.dotCol * layout.cell + layout.cell / 2;
+  }
 
-    if (!anim) {
-      layout.dots.forEach((dot, id) => positions.set(id, dot));
-      return positions;
-    }
+  function dotTargetScreenY(scene, layout) {
+    const section = layout.sections[scene.dotSection];
+    if (!section) return NaN;
+    const groupTop = section.groupTops[scene.dotGroup];
+    if (!Number.isFinite(groupTop)) return NaN;
+    return groupTop + scene.dotRow * layout.cell + layout.cell / 2;
+  }
 
-    const elapsed = now - anim.start;
-    if (elapsed >= anim.duration) {
-      if (anim === state.dotAnim) state.dotAnim = null;
-      layout.dots.forEach((dot, id) => positions.set(id, dot));
-      return positions;
-    }
+  function screenToWorldX(x) {
+    const centerX = canvas.width / 2;
+    return (x - centerX - state.panOffset.x) / state.zoom + centerX;
+  }
 
-    const morphDuration = Math.max(1, anim.duration - DOT_MORPH_STAGGER_MS);
-    layout.dots.forEach((dot, id) => {
-      const from = anim.from.get(id) || dot;
-      const progress = Math.max(0, Math.min(1, (elapsed - (dot.delay || 0)) / morphDuration));
-      const eased = progress < 0.5
-        ? 4 * progress * progress * progress
-        : 1 - Math.pow(-2 * progress + 2, 3) / 2;
-      positions.set(id, {
-        ...dot,
-        x: from.x + (dot.x - from.x) * eased,
-        y: from.y + (dot.y - from.y) * eased
-      });
+  function screenToWorldY(y) {
+    const centerY = canvas.height / 2;
+    return (y - centerY - state.panOffset.y) / state.zoom + centerY;
+  }
+
+  function applyDotsTargets() {
+    const layout = state.dotsLayout;
+    if (!layout || layout.empty) return;
+    state.cardScene.forEach((scene) => {
+      if (scene.dotSection < 0) return;
+      const screenX = dotTargetScreenX(scene, layout);
+      const screenY = dotTargetScreenY(scene, layout);
+      if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return;
+      scene.x = screenToWorldX(screenX);
+      scene.y = screenToWorldY(screenY);
     });
-    return positions;
   }
 
-  function getCardLinkedNodeIds(card) {
-    const links = card?.links && typeof card.links === "object" ? card.links : {};
-    const ids = [];
-    const add = (id) => {
-      if (!id || ids.includes(id)) return;
-      if (!state.graph.nodes.has(id) || !isNodeInScope(id)) return;
-      ids.push(id);
-    };
-    // A card usually descends from a quote; analysis/source links are added
-    // when the learner wants wider context. Use all available anchors so the
-    // dot emerges from the middle of the knowledge it came from.
-    add(links.quoteId);
-    add(links.cueId);
-    add(links.analysisId);
-    add(links.nodeId);
-    add(links.sourceId);
-    return ids;
-  }
-
-  function findDeckAnchorNodeIds(card) {
-    const deck = normalizeSubjectName(card?.deck);
-    const deckPath = (Array.isArray(card?.deckPath) ? card.deckPath : [])
-      .map((part) => normalizeSubjectName(part))
-      .filter(Boolean);
-    if (!deck && !deckPath.length) return [];
-
-    const exact = [];
-    const pathMatches = [];
-    state.graph.nodes.forEach((node, id) => {
-      if (!isNodeInScope(id)) return;
-      const subject = normalizeSubjectName(getItemSubject(node.data));
-      if (!subject) return;
-      if (subject === deck) exact.push(id);
-      else if (deckPath.includes(subject)) pathMatches.push(id);
-    });
-
-    // Prefer the subject node itself; it is the visual home of a deck. Fall
-    // back to the deck's children when the deck has no knowledge node yet.
-    const subjectNode = exact.find((id) => state.graph.nodes.get(id)?.type === "subject");
-    if (subjectNode) return [subjectNode];
-    if (exact.length) return exact;
-
-    const pathSubjectNode = pathMatches.find((id) => state.graph.nodes.get(id)?.type === "subject");
-    if (pathSubjectNode) return [pathSubjectNode];
-    return pathMatches;
-  }
-
-  function getCardAnchorNodeIds(card) {
-    const linked = getCardLinkedNodeIds(card);
-    if (linked.length) return linked;
-    return findDeckAnchorNodeIds(card);
-  }
-
-  function buildDotsGraphAnchors() {
-    const anchors = new Map();
-    (state.cards || []).forEach((card) => {
-      if (!card?.id) return;
-      const ids = getCardAnchorNodeIds(card);
-      let sx = 0;
-      let sy = 0;
-      let count = 0;
-      ids.forEach((id) => {
-        const pos = state.nodePositions.get(id);
-        if (!pos) return;
-        const screen = transformPoint(pos.x, pos.y);
-        sx += screen.x;
-        sy += screen.y;
-        count += 1;
-      });
-      if (count) anchors.set(card.id, { x: sx / count, y: sy / count });
-    });
-    return anchors;
-  }
-
-  function buildDotsLayout({ animate = false, fromGraph = false } = {}) {
+  function buildDotsLayout({ applyTargets = false } = {}) {
     if (!canvas) return;
 
     const { width, height } = syncCanvasSize();
     const sections = buildCardSections();
-    const previousLayout = state.dotsLayout;
-    const previousPositions = getDotsDisplayPositions(performance.now(), previousLayout, state.dotAnim);
     const legendHeight = dotsLegend && !dotsLegend.hidden ? dotsLegend.offsetHeight + 10 : 6;
     const padX = Math.max(10, Math.min(24, width * 0.018));
     const top = legendHeight + 6;
@@ -1320,9 +1723,17 @@ const state = {
     const availW = Math.max(80, width - padX * 2);
     const availH = Math.max(80, height - top - bottom);
 
+    // Every layout pass reassigns slots. Cards outside the current scope keep
+    // dotSection = -1 and are simply not drawn in Dots.
+    state.cardScene.forEach((scene) => {
+      scene.dotSection = -1;
+      scene.dotGroup = 0;
+      scene.dotRow = 0;
+      scene.dotCol = 0;
+    });
+
     if (!sections.length) {
       state.dotsLayout = {
-        dots: new Map(),
         sections: [],
         width,
         height,
@@ -1331,7 +1742,6 @@ const state = {
         top,
         empty: true
       };
-      state.dotAnim = null;
       return;
     }
 
@@ -1382,7 +1792,6 @@ const state = {
       if (maxHeight <= availH) break;
     }
 
-    const dots = new Map();
     const layoutSections = [];
 
     sections.forEach((section, sectionIndex) => {
@@ -1390,19 +1799,18 @@ const state = {
       const x = padX + placement.col * (colW + colGap);
       const y = top + placement.y;
       const contentX = x + chosen.sectionPad + chosen.innerPad + placement.offsetX;
+      const groupTops = [];
       let cursorY = y + chosen.sectionPad + chosen.headerH;
 
       placement.groups.forEach((group, groupIndex) => {
+        groupTops.push(cursorY);
         group.cards.forEach((card, cardIndex) => {
-          const row = Math.floor(cardIndex / placement.perRow);
-          const col = cardIndex % placement.perRow;
-          dots.set(card.id, {
-            x: contentX + col * chosen.cell + chosen.cell / 2,
-            y: cursorY + row * chosen.cell + chosen.cell / 2,
-            card,
-            delay: Math.min(DOT_MORPH_STAGGER_MS, (col + row) * 12),
-            sectionIndex
-          });
+          const scene = state.cardScene.get(card.id);
+          if (!scene) return;
+          scene.dotSection = sectionIndex;
+          scene.dotGroup = groupIndex;
+          scene.dotRow = Math.floor(cardIndex / placement.perRow);
+          scene.dotCol = cardIndex % placement.perRow;
         });
         cursorY += Math.ceil(group.cards.length / placement.perRow) * chosen.cell;
         if (groupIndex < placement.groups.length - 1) cursorY += chosen.typeGap;
@@ -1414,12 +1822,14 @@ const state = {
         x,
         y,
         w: colW,
-        h: placement.height
+        h: placement.height,
+        contentX,
+        groupTops,
+        groupPerRow: placement.perRow
       });
     });
 
     state.dotsLayout = {
-      dots,
       sections: layoutSections,
       width,
       height,
@@ -1429,141 +1839,104 @@ const state = {
       empty: false
     };
 
-    if (animate) {
-      const from = new Map();
-      const graphAnchors = fromGraph ? buildDotsGraphAnchors() : null;
-      dots.forEach((dot, id) => {
-        let start = null;
-        if (fromGraph) {
-          // Cards inherit the screen position of the quote/analysis/source
-          // node they came from. Unlinked cards emerge from their deck's
-          // section centre, so the layout still assembles as one surface.
-          start = graphAnchors.get(id) || null;
-          if (!start) {
-            const section = layoutSections[dot.sectionIndex];
-            if (section) start = { x: section.x + section.w / 2, y: section.y + section.h / 2 };
-          }
-        } else if (previousPositions.has(id)) {
-          start = previousPositions.get(id);
-        }
-        from.set(id, start ? { x: start.x, y: start.y } : { x: width / 2, y: top + 30 });
-      });
-      state.dotAnim = { from, start: performance.now(), duration: DOT_MORPH_MS };
-    } else {
-      state.dotAnim = null;
-    }
+    if (applyTargets) applyDotsTargets();
   }
 
-  function startDotsToGraphMorph() {
-    if (!state.dotsLayout || !state.dotsLayout.dots.size) {
-      state.graphMorph = null;
-      state.graphSnapshot = null;
-      return;
-    }
+  function captureCardHomes() {
+    state.cardScene.forEach((scene) => {
+      if (!Number.isFinite(scene.x) || !Number.isFinite(scene.y)) return;
+      scene.homeX = scene.x;
+      scene.homeY = scene.y;
+      scene.homeValid = true;
+    });
+  }
 
+  function startSceneTransition(mode) {
     const now = performance.now();
-    const dotPositions = getDotsDisplayPositions(now, state.dotsLayout, state.dotAnim);
-    const snapshot = state.graphSnapshot || new Map(state.nodePositions);
-    const to = new Map();
-    snapshot.forEach((pos, id) => to.set(id, { x: pos.x, y: pos.y }));
-    state.graph.nodes.forEach((node, id) => {
-      if (to.has(id)) return;
-      const pos = state.nodePositions.get(id);
-      if (pos) to.set(id, { x: pos.x, y: pos.y });
+    state.cardScene.forEach((scene) => {
+      scene.transitionFromX = Number.isFinite(scene.x)
+        ? scene.x
+        : (scene.homeValid ? scene.homeX : 0);
+      scene.transitionFromY = Number.isFinite(scene.y)
+        ? scene.y
+        : (scene.homeValid ? scene.homeY : 0);
     });
-
-    // Reverse the card -> knowledge mapping. Linked nodes start at the dot
-    // that represents their card; remaining nodes in the same deck start at
-    // that deck's dot cluster. The graph then reassembles from the card map.
-    const dotsByNode = new Map();
-    const dotsByDeck = new Map();
-    (state.cards || []).forEach((card) => {
-      const dot = card?.id ? dotPositions.get(card.id) : null;
-      if (!dot) return;
-      const deck = normalizeSubjectName(card.deck);
-      if (deck) {
-        if (!dotsByDeck.has(deck)) dotsByDeck.set(deck, []);
-        dotsByDeck.get(deck).push(dot);
-      }
-      getCardAnchorNodeIds(card).forEach((id) => {
-        if (!dotsByNode.has(id)) dotsByNode.set(id, []);
-        dotsByNode.get(id).push(dot);
-      });
-    });
-
-    const from = new Map();
-    state.graph.nodes.forEach((node, id) => {
-      const target = to.get(id) || state.nodePositions.get(id);
-      if (!target) return;
-
-      let dots = dotsByNode.get(id);
-      if ((!dots || !dots.length) && isNodeInScope(id)) {
-        const subject = normalizeSubjectName(getItemSubject(node.data));
-        dots = subject ? dotsByDeck.get(subject) : null;
-      }
-
-      if (!dots || !dots.length) {
-        from.set(id, { x: target.x, y: target.y });
-        return;
-      }
-
-      let sx = 0;
-      let sy = 0;
-      dots.forEach((dot) => {
-        sx += dot.x;
-        sy += dot.y;
-      });
-      const screen = { x: sx / dots.length, y: sy / dots.length };
-      from.set(id, inverseTransform(screen.x, screen.y));
-    });
-
-    state.graphMorph = {
-      from,
-      to,
+    state.sceneTransition = {
+      mode,
       start: now,
-      duration: DOT_MORPH_MS
+      duration: DOT_MORPH_MS,
+      t: 0,
+      // Keep the camera exactly where the learner left it. If the camera was
+      // still auto-fitting before Dots, it resumes fitting after the return;
+      // if they had taken control, it stays put.
+      userInteracted: state.userInteracted
     };
-    state.graphMorph.from.forEach((start, id) => {
-      const pos = state.nodePositions.get(id);
-      if (!pos) return;
-      pos.x = start.x;
-      pos.y = start.y;
-    });
     state.velocities.forEach((velocity) => {
       velocity.x = 0;
       velocity.y = 0;
     });
   }
 
-  function updateGraphMorph(now) {
-    const morph = state.graphMorph;
-    if (!morph) return false;
-    const elapsed = now - morph.start;
-    const progress = Math.max(0, Math.min(1, elapsed / morph.duration));
-    const eased = progress < 0.5
-      ? 4 * progress * progress * progress
-      : 1 - Math.pow(-2 * progress + 2, 3) / 2;
-
-    morph.from.forEach((start, id) => {
-      const target = morph.to.get(id);
-      const pos = state.nodePositions.get(id);
-      if (!target || !pos) return;
-      pos.x = start.x + (target.x - start.x) * eased;
-      pos.y = start.y + (target.y - start.y) * eased;
-    });
-
-    if (progress >= 1) {
-      morph.to.forEach((target, id) => {
-        const pos = state.nodePositions.get(id);
-        if (!pos) return;
-        pos.x = target.x;
-        pos.y = target.y;
+  function finishSceneTransition() {
+    const transition = state.sceneTransition;
+    if (!transition) return;
+    if (transition.mode === "to-dots") {
+      applyDotsTargets();
+      state.viewMode = "dots";
+    } else {
+      state.cardScene.forEach((scene) => {
+        if (!scene.homeValid) return;
+        scene.x = scene.homeX;
+        scene.y = scene.homeY;
       });
-      state.graphMorph = null;
-      state.graphSnapshot = null;
-      return false;
+      state.viewMode = "graph";
+      state.userInteracted = Boolean(transition.userInteracted);
     }
-    return true;
+    state.sceneTransition = null;
+  }
+
+  function updateSceneTransition(now) {
+    const transition = state.sceneTransition;
+    if (!transition) return;
+    const t = clamp01Number((now - transition.start) / transition.duration);
+    transition.t = t;
+    const eased = easeInOutCubic(t);
+
+    if (transition.mode === "to-dots") {
+      const layout = state.dotsLayout;
+      state.cardScene.forEach((scene) => {
+        const fromX = scene.transitionFromX;
+        const fromY = scene.transitionFromY;
+        if (!layout || layout.empty || scene.dotSection < 0) {
+          scene.x = fromX;
+          scene.y = fromY;
+          return;
+        }
+        const screenX = dotTargetScreenX(scene, layout);
+        const screenY = dotTargetScreenY(scene, layout);
+        if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) {
+          scene.x = fromX;
+          scene.y = fromY;
+          return;
+        }
+        const targetX = screenToWorldX(screenX);
+        const targetY = screenToWorldY(screenY);
+        scene.x = fromX + (targetX - fromX) * eased;
+        scene.y = fromY + (targetY - fromY) * eased;
+      });
+    } else {
+      // Cards return first. Knowledge nodes stay hidden until the cards have
+      // landed, so the graph never assembles underneath a moving card field.
+      const cardT = easeInOutCubic(clamp01Number(t / 0.7));
+      state.cardScene.forEach((scene) => {
+        const targetX = scene.homeValid ? scene.homeX : scene.transitionFromX;
+        const targetY = scene.homeValid ? scene.homeY : scene.transitionFromY;
+        scene.x = scene.transitionFromX + (targetX - scene.transitionFromX) * cardT;
+        scene.y = scene.transitionFromY + (targetY - scene.transitionFromY) * cardT;
+      });
+    }
+
+    if (t >= 1) finishSceneTransition();
   }
 
   function drawRoundedRect(context, x, y, width, height, radius) {
@@ -1591,23 +1964,25 @@ const state = {
     return `${shortened}…`;
   }
 
-  function findDotAtPosition(x, y) {
+  function findCardSceneAtScreenPosition(x, y) {
     const layout = state.dotsLayout;
-    if (!layout || !layout.dots.size) return null;
+    if (!layout || layout.empty) return null;
 
-    const positions = state.dotAnim
-      ? getDotsDisplayPositions(performance.now(), layout, state.dotAnim)
-      : layout.dots;
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
     const hitRadius = Math.max(6, Math.min(14, layout.cell * 0.5));
     let best = null;
     let bestDistance = Infinity;
 
-    positions.forEach((dot, id) => {
-      const dx = x - dot.x;
-      const dy = y - dot.y;
+    state.cardScene.forEach((scene) => {
+      if (scene.dotSection < 0 || !isCardInScope(scene.card)) return;
+      const screenX = centerX + (scene.x - centerX) * state.zoom + state.panOffset.x;
+      const screenY = centerY + (scene.y - centerY) * state.zoom + state.panOffset.y;
+      const dx = x - screenX;
+      const dy = y - screenY;
       const distance = dx * dx + dy * dy;
       if (distance <= hitRadius * hitRadius && distance < bestDistance) {
-        best = dot;
+        best = scene;
         bestDistance = distance;
       }
     });
@@ -1615,8 +1990,10 @@ const state = {
     return best;
   }
 
-  function drawDotTooltip(dot, width, height, top) {
-    const card = dot.card;
+  function drawCardTooltip(scene, screenX, screenY, width, height, top) {
+    const card = scene.item;
+    if (!card) return;
+    const layout = state.dotsLayout;
     const recallScore = card.recall?.score;
     const recall = recallScore === null || recallScore === undefined
       ? "no recall"
@@ -1628,6 +2005,7 @@ const state = {
     const deck = card.deck ? ` · ${card.deck}` : "";
     const tags = card.tags.slice(0, 4).map((tag) => `#${tag}`).join(" ");
     const maxTextWidth = Math.min(360, width - 48);
+    const dotRadius = layout?.radius || 6;
 
     ctx.save();
     ctx.font = "600 12px Inter, system-ui, sans-serif";
@@ -1650,10 +2028,10 @@ const state = {
 
     const boxWidth = Math.max(120, textWidth + 20);
     const boxHeight = 14 + lines.length * 15;
-    let boxX = dot.x + state.dotsLayout.radius + 14;
-    if (boxX + boxWidth > width - 8) boxX = dot.x - boxWidth - state.dotsLayout.radius - 14;
+    let boxX = screenX + dotRadius + 14;
+    if (boxX + boxWidth > width - 8) boxX = screenX - boxWidth - dotRadius - 14;
     boxX = Math.max(8, Math.min(width - boxWidth - 8, boxX));
-    const boxY = Math.max(top + 4, Math.min(height - boxHeight - 8, dot.y - boxHeight / 2));
+    const boxY = Math.max(top + 4, Math.min(height - boxHeight - 8, screenY - boxHeight / 2));
 
     drawRoundedRect(ctx, boxX, boxY, boxWidth, boxHeight, 8);
     ctx.fillStyle = "rgba(7, 18, 13, 0.97)";
@@ -1676,34 +2054,10 @@ const state = {
     ctx.restore();
   }
 
-  function renderDots() {
-    if (!ctx || !canvas) return;
-
-    const { width, height } = syncCanvasSize();
-    if (!state.dotsLayout || state.dotsLayout.width !== width || state.dotsLayout.height !== height) {
-      buildDotsLayout({ animate: false });
-    }
-
-    const layout = state.dotsLayout;
-    ctx.clearRect(0, 0, width, height);
-
-    if (!layout || layout.empty || !layout.dots.size) {
-      ctx.save();
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillStyle = "rgba(230, 255, 245, 0.55)";
-      ctx.font = "600 15px Inter, system-ui, sans-serif";
-      ctx.fillText("No cards to chart yet", width / 2, height / 2 - 10);
-      ctx.font = "13px Inter, system-ui, sans-serif";
-      ctx.fillStyle = "rgba(230, 255, 245, 0.38)";
-      ctx.fillText("Add cards in Memory or Quick Add to see them here.", width / 2, height / 2 + 14);
-      ctx.restore();
-      updateStats();
-      updateEmptyState();
-      return;
-    }
-
-    const positions = getDotsDisplayPositions(performance.now(), layout, state.dotAnim);
+  function drawDotsSections(layout, alpha) {
+    if (!layout || layout.empty || alpha <= 0.01) return;
+    ctx.save();
+    ctx.globalAlpha = alpha;
 
     layout.sections.forEach((section) => {
       drawRoundedRect(ctx, section.x, section.y, section.w, section.h, 10);
@@ -1736,87 +2090,211 @@ const state = {
       ctx.restore();
     });
 
-    const drawDot = (id, dot) => {
-      const position = positions.get(id);
-      if (!position) return;
+    ctx.restore();
+  }
 
-      const isHovered = state.hoveredNodeId === id;
-      const isSelected = state.selectedNodeId === id;
-      const priorityColor = dot.card.priority
-        ? GRID_IMPORTANCE_COLORS[dot.card.priority]
-        : "rgba(255, 255, 255, 0.24)";
-      const recallBin = getScoreBin(dot.card.recall?.score);
-      const accuracyBin = getScoreBin(dot.card.accuracy);
-      const radius = layout.radius
-        * (isHovered ? 1.35 : 1)
-        * (isSelected ? 1.12 : 1);
-      const borderWidth = isSelected ? 2.5 : Math.max(1.2, Math.min(2.4, layout.cell * 0.085));
-      // Keep the importance ring visually separate from the score fill. The
-      // gap is structure, not another data channel.
-      const fillRadius = Math.max(1.2, radius - borderWidth - 0.35);
+  function drawDotsEmpty(width, height, alpha, top) {
+    if (alpha <= 0.01) return;
+    const centerY = top + (height - top) / 2;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "rgba(230, 255, 245, 0.55)";
+    ctx.font = "600 15px Inter, system-ui, sans-serif";
+    ctx.fillText("No cards to chart yet", width / 2, centerY - 10);
+    ctx.font = "13px Inter, system-ui, sans-serif";
+    ctx.fillStyle = "rgba(230, 255, 245, 0.38)";
+    ctx.fillText("Add cards in Memory or Quick Add to see them here.", width / 2, centerY + 14);
+    ctx.restore();
+  }
 
-      ctx.save();
+  function drawCardScene(scene, morph, alpha, now) {
+    if (!isCardInScope(scene.card)) return;
+    const layout = state.dotsLayout;
+    if (morph > 0.999 && (!layout || layout.empty || scene.dotSection < 0)) return;
 
-      if (isHovered || isSelected) {
-        ctx.beginPath();
-        ctx.arc(position.x, position.y, radius + 6, 0, Math.PI * 2);
-        ctx.fillStyle = isSelected ? "rgba(255, 255, 255, 0.07)" : "rgba(44, 255, 179, 0.08)";
-        ctx.fill();
-      }
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    const screenX = centerX + (scene.x - centerX) * state.zoom + state.panOffset.x;
+    const screenY = centerY + (scene.y - centerY) * state.zoom + state.panOffset.y;
 
-      // Right half: accuracy. Paint the full inner disc first, then overwrite
-      // the left half with recall. Both halves are solid colour bins.
+    const isHovered = state.hoveredNodeId === scene.id;
+    const isSelected = state.selectedNodeId === scene.id;
+    const visibility = state.nodeVisibility.get(scene.id) ?? 1;
+    if (visibility < 0.02 && morph < 0.01) return;
+
+    // Graph cards use exactly the same radius, reveal scale, border width and
+    // zoom behaviour as knowledge nodes. Only the dot end of the morph gets
+    // the compact score-dot sizing.
+    const baseRadius = isHovered || isSelected ? config.nodeHoverRadius : config.nodeRadius;
+    const revealScale = 0.55 + 0.45 * visibility;
+    const graphRadius = baseRadius * state.zoom * revealScale;
+    const dotRadius = (layout?.radius || graphRadius)
+      * (isHovered ? 1.35 : 1)
+      * (isSelected ? 1.12 : 1);
+    const radius = graphRadius + (dotRadius - graphRadius) * morph;
+    const graphBorder = isSelected ? 3 : 2;
+    const dotBorder = isSelected
+      ? 2.5
+      : Math.max(1.2, Math.min(2.4, (layout?.cell || 8) * 0.085));
+    const borderWidth = graphBorder + (dotBorder - graphBorder) * morph;
+    // Keep the importance ring visually separate from the score fill. The
+    // gap is structure, not another data channel.
+    const fillRadius = Math.max(1.2, radius - borderWidth - 0.35);
+
+    // Graph nodes are hollow: dark fill plus a coloured ring. Cards follow
+    // that until Dots fills them with the two score colours.
+    const recallRgb = mixRgb(CARD_GRAPH_FILL_RGB, scene.recallRgb, morph);
+    const accuracyRgb = mixRgb(CARD_GRAPH_FILL_RGB, scene.accuracyRgb, morph);
+    const priorityRgb = scene.priorityRgb || [255, 255, 255];
+    const borderRgb = mixRgb(CARD_COLOR_RGB, priorityRgb, morph);
+    const borderAlpha = scene.priorityRgb ? 1 : 1 - 0.76 * morph;
+    const cardAlpha = alpha * ((1 - morph) * visibility + morph);
+
+    ctx.save();
+    ctx.globalAlpha = cardAlpha;
+
+    if ((isHovered || isSelected) && morph > 0.01) {
+      ctx.globalAlpha = cardAlpha * morph;
       ctx.beginPath();
-      ctx.arc(position.x, position.y, fillRadius, 0, Math.PI * 2);
-      ctx.fillStyle = accuracyBin.color;
+      ctx.arc(screenX, screenY, radius + 6, 0, Math.PI * 2);
+      ctx.fillStyle = isSelected ? "rgba(255, 255, 255, 0.07)" : "rgba(44, 255, 179, 0.08)";
       ctx.fill();
+      ctx.globalAlpha = cardAlpha;
+    }
 
+    // Right half: accuracy. Paint the full inner disc first, then overwrite
+    // the left half with recall. At morph 0 both halves are the same dark
+    // hollow fill as a knowledge node.
+    ctx.globalAlpha = cardAlpha * (0.9 + 0.1 * morph);
+    ctx.beginPath();
+    ctx.arc(screenX, screenY, fillRadius, 0, Math.PI * 2);
+    ctx.fillStyle = rgbCss(accuracyRgb);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(screenX, screenY, fillRadius, Math.PI / 2, Math.PI * 1.5, false);
+    ctx.closePath();
+    ctx.fillStyle = rgbCss(recallRgb);
+    ctx.fill();
+    ctx.globalAlpha = cardAlpha;
+
+    if (morph > 0.05 && fillRadius >= 1.5) {
+      ctx.globalAlpha = cardAlpha * morph;
       ctx.beginPath();
-      ctx.arc(position.x, position.y, fillRadius, Math.PI / 2, Math.PI * 1.5, false);
-      ctx.closePath();
-      ctx.fillStyle = recallBin.color;
-      ctx.fill();
-
-      if (fillRadius >= 1.5) {
-        ctx.beginPath();
-        ctx.moveTo(position.x, position.y - fillRadius);
-        ctx.lineTo(position.x, position.y + fillRadius);
-        ctx.strokeStyle = "rgba(7, 18, 13, 0.9)";
-        ctx.lineWidth = Math.max(1, Math.min(1.5, fillRadius * 0.2));
-        ctx.stroke();
-      }
-
-      // Importance border. This is the only ring on the dot; there is no
-      // accuracy arc or type pip.
-      ctx.beginPath();
-      ctx.arc(position.x, position.y, radius, 0, Math.PI * 2);
-      ctx.strokeStyle = priorityColor;
-      ctx.lineWidth = borderWidth;
+      ctx.moveTo(screenX, screenY - fillRadius);
+      ctx.lineTo(screenX, screenY + fillRadius);
+      ctx.strokeStyle = "rgba(7, 18, 13, 0.9)";
+      ctx.lineWidth = Math.max(1, Math.min(1.5, fillRadius * 0.2));
       ctx.stroke();
+      ctx.globalAlpha = cardAlpha;
+    }
 
-      if (isSelected) {
-        ctx.beginPath();
-        ctx.arc(position.x, position.y, radius + 5.5, 0, Math.PI * 2);
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
-        ctx.lineWidth = 1.8;
-        ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = scene.priorityRgb
+      ? rgbCss(borderRgb)
+      : `rgba(${borderRgb[0] | 0}, ${borderRgb[1] | 0}, ${borderRgb[2] | 0}, ${borderAlpha})`;
+    ctx.lineWidth = borderWidth;
+    ctx.stroke();
+
+    if (isSelected && morph > 0.01) {
+      ctx.globalAlpha = cardAlpha * morph;
+      ctx.beginPath();
+      ctx.arc(screenX, screenY, radius + 5.5, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+      ctx.globalAlpha = cardAlpha;
+    }
+
+    // Graph labels follow the same zoom, density and type-size rules as the
+    // knowledge nodes. Dots use the hover tooltip instead of permanent text.
+    const labelAlpha = cardAlpha * (1 - morph);
+    const isDenseGlobal = !state.focusSubject && state.graph.nodes.size > 70;
+    const densityBoost = isDenseGlobal ? 0.3 : 0;
+    const labelThreshold = (config.labelZoomThresholds.card || 1.0) + densityBoost;
+    const labelsVisible = !(isDenseGlobal && state.zoom < 1.35)
+      && state.zoom >= labelThreshold;
+    if (labelAlpha > 0.02 && labelsVisible) {
+      const fontSize = 12 * Math.max(0.8, Math.min(1.6, state.zoom));
+      ctx.globalAlpha = labelAlpha;
+      ctx.font = `${fontSize}px Inter, system-ui, sans-serif`;
+      ctx.fillStyle = "rgba(230, 255, 245, 0.8)";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      const maxChars = Math.max(8, Math.floor(18 / Math.max(0.35, state.zoom)));
+      const title = scene.item?.title || "Untitled Card";
+      const displayTitle = title.length > maxChars
+        ? title.substring(0, maxChars - 2) + "..."
+        : title;
+      ctx.fillText(displayTitle, screenX, screenY + config.labelOffset * state.zoom);
+    }
+
+    ctx.restore();
+  }
+
+  function renderScene(now) {
+    if (!ctx || !canvas) return;
+
+    const { width, height } = syncCanvasSize();
+    if (
+      (state.viewMode === "dots" || state.sceneTransition?.mode === "to-dots")
+      && (!state.dotsLayout
+        || state.dotsLayout.width !== width
+        || state.dotsLayout.height !== height)
+    ) {
+      buildDotsLayout({ applyTargets: !state.sceneTransition });
+    }
+    ctx.clearRect(0, 0, width, height);
+
+    const transition = state.sceneTransition;
+    let morph = 0;
+    let knowledgeAlpha = 1;
+    let chromeAlpha = 0;
+
+    if (transition) {
+      const t = transition.t;
+      if (transition.mode === "to-dots") {
+        morph = easeInOutCubic(t);
+        knowledgeAlpha = 1 - smoothstep(t / 0.75);
+        chromeAlpha = smoothstep((t - 0.2) / 0.8);
+      } else {
+        morph = 1 - easeInOutCubic(clamp01Number(t / 0.7));
+        knowledgeAlpha = smoothstep((t - 0.7) / 0.3);
+        chromeAlpha = 1 - smoothstep(t / 0.45);
       }
+    } else if (state.viewMode === "dots") {
+      morph = 1;
+      knowledgeAlpha = 0;
+      chromeAlpha = 1;
+    }
 
-      ctx.restore();
-    };
+    if (knowledgeAlpha > 0.01) drawKnowledgeScene(now, knowledgeAlpha);
+    if (chromeAlpha > 0.01) drawDotsSections(state.dotsLayout, chromeAlpha);
+    if (chromeAlpha > 0.01 && (!state.dotsLayout || state.dotsLayout.empty)) {
+      drawDotsEmpty(width, height, chromeAlpha, state.dotsLayout?.top || 0);
+    }
 
-    const highlighted = new Set(
-      [state.hoveredNodeId, state.selectedNodeId].filter(Boolean)
-    );
-    positions.forEach((dot, id) => {
-      if (!highlighted.has(id)) drawDot(id, dot);
+    state.cardScene.forEach((scene) => {
+      drawCardScene(scene, morph, 1, now);
     });
-    positions.forEach((dot, id) => {
-      if (highlighted.has(id)) drawDot(id, dot);
-    });
 
-    if (state.hoveredNodeId && positions.has(state.hoveredNodeId)) {
-      drawDotTooltip(positions.get(state.hoveredNodeId), width, height, layout.top);
+    if (state.hoveredNodeId) {
+      const hovered = state.cardScene.get(state.hoveredNodeId);
+      if (hovered && hovered.dotSection >= 0 && (morph > 0.5 || state.viewMode === "dots")) {
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        drawCardTooltip(
+          hovered,
+          centerX + (hovered.x - centerX) * state.zoom + state.panOffset.x,
+          centerY + (hovered.y - centerY) * state.zoom + state.panOffset.y,
+          width,
+          height,
+          state.dotsLayout?.top || 0
+        );
+      }
     }
 
     updateStats();
@@ -1834,8 +2312,10 @@ const state = {
     const visibleItems = getAllItems().filter(
       (item) => (state.nodeVisibility.get(item.id) ?? 0) > 0.05
     );
+    const hasVisibleCards = [...state.cardScene.values()]
+      .some((scene) => isCardInScope(scene.card));
 
-    if (visibleItems.length > 0) {
+    if (visibleItems.length > 0 || hasVisibleCards) {
       emptyState.style.display = "none";
       return;
     }
@@ -1865,6 +2345,7 @@ const state = {
 
     if (gridView) gridView.hidden = mode !== "grid";
     if (dotsLegend) dotsLegend.hidden = mode !== "dots";
+    updateHeapSidebarVisibility();
     if (canvas) {
       canvas.style.opacity = mode === "grid" ? "0" : "1";
       canvas.style.pointerEvents = mode === "grid" ? "none" : "";
@@ -1874,28 +2355,53 @@ const state = {
     state.draggingNodeId = null;
     state.isPanning = false;
     state.hasDragged = false;
+    const activeTransition = state.sceneTransition;
 
     if (mode === "dots") {
-      state.graphMorph = null;
       if (changed) {
-        // Keep the graph's world positions so the return trip can land on
-        // exactly the map the learner left, not a freshly exploded layout.
-        state.graphSnapshot = new Map();
-        state.nodePositions.forEach((pos, id) => {
-          state.graphSnapshot.set(id, { x: pos.x, y: pos.y });
-        });
+        // Capture the exact pre-Dots graph positions once. A return trip in
+        // progress already has valid homes and must not overwrite them with
+        // an in-between position.
+        if (previousMode === "graph" && activeTransition?.mode !== "to-graph") {
+          captureCardHomes();
+        }
+        if (![...state.cardScene.values()].every((scene) => scene.homeValid)) {
+          captureCardHomes();
+        }
+        buildDotsLayout({ applyTargets: false });
+        startSceneTransition("to-dots");
       }
     } else if (mode === "graph") {
-      if (changed && previousMode === "dots") {
-        // Capture the dots while they are still on screen, then let the graph
-        // reassemble from those positions.
-        startDotsToGraphMorph();
+      if (changed) {
+        if (previousMode === "grid") {
+          // Grid hides the canvas, so restore immediately instead of running
+          // a transition nobody can see.
+          state.sceneTransition = null;
+          state.cardScene.forEach((scene) => {
+            if (!scene.homeValid) return;
+            scene.x = scene.homeX;
+            scene.y = scene.homeY;
+          });
+          state.userInteracted = false;
+        } else {
+          if (![...state.cardScene.values()].every((scene) => scene.homeValid)) {
+            captureCardHomes();
+          }
+          startSceneTransition("to-graph");
+        }
       }
-      state.dotAnim = null;
     } else {
-      state.dotAnim = null;
-      state.graphMorph = null;
-      state.graphSnapshot = null;
+      // Grid is card-only and covers the canvas. Leaving Dots restores the
+      // graph homes immediately; the next Graph view is already correct.
+      if (previousMode === "dots" || activeTransition?.mode === "to-dots") {
+        state.cardScene.forEach((scene) => {
+          if (!scene.homeValid) return;
+          scene.x = scene.homeX;
+          scene.y = scene.homeY;
+        });
+      }
+      state.sceneTransition = null;
+      state.dotsLayout = null;
     }
 
     if (mode === "grid" || mode === "dots") {
@@ -1911,9 +2417,9 @@ const state = {
     if (mode === "grid") {
       renderGrid();
     } else if (mode === "dots") {
-      if (changed) buildDotsLayout({ animate: true, fromGraph: true });
+      // The transition was started above; renderScene handles both surfaces.
     } else if (changed) {
-      state.userInteracted = false;
+      if (!state.sceneTransition) state.userInteracted = false;
       updateEmptyState();
     }
   }
@@ -1926,7 +2432,10 @@ const state = {
     sidebarType.innerHTML = `<span>${getNodeTypeIcon(selectedItem.type)}</span> ${selectedItem.type.charAt(0).toUpperCase() + selectedItem.type.slice(1)}`;
 
     if (editNodeBtn) editNodeBtn.textContent = isCard ? "Open in Memory" : "Edit";
-    if (deleteNodeBtn) deleteNodeBtn.hidden = isCard;
+    if (deleteNodeBtn) {
+      deleteNodeBtn.hidden = false;
+      deleteNodeBtn.textContent = isCard ? "Delete Card" : "Delete";
+    }
 
     const isMeta = state.sidebarView === "metadata";
     if (sidebarContentLabel) sidebarContentLabel.textContent = isMeta ? "Metadata" : "Content";
@@ -2106,6 +2615,7 @@ const state = {
 
   function buildGraph() {
     const graph = { nodes: new Map(), edges: [] };
+    ensureCardSceneObjects();
     const items = getAllItems();
     const subjectNodes = items.filter(n => n.type === "subject");
     const layers = items.filter(n => n.type?.startsWith("layer"));
@@ -2122,6 +2632,18 @@ const state = {
         data: item,
         connections: new Set(),
         weight: 1
+      });
+    });
+
+    // Cards are real graph scene objects, not a separate Dots-only layer.
+    state.cardScene.forEach((scene) => {
+      graph.nodes.set(scene.id, {
+        id: scene.id,
+        type: "card",
+        data: scene.card,
+        connections: new Set(),
+        weight: 1,
+        cardScene: scene
       });
     });
 
@@ -2228,6 +2750,16 @@ const state = {
       });
     });
 
+    // Cache each card's anchors once. Card edges use the same spring system as
+    // knowledge edges, but a shorter ideal length keeps cards clustered around
+    // their quote/analysis/source/deck instead of drifting into the graph.
+    state.cardScene.forEach((scene) => {
+      scene.anchorIds = getCardAnchorIdsForGraph(scene.card, graph);
+      scene.anchorIds.forEach((anchorId) => {
+        addEdge(scene.id, anchorId, "card-context", 1.1);
+      });
+    });
+
     graph.nodes.forEach(node => {
       let weight = 1;
       weight += node.connections.size * 0.5;
@@ -2320,6 +2852,9 @@ const state = {
         const weightA = Math.max(1, nodeA.connections.size);
         const weightB = Math.max(1, nodeB.connections.size);
         let repStrength = 15000 + (weightA * weightB) * 5000;
+        // Cards are lightweight satellites. Full knowledge-node repulsion
+        // would push them away from the very context they belong to.
+        if (nodeA.type === "card" || nodeB.type === "card") repStrength *= 0.32;
 
         const parentsB = nodeParents.get(idB);
 
@@ -2420,10 +2955,13 @@ const state = {
       const childrenCount = Math.max(0, Math.max(weightFrom, weightTo) - 1);
 
       // If only a few children (0-2), no extra length needed. If many children, expand length dramatically.
+      // Cards sit close to their context; knowledge branches keep the longer
+      // dynamic spacing that makes the hierarchy readable.
+      const isCardEdge = edge.type === "card-context";
       const childrenBonus = childrenCount <= 2 ? 0 : (childrenCount * 25);
-
-      // Base length + extra for deep hierarchies + bonus for many children
-      const idealLength = 90 + (hierarchyDepth * 15) + childrenBonus;
+      const idealLength = isCardEdge
+        ? 52
+        : 90 + (hierarchyDepth * 15) + childrenBonus;
 
       // Softer spring for a more elegant, less bouncy feel
       const springK = 0.03;
@@ -2621,6 +3159,7 @@ const state = {
       return 5;
     }
     if (rawNode.type === "tag") return 4;
+    if (rawNode.type === "card") return 8;
     return 8;
   }
 
@@ -2637,6 +3176,18 @@ const state = {
     // cluster explodes outward from there, which gives the filter transition a
     // clear "subject comes into focus" origin.
     graph.nodes.forEach((node, id) => {
+      if (node.type === "card") {
+        // Card scene positions persist for the whole tool session. New cards
+        // are seeded around their cached anchors after the knowledge layout.
+        const velocity = state.velocities.get(id);
+        if (velocity) {
+          velocity.x = 0;
+          velocity.y = 0;
+        } else {
+          state.velocities.set(id, { x: 0, y: 0 });
+        }
+        return;
+      }
       if (id === focusId) {
         state.nodePositions.set(id, { x: centerX, y: centerY });
         state.velocities.set(id, { x: 0, y: 0 });
@@ -2657,6 +3208,7 @@ const state = {
   function initializePositions(containerWidth, containerHeight) {
     buildGraph();
     layoutRadial(containerWidth, containerHeight);
+    seedCardScenePositions();
     lastCanvasSize = { width: containerWidth, height: containerHeight };
   }
 
@@ -2724,10 +3276,11 @@ const state = {
       if ((state.nodeVisibility.get(id) ?? 0) > 0.05) return;
       const angle = Math.random() * Math.PI * 2;
       const radius = 18 + Math.random() * 30;
-      state.nodePositions.set(id, {
-        x: anchor.x + Math.cos(angle) * radius,
-        y: anchor.y + Math.sin(angle) * radius
-      });
+      setWorldPosition(
+        id,
+        anchor.x + Math.cos(angle) * radius,
+        anchor.y + Math.sin(angle) * radius
+      );
       state.velocities.set(id, { x: 0, y: 0 });
     });
   }
@@ -2760,45 +3313,61 @@ const state = {
     if (state.viewMode === "grid") {
       renderGrid();
     } else if (state.viewMode === "dots") {
-      buildDotsLayout({ animate: true });
+      buildDotsLayout({ applyTargets: !state.sceneTransition });
     }
   }
 
   let frameCount = 0;
   let rafId = 0;
   function tick() {
-    if (state.viewMode === "graph") {
-      frameCount++;
-      if (state.graphMorph) {
-        updateGraphMorph(performance.now());
-      } else if (state.simulationRunning && !state.draggingNodeId) {
-        if (state.graph.nodes.size === 0) {
-          buildGraph();
+    const now = performance.now();
+    if (state.viewMode === "graph" || state.viewMode === "dots") {
+      if (state.sceneTransition) {
+        // One renderer, one global t. Physics and camera are deliberately
+        // paused so the morph is the only thing moving.
+        updateSceneTransition(now);
+        renderScene(now);
+      } else if (state.viewMode === "graph") {
+        frameCount++;
+        if (state.simulationRunning && !state.draggingNodeId) {
+          if (state.graph.nodes.size === 0) {
+            buildGraph();
+          }
+          // Only run physics every 2 frames (half rate)
+          if (frameCount % 2 === 0) {
+            const forces = computeForces();
+            updatePositionsWithPhysics(forces);
+          }
         }
-        // Only run physics every 2 frames (half rate)
-        if (frameCount % 2 === 0) {
-          const forces = computeForces();
-          updatePositionsWithPhysics(forces);
-        }
+        updateNodeVisibility();
+        fitCameraToGraph();
+        renderScene(now);
+      } else {
+        renderScene(now);
       }
-      updateNodeVisibility();
-      fitCameraToGraph();
-      render();
       logPerf();
-    } else if (state.viewMode === "dots") {
-      renderDots();
     }
     rafId = requestAnimationFrame(tick);
   }
 
   function fitCameraToGraph() {
-    if (state.graphMorph) return;
+    if (state.sceneTransition) return;
     if (state.graph.nodes.size === 0 || state.userInteracted || !canvas) return;
 
+    // Frame the knowledge graph only. Cards are satellites of their context,
+    // so including them would let a few study cards pull the camera away from
+    // the same min/max framing the knowledge nodes get on their own. If a
+    // subject has cards but no knowledge nodes, fall back to the cards so a
+    // card-only deck still has a sensible view.
     const scopedPositions = [];
     state.nodePositions.forEach((pos, id) => {
-      if (state.scopeNodeIds.has(id)) scopedPositions.push(pos);
+      if (state.scopeNodeIds.has(id) && !state.cardScene.has(id)) scopedPositions.push(pos);
     });
+    if (scopedPositions.length === 0) {
+      state.nodePositions.forEach((pos, id) => {
+        if (state.scopeNodeIds.has(id)) scopedPositions.push(pos);
+      });
+    }
     if (scopedPositions.length === 0) return;
 
     const viewportWidth = canvas.width || canvas.parentElement?.clientWidth || 800;
@@ -2871,17 +3440,15 @@ const state = {
     return { width, height };
   }
 
-  function render() {
-    if (!ctx || !canvas) return;
-
-    const { width, height } = syncCanvasSize();
-
-    ctx.clearRect(0, 0, width, height);
+  function drawKnowledgeScene(now, alpha) {
+    if (!ctx || !canvas || alpha <= 0.01) return;
 
     const items = getAllItems();
     const edges = state.graph.edges;
-    const now = performance.now();
     const focusId = state.focusSubjectId;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
 
     edges.forEach(edge => {
       const fromPos = state.nodePositions.get(edge.from);
@@ -2894,13 +3461,16 @@ const state = {
         const fromTrans = transformPoint(fromPos.x, fromPos.y);
         const toTrans = transformPoint(toPos.x, toPos.y);
         const isActive = state.selectedNodeId === edge.from || state.selectedNodeId === edge.to;
+        // Card-context edges are orientation hints, not the knowledge network
+        // itself. Keep them faint so the cards read as clustered satellites.
+        const baseAlpha = edge.type === "card-context" ? 0.14 : 0.35;
 
         ctx.beginPath();
         ctx.moveTo(fromTrans.x, fromTrans.y);
         ctx.lineTo(toTrans.x, toTrans.y);
         ctx.strokeStyle = isActive
           ? `rgba(44, 255, 179, ${0.9 * edgeVisibility})`
-          : `rgba(44, 255, 179, ${0.35 * edgeVisibility})`;
+          : `rgba(44, 255, 179, ${baseAlpha * edgeVisibility})`;
         ctx.lineWidth = isActive ? 3 : 2;
         ctx.stroke();
       }
@@ -2922,7 +3492,7 @@ const state = {
       const radius = baseRadius * state.zoom * revealScale * (isFocusedSubject ? 1.35 : 1);
       const color = getNodeColor(item.type);
 
-      ctx.globalAlpha = visibility;
+      ctx.globalAlpha = alpha * visibility;
 
       // A focused subject gets a slow, breathing double halo so the eye
       // immediately knows which node owns the centre of the view.
@@ -2956,13 +3526,13 @@ const state = {
       const isDenseGlobal = !state.focusSubject && state.graph.nodes.size > 70;
       const structuralLabel = item.type === "subject" || item.type === "tag" || item.type?.startsWith("layer");
       if (isDenseGlobal && !structuralLabel && state.zoom < 1.35) {
-        ctx.globalAlpha = 1;
+        ctx.globalAlpha = alpha;
         return;
       }
       const densityBoost = isDenseGlobal ? 0.3 : 0;
       const threshold = (config.labelZoomThresholds[item.type] || 1.0) + densityBoost;
       if (state.zoom < threshold && !isFocusedSubject) {
-        ctx.globalAlpha = 1;
+        ctx.globalAlpha = alpha;
         return;
       }
 
@@ -2975,11 +3545,10 @@ const state = {
       const maxChars = Math.max(8, Math.floor(18 / Math.max(0.35, state.zoom)));
       const displayTitle = title.length > maxChars ? title.substring(0, maxChars - 2) + "..." : title;
       ctx.fillText(displayTitle, posTrans.x, posTrans.y + config.labelOffset * state.zoom);
-      ctx.globalAlpha = 1;
+      ctx.globalAlpha = alpha;
     });
 
-    updateStats();
-    updateEmptyState();
+    ctx.restore();
   }
 
   function getCanvasPos(e) {
@@ -3001,14 +3570,24 @@ const state = {
 
   function findNodeAtPosition(x, y) {
     if (state.viewMode === "dots") {
-      const dot = findDotAtPosition(x, y);
-      return dot ? { id: dot.card.id } : null;
+      const scene = findCardSceneAtScreenPosition(x, y);
+      return scene ? { id: scene.id } : null;
     }
 
-    const items = getAllItems();
     const clickRadius = 20 / state.zoom;
-
     const inv = inverseTransform(x, y);
+
+    // Cards are drawn on top of the knowledge graph, so hit-test them first.
+    let cardHit = null;
+    state.cardScene.forEach((scene) => {
+      if (cardHit || !isCardInScope(scene.card)) return;
+      const dx = inv.x - scene.x;
+      const dy = inv.y - scene.y;
+      if (dx * dx + dy * dy <= clickRadius * clickRadius) cardHit = { id: scene.id };
+    });
+    if (cardHit) return cardHit;
+
+    const items = getAllItems();
 
     for (let i = items.length - 1; i >= 0; i--) {
       const item = items[i];
@@ -3059,17 +3638,23 @@ const state = {
 
     const selectedItem = findItemById(state.selectedNodeId);
     if (!selectedItem) return;
-    // Cards are managed in Memory; the grid sidebar is read-only for them.
-    if (selectedItem.type === "card") return;
 
-    const message = selectedItem.type?.startsWith("layer")
-      ? "Delete this layer and everything inside it? (All sources + their quotes + any now-empty analyses will be removed.)"
-      : `Delete this ${selectedItem.type}? This action cannot be undone.`;
+    const isCard = selectedItem.type === "card";
+    const message = isCard
+      ? "Delete this card? This action cannot be undone."
+      : selectedItem.type?.startsWith("layer")
+        ? "Delete this layer and everything inside it? (All sources + their quotes + any now-empty analyses will be removed.)"
+        : `Delete this ${selectedItem.type}? This action cannot be undone.`;
     const confirmed = await dialog.confirm(message, "Delete", "danger");
     if (!confirmed) return;
 
     try {
-      if (selectedItem.type?.startsWith("layer")) {
+      if (isCard) {
+        if (typeof deleteCard !== "function") {
+          throw new Error("Card deletion is unavailable.");
+        }
+        await deleteCard(selectedItem.id);
+      } else if (selectedItem.type?.startsWith("layer")) {
         const parts = Array.isArray(selectedItem?.meta?.layerPath) ? selectedItem.meta.layerPath : [];
         const prefix = parts.map((s) => String(s || "").trim()).filter(Boolean);
         const sources = (state.nodes || []).filter((n) => n?.type === "source" && n?.subject === selectedItem.subject);
@@ -3092,8 +3677,8 @@ const state = {
       closeSidebar();
       await refreshData();
     } catch (error) {
-      console.error("Failed to delete node:", error);
-      dialog.alert("Failed to delete node: " + error.message);
+      console.error("Failed to delete item:", error);
+      dialog.alert(`Failed to delete ${isCard ? "card" : "node"}: ` + error.message);
     }
   }
 
@@ -3169,18 +3754,25 @@ const state = {
 
   async function refreshData() {
     const cardPromise = typeof getAllCards === "function" ? getAllCards() : Promise.resolve([]);
-    const [nodes, quotes, cues, tags, cards] = await Promise.all([
+    const heapPromise = typeof getAllHeaps === "function" ? getAllHeaps() : Promise.resolve([]);
+    const [nodes, quotes, cues, tags, cards, heaps] = await Promise.all([
       getAllNodes(),
       getAllQuotes(),
       getAllCues(),
       getAllTags(),
-      cardPromise
+      cardPromise,
+      heapPromise
     ]);
     state.nodes = nodes;
     state.quotes = quotes;
     state.cues = cues;
     state.tags = tags;
     state.cards = cards || [];
+    state.heaps = heaps || [];
+    if (state.activeHeapId && !state.heaps.some((heap) => heap.id === state.activeHeapId)) {
+      state.activeHeapId = null;
+      state.heapSidebarOpen = false;
+    }
     state.layerNodes = computeLayerNodesFromSources(nodes);
 
     const hadFocus = Boolean(state.focusSubject);
@@ -3208,24 +3800,25 @@ const state = {
     const layoutWidth = canvas?.parentElement?.clientWidth || 800;
     const layoutHeight = canvas?.parentElement?.clientHeight || 600;
     layoutRadial(layoutWidth, layoutHeight);
+    seedCardScenePositions();
     lastCanvasSize = { width: layoutWidth, height: layoutHeight };
 
-    // A data refresh rebuilds the graph layout. Drop any in-flight morph and
-    // re-anchor the return snapshot to the fresh positions.
-    state.graphMorph = null;
-    if (state.viewMode === "dots") {
-      state.graphSnapshot = new Map();
-      state.nodePositions.forEach((pos, id) => {
-        state.graphSnapshot.set(id, { x: pos.x, y: pos.y });
-      });
-    } else {
-      state.graphSnapshot = null;
-    }
+    // A data refresh invalidates any in-flight morph. Dots rebuild their
+    // slots from the fresh card set; Graph keeps the session card positions.
+    state.sceneTransition = null;
 
-    if (state.viewMode === "grid") {
+    if (state.viewMode === "dots") {
+      // New cards were just seeded in graph space. Capture that as their
+      // home before the dot targets overwrite x/y.
+      state.cardScene.forEach((scene) => {
+        if (scene.homeValid || !Number.isFinite(scene.x) || !Number.isFinite(scene.y)) return;
+        scene.homeX = scene.x;
+        scene.homeY = scene.y;
+        scene.homeValid = true;
+      });
+      buildDotsLayout({ applyTargets: true });
+    } else if (state.viewMode === "grid") {
       renderGrid();
-    } else if (state.viewMode === "dots") {
-      buildDotsLayout({ animate: true });
     }
   }
 
@@ -3397,15 +3990,89 @@ const state = {
     }
 
     if (gridContainer) {
-      gridContainer.addEventListener("click", (e) => {
+      gridContainer.addEventListener("click", async (e) => {
         if (performance.now() < ignoreCanvasClicksUntil) return;
         const target = e.target instanceof Element ? e.target : null;
+        const heapBtn = target?.closest("[data-heap-card-id]");
+        if (heapBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          await toggleCardInActiveHeap(heapBtn.dataset.heapCardId);
+          return;
+        }
         const card = target?.closest(".mindmap-grid-card");
         if (!card?.dataset?.nodeId) return;
         openNodeSidebar(card.dataset.nodeId);
         if (window.__neuronetCanvas?.triggerRadialPulse) {
           window.__neuronetCanvas.triggerRadialPulse(e.clientX, e.clientY, 1.0);
         }
+      });
+
+      gridContainer.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        const target = e.target instanceof Element ? e.target : null;
+        if (target?.closest("[data-heap-card-id]")) return;
+        const card = target?.closest(".mindmap-grid-card");
+        if (!card?.dataset?.nodeId) return;
+        e.preventDefault();
+        openNodeSidebar(card.dataset.nodeId);
+      });
+    }
+
+    if (libraryHeapSelect) {
+      libraryHeapSelect.addEventListener("change", () => {
+        state.activeHeapId = libraryHeapSelect.value || null;
+        state.heapSidebarOpen = Boolean(state.activeHeapId);
+        renderHeapControls();
+        renderGrid();
+      });
+    }
+
+    if (newHeapBtn) {
+      newHeapBtn.addEventListener("click", () => createHeap());
+    }
+
+    if (studyHeapBtn) {
+      studyHeapBtn.addEventListener("click", studyActiveHeap);
+    }
+
+    if (heapSidebarStudyBtn) {
+      heapSidebarStudyBtn.addEventListener("click", studyActiveHeap);
+    }
+
+    if (toggleHeapSidebarBtn) {
+      toggleHeapSidebarBtn.addEventListener("click", () => {
+        if (!getActiveHeap()) {
+          dialog.alert("Create or select a heap first.");
+          return;
+        }
+        state.heapSidebarOpen = !state.heapSidebarOpen;
+        updateHeapSidebarVisibility();
+      });
+    }
+
+    if (closeHeapSidebarBtn) {
+      closeHeapSidebarBtn.addEventListener("click", () => {
+        state.heapSidebarOpen = false;
+        updateHeapSidebarVisibility();
+      });
+    }
+
+    if (deleteHeapBtn) {
+      deleteHeapBtn.addEventListener("click", deleteActiveHeap);
+    }
+
+    if (libraryHeapItems) {
+      libraryHeapItems.addEventListener("click", async (e) => {
+        const target = e.target instanceof Element ? e.target : null;
+        const actionBtn = target?.closest("[data-heap-action]");
+        if (!actionBtn || actionBtn.disabled) return;
+        const cardId = actionBtn.dataset.heapCardId;
+        const action = actionBtn.dataset.heapAction;
+        if (!cardId) return;
+        if (action === "up") await moveHeapCard(cardId, -1);
+        else if (action === "down") await moveHeapCard(cardId, 1);
+        else if (action === "remove") await removeHeapCard(cardId);
       });
     }
 
@@ -3596,6 +4263,7 @@ const state = {
               window.dispatchEvent(new CustomEvent("neuronet-open-tool", {
                 detail: {
                   tool: "memory",
+                  cardId: selectedItem.id,
                   subject: String(selectedItem.deck || contextSubject || "").trim()
                 }
               }));
@@ -3730,9 +4398,10 @@ const state = {
     if (!container) return;
 
     syncHeaderHeight();
+    positionHeapSidebar();
 
     if (state.viewMode === "dots") {
-      buildDotsLayout({ animate: false });
+      buildDotsLayout({ applyTargets: !state.sceneTransition });
       return;
     }
 
@@ -3772,6 +4441,13 @@ const state = {
 
   // Suppress the opening tap's delayed synthetic click on the canvas.
   ignoreCanvasClicksUntil = performance.now() + 450;
+
+  // Opening from Memory's Manual mode lands directly in the Library with the
+  // chosen heap active. Sync the toggle/visibility state without replaying a
+  // Graph↔Dots transition.
+  if (state.viewMode !== "graph") {
+    setViewMode(state.viewMode);
+  }
 
   setupEventListeners();
   tick();

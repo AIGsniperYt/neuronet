@@ -4,7 +4,7 @@
     <div id="memoryControls">
       <button id="quickAddHeaderBtn" class="memory-btn" title="Add a card without leaving this view">+ Card</button>
       <button id="backToDecksBtn" class="memory-btn" style="display: none;">Back to Decks</button>
-      <button id="contextToggleBtn" class="memory-btn" style="display: none;" aria-controls="studyContextRail" aria-expanded="false" title="Toggle knowledge context">Context</button>
+      <button id="contextToggleBtn" class="memory-btn" style="display: none;" aria-controls="studyContextRail" aria-expanded="false" title="Toggle knowledge sidebar">Knowledge</button>
       <button id="modeSelect" class="memory-btn" style="display: none;">Quote Learning</button>
       <button id="newSessionBtn" class="memory-btn" style="display: none;">New Session</button>
       <button id="statsBtn" class="memory-btn" style="display: none;">Stats</button>
@@ -19,6 +19,7 @@
     <div class="launchpad-controls">
       <button id="quickAddLaunchBtn" class="memory-btn primary">Add Cards +</button>
       <button id="studyAllBtn" class="memory-btn" disabled title="Coming soon">Study All Subjects (WIP)</button>
+      <button id="manualHeapsBtn" class="memory-btn">Heaps</button>
       <button id="createDeckBtn" class="memory-btn">Build Deck</button>
       <button id="editDecksBtn" class="memory-btn">Edit</button>
     </div>
@@ -245,6 +246,22 @@
       <button class="mode-pill" data-mode="analysis-learning" title="Study linked analyses">Analysis</button>
       <button class="mode-pill" data-mode="evidence-matching" title="Match evidence to analyses">Evidence</button>
       <button class="mode-pill" data-mode="blurt" title="Free recall">Blurt</button>
+      <button class="mode-pill" data-mode="manual" title="Study a heap in your own order">Manual</button>
+    </div>
+    <div id="manualHeapPanel" style="display: none;">
+      <div class="manual-heap-head">
+        <div>
+          <h3>Heaps</h3>
+          <p>Named, ordered card lists for manual study.</p>
+        </div>
+        <button id="manualNewHeapBtn" class="memory-btn primary">+ New Heap</button>
+      </div>
+      <div id="manualHeapList" class="manual-heap-list"></div>
+      <div class="manual-heap-actions">
+        <button id="manualOpenLibraryBtn" class="memory-btn">Open Library</button>
+        <button id="manualStudyHeapBtn" class="memory-btn primary" disabled>Study Heap</button>
+      </div>
+      <p class="manual-heap-hint">Manual study follows the heap order exactly and skips SRS routing, interleaving, and surprise cards. Grades still update each card's SRS data.</p>
     </div>
     <div id="filterModeToggle">
       <span class="filter-mode-label">Filter Mode:</span>
@@ -300,14 +317,14 @@
 
         <!-- Knowledge context stays outside the card face. It is optional:
              cards can exist, and be studied, without any linked record. -->
-        <aside id="studyContextRail" class="study-context-rail" aria-label="Knowledge context" hidden>
+        <aside id="studyContextRail" class="study-context-rail" aria-label="Knowledge sidebar" hidden>
           <div class="study-context-head">
             <div class="study-context-heading">
-              <span class="study-context-kicker">Knowledge context</span>
+              <span class="study-context-kicker">Knowledge sidebar</span>
               <span class="study-context-subtitle">Optional, outside the card</span>
             </div>
-            <span class="study-context-collapsed-label" aria-hidden="true">Context</span>
-            <button id="studyContextCollapseBtn" class="study-context-collapse" type="button" aria-controls="studyContextRail" aria-expanded="true" title="Collapse knowledge context" aria-label="Collapse knowledge context">&rsaquo;</button>
+            <span class="study-context-collapsed-label" aria-hidden="true">Knowledge</span>
+            <button id="studyContextCollapseBtn" class="study-context-collapse" type="button" aria-controls="studyContextRail" aria-expanded="true" title="Collapse knowledge sidebar" aria-label="Collapse knowledge sidebar">&rsaquo;</button>
           </div>
           <div id="studyContextBody" class="study-context-body"></div>
         </aside>
@@ -1671,6 +1688,120 @@
     border-color: var(--accent);
     color: var(--accent);
     font-weight: 600;
+  }
+
+  #manualHeapPanel {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 24px;
+  }
+
+  .manual-heap-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 14px;
+  }
+
+  .manual-heap-head h3 {
+    margin: 0 0 4px;
+    font-size: var(--text-lg, 1.15rem);
+    color: var(--accent);
+  }
+
+  .manual-heap-head p {
+    margin: 0;
+    font-size: var(--text-sm, 0.87rem);
+    color: var(--text-muted);
+  }
+
+  .manual-heap-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .manual-heap-empty {
+    padding: 22px 16px;
+    border: 1px dashed rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    text-align: center;
+    font-size: var(--text-sm, 0.87rem);
+    line-height: 1.5;
+    color: var(--text-muted);
+  }
+
+  .manual-heap-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.025);
+    color: var(--text-main);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+
+  .manual-heap-row:hover {
+    border-color: rgba(44, 255, 179, 0.35);
+    background: rgba(44, 255, 179, 0.06);
+  }
+
+  .manual-heap-row.active {
+    border-color: var(--accent);
+    background: rgba(44, 255, 179, 0.12);
+    box-shadow: inset 0 0 0 1px rgba(44, 255, 179, 0.2);
+  }
+
+  .manual-heap-row-main {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .manual-heap-row-name {
+    display: block;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .manual-heap-row-meta {
+    display: block;
+    margin-top: 3px;
+    font-size: var(--text-xs, 0.82rem);
+    color: var(--text-muted);
+  }
+
+  .manual-heap-row-count {
+    flex: 0 0 auto;
+    padding: 4px 9px;
+    border-radius: 999px;
+    background: rgba(44, 255, 179, 0.12);
+    color: var(--accent);
+    font-size: var(--text-xs, 0.82rem);
+    font-weight: 700;
+  }
+
+  .manual-heap-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+  }
+
+  .manual-heap-hint {
+    margin: 12px 0 0;
+    max-width: 620px;
+    font-size: var(--text-xs, 0.82rem);
+    line-height: 1.55;
+    color: var(--text-muted);
   }
 
   #filterModeToggle {

@@ -32,10 +32,14 @@ export async function initMemoryTool(deps, context = {}) {
     getCard,
     getCardsForDeck,
     getCardsForQuote,
-    deleteCard
+    deleteCard,
+    addHeap,
+    getAllHeaps,
+    getHeap,
+    deleteHeap
   } = deps;
 
-  const { subject: contextSubject, createDeck, quickAdd } = context;
+  const { subject: contextSubject, cardId: contextCardId, heapId: contextHeapId, createDeck, quickAdd } = context;
 
   const SIDEBAR_MODES = {
     FOCUS: "focus",
@@ -133,6 +137,10 @@ export async function initMemoryTool(deps, context = {}) {
     view: contextSubject ? "study" : "launchpad",
     currentSubject: contextSubject || "",
     currentMode: "card-learning",
+    // Manual heaps are named, ordered card-ID lists. They are independent of
+    // the SRS session heap in state.session.heap.
+    manualHeaps: [],
+    manualHeapId: String(contextHeapId || "").trim() || "",
     flashcards: [], // session history (cards shown)
     currentIndex: 0,
     isFlipped: false,
@@ -206,7 +214,8 @@ export async function initMemoryTool(deps, context = {}) {
   };
 
   let memoryTool, modeSelect, newSessionBtn, statsBtn, backToDecksBtn;
-  let memoryLaunchpad, deckList, memoryContent, editDecksBtn;
+  let memoryLaunchpad, deckList, memoryContent, editDecksBtn, manualHeapsBtn;
+  let manualHeapPanel, manualHeapList, manualNewHeapBtn, manualOpenLibraryBtn, manualStudyHeapBtn;
   let flashcardContainer, flashcard, flashcardContent, flashcardBackContent;
   let gradingControls, gradeDidntKnowBtn, gradeKindaBtn, gradeEasyBtn, priorityControls, priorityToggle;
   let evidenceMatchingContainer, evidencePrompt, quoteOptions, evidenceFeedback;
@@ -304,6 +313,7 @@ export async function initMemoryTool(deps, context = {}) {
     deckCardTags = document.getElementById("deckCardTags");
     createDeckBtn = document.getElementById("createDeckBtn");
     editDecksBtn = document.getElementById("editDecksBtn");
+    manualHeapsBtn = document.getElementById("manualHeapsBtn");
     closeDeckBuilderBtn = document.getElementById("closeDeckBuilderBtn");
     step1DeckInfo = document.getElementById("step1-deckInfo");
     step2Flashcards = document.getElementById("step2-flashcards");
@@ -385,13 +395,43 @@ export async function initMemoryTool(deps, context = {}) {
     tagsCheckboxes = document.getElementById("tagsCheckboxes");
     layersSection = document.getElementById("layersSection");
     layersCheckboxes = document.getElementById("layersCheckboxes");
+    manualHeapPanel = document.getElementById("manualHeapPanel");
+    manualHeapList = document.getElementById("manualHeapList");
+    manualNewHeapBtn = document.getElementById("manualNewHeapBtn");
+    manualOpenLibraryBtn = document.getElementById("manualOpenLibraryBtn");
+    manualStudyHeapBtn = document.getElementById("manualStudyHeapBtn");
   }
 
   async function initialize() {
     try {
       getDOMElements();
       await loadLaunchpad();
-      if (state.currentSubject) {
+      await loadManualHeaps();
+      if (contextHeapId) {
+        const heap = state.manualHeaps.find((entry) => entry.id === contextHeapId);
+        if (heap) {
+          // Manual study is intentionally deck-independent: a heap may collect
+          // cards from several decks.
+          state.manualHeapId = heap.id;
+          state.currentMode = "manual";
+          state.currentSubject = "";
+          state.view = "study";
+          await loadFlashcards();
+        }
+      } else if (contextCardId) {
+        const card = await getCard(contextCardId).catch(() => null);
+        if (card) {
+          // Opening a card from Mindmap should land on that card, not merely
+          // on its deck. Keep the deck scope and force the card to the front
+          // of the study queue.
+          state.currentSubject = card.deck || contextSubject || "";
+          state.currentMode = "card-learning";
+          state.view = "study";
+          await loadFlashcards({ focusCardId: contextCardId });
+        } else if (state.currentSubject) {
+          await loadFlashcards();
+        }
+      } else if (state.currentSubject) {
         await loadFlashcards();
       }
       renderUI();
@@ -433,9 +473,10 @@ export async function initMemoryTool(deps, context = {}) {
 
     if (modeSelect) {
       modeSelect.addEventListener("click", async () => {
-        const modes = ["card-learning", "quote-learning", "analysis-learning", "evidence-matching", "blurt"];
+        const modes = ["card-learning", "quote-learning", "analysis-learning", "evidence-matching", "blurt", "manual"];
         const currentIndex = modes.indexOf(state.currentMode);
         state.currentMode = modes[(currentIndex + 1) % modes.length];
+        if (state.currentMode === "manual") await loadManualHeaps();
         await loadFlashcards();
         renderUI();
       });
@@ -647,6 +688,17 @@ export async function initMemoryTool(deps, context = {}) {
     // Deck Builder Event Listeners
     if (createDeckBtn) {
       createDeckBtn.addEventListener("click", openDeckBuilder);
+    }
+
+    if (manualHeapsBtn) {
+      manualHeapsBtn.addEventListener("click", async () => {
+        state.currentMode = "manual";
+        state.currentSubject = "";
+        state.view = "middle-ui";
+        await loadManualHeaps();
+        await loadMiddleUIData();
+        renderUI();
+      });
     }
 
     if (closeDeckBuilderBtn) {
@@ -873,6 +925,10 @@ export async function initMemoryTool(deps, context = {}) {
 
     if (middleStudyBtn) {
       middleStudyBtn.addEventListener("click", async () => {
+        if (state.currentMode === "manual") {
+          await studyManualHeap();
+          return;
+        }
         // Build session filter from selected options
         state.sessionFilter = {
           mode: state.currentMode,
@@ -887,13 +943,38 @@ export async function initMemoryTool(deps, context = {}) {
       });
     }
 
+    if (manualNewHeapBtn) {
+      manualNewHeapBtn.addEventListener("click", createManualHeap);
+    }
+
+    if (manualOpenLibraryBtn) {
+      manualOpenLibraryBtn.addEventListener("click", openLibraryForActiveHeap);
+    }
+
+    if (manualStudyHeapBtn) {
+      manualStudyHeapBtn.addEventListener("click", studyManualHeap);
+    }
+
+    if (manualHeapList) {
+      manualHeapList.addEventListener("click", (event) => {
+        const row = event.target instanceof Element ? event.target.closest("[data-manual-heap-id]") : null;
+        if (!row) return;
+        state.manualHeapId = row.dataset.manualHeapId || "";
+        renderManualHeapPanel();
+      });
+    }
+
     // Mode selector pills
     if (middleModeSelector) {
       middleModeSelector.querySelectorAll(".mode-pill").forEach(btn => {
-        btn.addEventListener("click", () => {
+        btn.addEventListener("click", async () => {
           middleModeSelector.querySelectorAll(".mode-pill").forEach(b => b.classList.remove("active"));
           btn.classList.add("active");
           state.currentMode = btn.dataset.mode;
+          if (state.currentMode === "manual") {
+            await loadManualHeaps();
+          }
+          renderMiddleUI();
         });
       });
     }
@@ -1224,6 +1305,11 @@ export async function initMemoryTool(deps, context = {}) {
       state.session.suppressDBChange--;
       return;
     }
+    if (state.currentMode === "manual") {
+      loadManualHeaps().then(() => {
+        if (state.view === "middle-ui") renderMiddleUI();
+      });
+    }
     loadFlashcards().then(renderUI);
   }
 
@@ -1298,8 +1384,143 @@ export async function initMemoryTool(deps, context = {}) {
     }
   }
 
-  async function loadFlashcards() {
-    if (!state.currentSubject) {
+  async function loadManualHeaps() {
+    if (typeof getAllHeaps !== "function") {
+      state.manualHeaps = [];
+      state.manualHeapId = "";
+      return [];
+    }
+    try {
+      state.manualHeaps = await getAllHeaps() || [];
+    } catch (error) {
+      console.warn("Could not load heaps:", error);
+      state.manualHeaps = [];
+    }
+
+    if (state.manualHeapId && !state.manualHeaps.some((heap) => heap.id === state.manualHeapId)) {
+      state.manualHeapId = "";
+    }
+    if (!state.manualHeapId && state.manualHeaps.length > 0 && state.currentMode === "manual") {
+      state.manualHeapId = state.manualHeaps[0].id;
+    }
+    return state.manualHeaps;
+  }
+
+  function getActiveManualHeap() {
+    if (!state.manualHeapId) return null;
+    return (state.manualHeaps || []).find((heap) => heap.id === state.manualHeapId) || null;
+  }
+
+  function renderManualHeapPanel() {
+    if (!manualHeapList) return;
+    const activeHeap = getActiveManualHeap();
+
+    if (!state.manualHeaps.length) {
+      manualHeapList.innerHTML = `
+        <div class="manual-heap-empty">
+          No heaps yet. Create one, then collect cards in the Mindmap <strong>Library</strong>.
+        </div>`;
+    } else {
+      manualHeapList.innerHTML = state.manualHeaps.map((heap) => {
+        const count = (heap.cardIds || []).length;
+        return `
+          <button type="button" class="manual-heap-row${heap.id === activeHeap?.id ? " active" : ""}" data-manual-heap-id="${escapeHtml(heap.id)}">
+            <span class="manual-heap-row-main">
+              <span class="manual-heap-row-name">${escapeHtml(heap.name)}</span>
+              <span class="manual-heap-row-meta">${count} card${count === 1 ? "" : "s"} · manual order</span>
+            </span>
+            <span class="manual-heap-row-count">${count}</span>
+          </button>
+        `;
+      }).join("");
+    }
+
+    const canStudy = Boolean(activeHeap && (activeHeap.cardIds || []).length > 0);
+    if (manualStudyHeapBtn) manualStudyHeapBtn.disabled = !canStudy;
+    if (manualOpenLibraryBtn) manualOpenLibraryBtn.disabled = !activeHeap;
+  }
+
+  async function createManualHeap() {
+    if (typeof addHeap !== "function") {
+      dialog.alert("Heap creation is unavailable.");
+      return;
+    }
+    const name = await dialog.prompt("Name this heap:");
+    if (name === null) return;
+    const trimmed = name.trim();
+    if (!trimmed) {
+      dialog.alert("Please enter a heap name.");
+      return;
+    }
+
+    try {
+      const heap = await addHeap({ name: trimmed, cardIds: [] });
+      state.manualHeaps = [heap, ...state.manualHeaps.filter((entry) => entry.id !== heap.id)];
+      state.manualHeapId = heap.id;
+      renderManualHeapPanel();
+      // Creating a heap should drop straight into the Library so the learner
+      // can start collecting cards, as if picking books from shelves.
+      openLibraryForActiveHeap();
+    } catch (error) {
+      console.error("Failed to create heap:", error);
+      dialog.alert("Failed to create heap: " + error.message);
+    }
+  }
+
+  function openLibraryForActiveHeap() {
+    const heap = getActiveManualHeap();
+    if (!heap) {
+      dialog.alert("Create or select a heap first.");
+      return;
+    }
+    window.dispatchEvent(new CustomEvent("neuronet-open-tool", {
+      detail: { tool: "mindmap", heapId: heap.id, view: "grid" }
+    }));
+  }
+
+  async function studyManualHeap() {
+    const heap = getActiveManualHeap();
+    if (!heap) {
+      dialog.alert("Create or select a heap first.");
+      return;
+    }
+    if ((heap.cardIds || []).length === 0) {
+      dialog.alert("This heap is empty. Add cards in the Library first.");
+      return;
+    }
+    state.currentMode = "manual";
+    state.manualHeapId = heap.id;
+    state.view = "study";
+    await loadFlashcards();
+    renderUI();
+  }
+
+  function createCardStudyItem(card) {
+    return {
+      id: card.id,
+      memoryKind: "card",
+      type: "card-learning",
+      record: card,
+      review: { required: true, graded: false, grade: null, responseTimeMs: null },
+      front: {
+        content: card.front,
+        isCard: true,
+        deck: card.deck,
+        deckPath: card.deckPath || []
+      },
+      back: {
+        content: card.back,
+        isCard: true,
+        deck: card.deck,
+        deckPath: card.deckPath || [],
+        tags: card.tags || []
+      },
+      memoryState: getMemoryStateFromMeta(card.meta || {}, "card")
+    };
+  }
+
+  async function loadFlashcards({ focusCardId = null } = {}) {
+    if (!state.currentSubject && state.currentMode !== "manual") {
       state.flashcards = [];
       return;
     }
@@ -1320,8 +1541,11 @@ export async function initMemoryTool(deps, context = {}) {
     state.session.routeRerouteCounter = 0;
     state.session.focusedBlockKeys = new Set();
 
-    if (state.currentMode === "card-learning") {
-      await buildCardLearningQueue();
+    if (state.currentMode === "manual") {
+      await buildManualHeapQueue();
+      drawNextCardFromHeap();
+    } else if (state.currentMode === "card-learning") {
+      await buildCardLearningQueue(focusCardId);
       drawNextCardFromHeap();
     } else if (state.currentMode === "quote-learning") {
       await buildQuoteLearningQueue();
@@ -2170,6 +2394,8 @@ export async function initMemoryTool(deps, context = {}) {
 
   function shouldReinsertReviewedCard(card, grade, route) {
     if (!card?.memoryState) return false;
+    // Manual heaps are studied once, in the exact saved order.
+    if (route?.mode === "manual_heap") return false;
     if (grade === "didnt_know") return true;
     if (route?.mode === "rapid_sweep") return grade !== "easy" || Number(card.memoryState.U ?? 1) > 0.65;
     if (route?.mode === "repair_cycle") return grade !== "easy" || Number(card.memoryState.U ?? 1) > 0.42;
@@ -2177,7 +2403,7 @@ export async function initMemoryTool(deps, context = {}) {
     return true;
   }
 
-  function enqueueLearningCards(cards, nowMs) {
+  function enqueueLearningCards(cards, nowMs, focusCardId = null) {
     const allCards = Array.isArray(cards) ? cards : [];
     state.session.surprisePool = [];
     state.session.focusedBlockKeys = new Set();
@@ -2193,6 +2419,17 @@ export async function initMemoryTool(deps, context = {}) {
     updateRouterDebug(state.session.learningRoute, state.session.systemState, []);
 
     const { activeCards, remainder } = buildActiveHeap(state.session.learningRoute, allCards);
+    // An explicit card target must survive route scoping. Pull it out of the
+    // remainder if necessary and give it top priority so it is the first card
+    // the learner sees, without changing the normal SRS path afterwards.
+    const target = focusCardId
+      ? allCards.find((card) => (card.record?.id || card.id) === focusCardId)
+      : null;
+    if (target && !activeCards.includes(target)) {
+      const remainderIndex = remainder.indexOf(target);
+      if (remainderIndex !== -1) remainder.splice(remainderIndex, 1);
+      activeCards.unshift(target);
+    }
     state.session.surprisePool = remainder;
     if (state.session.learningRoute.mode === "focused_block") {
       state.session.focusedBlockKeys = new Set(activeCards.map(getCardQueueKey).filter(Boolean));
@@ -2201,7 +2438,10 @@ export async function initMemoryTool(deps, context = {}) {
     activeCards.forEach((card) => {
       const phase = getUserLearningPhase(card, state.userProfile);
       card.memoryState.L_phase = phase;
-      const priority = computeModePriority(card, state.session.learningRoute, state.userProfile, nowMs);
+      const isTarget = target === card;
+      const priority = isTarget
+        ? Number.POSITIVE_INFINITY
+        : computeModePriority(card, state.session.learningRoute, state.userProfile, nowMs);
       state.session.heap.push({ priority, card });
     });
   }
@@ -2372,7 +2612,7 @@ export async function initMemoryTool(deps, context = {}) {
     updateSystemThought();
   }
 
-  async function buildCardLearningQueue() {
+  async function buildCardLearningQueue(focusCardId = null) {
     const nowMs = Date.now();
     const deckCards = await getCardsForDeck(state.currentSubject);
     const ordered = [...(deckCards || [])].sort((a, b) => {
@@ -2383,27 +2623,7 @@ export async function initMemoryTool(deps, context = {}) {
 
     state.session.surprisePool = [];
 
-    const cards = ordered.map((card) => ({
-      id: card.id,
-      memoryKind: "card",
-      type: "card-learning",
-      record: card,
-      review: { required: true, graded: false, grade: null, responseTimeMs: null },
-      front: {
-        content: card.front,
-        isCard: true,
-        deck: card.deck,
-        deckPath: card.deckPath || []
-      },
-      back: {
-        content: card.back,
-        isCard: true,
-        deck: card.deck,
-        deckPath: card.deckPath || [],
-        tags: card.tags || []
-      },
-      memoryState: getMemoryStateFromMeta(card.meta || {}, "card")
-    }));
+    const cards = ordered.map(createCardStudyItem);
 
     // Apply filters if set
     let filteredCards = cards;
@@ -2413,7 +2633,50 @@ export async function initMemoryTool(deps, context = {}) {
       });
     }
 
-    enqueueLearningCards(filteredCards, nowMs);
+    enqueueLearningCards(filteredCards, nowMs, focusCardId);
+  }
+
+  // Manual study follows a saved heap exactly. It deliberately bypasses route
+  // selection, interleaving, surprise cards, and re-insertion; grading still
+  // writes the normal SRS memory state through gradeCurrentCard().
+  async function buildManualHeapQueue() {
+    const heap = typeof getHeap === "function"
+      ? await getHeap(state.manualHeapId).catch(() => null)
+      : getActiveManualHeap();
+
+    state.session.surprisePool = [];
+    state.session.focusedBlockKeys = new Set();
+    state.session.learningRoute = {
+      mode: "manual_heap",
+      startType: "manual",
+      scope: { subjects: [], layers: [], tags: [], clusters: [], priorityBands: [] },
+      heapConstruction: "manual",
+      samplingStrategy: "heap_order",
+      aggressiveness: 0,
+      interleaveRate: 0
+    };
+    state.session.learningMode = "manual_heap";
+
+    if (!heap) {
+      state.session.systemState = buildLearningSystemState([], state.userProfile);
+      updateRouterDebug(state.session.learningRoute, state.session.systemState, []);
+      return;
+    }
+
+    const allCards = await getAllCards();
+    const cardsById = new Map((allCards || []).map((card) => [card.id, card]));
+    const ordered = (heap.cardIds || []).map((id) => cardsById.get(id)).filter(Boolean);
+
+    state.session.systemState = buildLearningSystemState(ordered, state.userProfile);
+    updateRouterDebug(state.session.learningRoute, state.session.systemState, []);
+
+    ordered.forEach((record, index) => {
+      const card = createCardStudyItem(record);
+      const phase = getUserLearningPhase(card, state.userProfile);
+      card.memoryState.L_phase = phase;
+      // Higher priority pops first; the saved heap order is the only order.
+      state.session.heap.push({ priority: ordered.length - index, card });
+    });
   }
 
   // Quotes are optional knowledge, not the study unit. This mode is a plain
@@ -2895,7 +3158,7 @@ export async function initMemoryTool(deps, context = {}) {
 
   function updateStudyContext(flashcardData) {
     const isCardStudy = state.view === "study"
-      && state.currentMode === "card-learning"
+      && (state.currentMode === "card-learning" || state.currentMode === "manual")
       && !!flashcardData?.record
       && (flashcardData.memoryKind === "card" || flashcardData.type === "card-learning");
 
@@ -2953,6 +3216,7 @@ export async function initMemoryTool(deps, context = {}) {
         state.currentMode === "quote-learning" ? "Quotes" :
         state.currentMode === "analysis-learning" ? "Analysis" :
         state.currentMode === "blurt" ? "Blurt" :
+        state.currentMode === "manual" ? "Manual" :
         "Evidence Matching";
     }
 
@@ -2961,7 +3225,7 @@ export async function initMemoryTool(deps, context = {}) {
     if (evidenceMatchingContainer) evidenceMatchingContainer.style.display =
       state.currentMode === "evidence-matching" ? "block" : "none";
 
-    if (!state.currentSubject) {
+    if (!state.currentSubject && state.currentMode !== "manual") {
       if (flashcardContent) flashcardContent.textContent = "Select a subject to start studying.";
       if (flashcardBackContent) flashcardBackContent.textContent = "Use the sidebar to enter a subject.";
       hideStudyContext();
@@ -2971,6 +3235,9 @@ export async function initMemoryTool(deps, context = {}) {
     if (state.flashcards.length > 0 && state.currentIndex < state.flashcards.length) {
       const flashcardData = state.flashcards[state.currentIndex];
       updateFlashcardDisplay(flashcardData, flashcard);
+    } else if (state.currentMode === "manual") {
+      if (flashcardContent) flashcardContent.textContent = "This heap is empty or its cards were deleted.";
+      if (flashcardBackContent) flashcardBackContent.textContent = "Add cards in the Mindmap Library, then study the heap again.";
     } else {
       if (flashcardContent) flashcardContent.textContent = "No flashcards available.";
       if (flashcardBackContent) flashcardBackContent.textContent = "Add cards with Quick Add.";
@@ -3025,7 +3292,7 @@ export async function initMemoryTool(deps, context = {}) {
     roundProgress.innerHTML = "";
 
     const roundSize = 8;
-    const isHeapMode = ["card-learning", "analysis-learning", "blurt"].includes(state.currentMode);
+    const isHeapMode = ["card-learning", "analysis-learning", "blurt", "manual"].includes(state.currentMode);
 
     // For heap-based modes, always show: already-seen history cards + upcoming from heap.
     // Card learning is heap-ranked too; the stable `order` only breaks ties and
@@ -3958,6 +4225,7 @@ export async function initMemoryTool(deps, context = {}) {
   }
 
   function getRouteScopeLabel(route) {
+    if (route?.mode === "manual_heap") return "heap order";
     const scope = route?.scope || {};
     if (scope.layers?.length) return "layer cluster (" + scope.layers.slice(0, 2).join(", ") + ")";
     if (scope.clusters?.length) return "cluster (" + scope.clusters.slice(0, 2).join(", ") + ")";
@@ -5400,6 +5668,11 @@ export async function initMemoryTool(deps, context = {}) {
   }
 
   async function loadMiddleUIData() {
+    if (state.currentMode === "manual") {
+      await loadManualHeaps();
+      state.middleUIData = { priorities: [], tags: [], layers: [] };
+      return;
+    }
     if (!state.currentSubject) return;
 
     // Get all cards and analyses for this deck/topic.
@@ -5512,7 +5785,10 @@ export async function initMemoryTool(deps, context = {}) {
   function renderMiddleUI() {
     if (!middleSubjectName) return;
 
-    middleSubjectName.textContent = state.currentSubject;
+    const isManual = state.currentMode === "manual";
+    middleSubjectName.textContent = isManual
+      ? (state.currentSubject ? `Manual · ${state.currentSubject}` : "Manual Heaps")
+      : state.currentSubject;
 
     // Keep the mode pills in sync with the actual study mode. Opening a deck
     // resets to Cards, so a stale Quotes/Analysis pill must not stay active.
@@ -5521,6 +5797,16 @@ export async function initMemoryTool(deps, context = {}) {
         btn.classList.toggle("active", btn.dataset.mode === state.currentMode);
       });
     }
+
+    if (middleStudyBtn) {
+      middleStudyBtn.textContent = isManual ? "Study Heap" : "Study";
+    }
+    if (manualHeapPanel) manualHeapPanel.style.display = isManual ? "block" : "none";
+    const filterModeToggle = document.getElementById("filterModeToggle");
+    if (filterModeToggle) filterModeToggle.style.display = isManual ? "none" : "";
+    const middleContent = document.getElementById("middleContent");
+    if (middleContent) middleContent.style.display = isManual ? "none" : "";
+    if (isManual) renderManualHeapPanel();
 
     // Render priority checkboxes
     if (priorityCheckboxes) {
