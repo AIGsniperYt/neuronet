@@ -997,10 +997,17 @@ function normalizeCardRecord(card = {}) {
   };
 }
 
-function buildFallbackCue(text) {
+function buildFallbackCue(text, section = "") {
   const words = String(text || "").trim().split(/\s+/).filter(Boolean);
-  if (words.length <= 4) return words.join(" ");
-  return `${words[0]} ... ${words[words.length - 1]}`;
+  if (words.length <= 4) {
+    const label = String(section || "").trim();
+    return label ? `Recall the quote from ${label}` : "Recall this quote";
+  }
+  const lead = words.slice(0, 6).join(" ");
+  const label = String(section || "").trim();
+  return label
+    ? `Complete the quote from ${label}: “${lead}…”`
+    : `Complete the quote: “${lead}…”`;
 }
 
 export function addCard(card) {
@@ -1278,9 +1285,10 @@ export async function syncCardsFromLegacy({ deck = "" } = {}) {
     const cue = cueByQuoteId.get(quote.id) || null;
     const existing = cardByQuoteId.get(quote.id) || null;
     const legacyTags = Array.isArray(quote.meta?.tags) ? quote.meta.tags : [];
-    const isCustomDeck = legacyTags.includes("custom-deck");
+    // A cue is the authored prompt. Without one, a completion prompt is a
+    // usable fallback; the quote itself is never duplicated as both faces.
     const front = String(
-      cue?.cue || (isCustomDeck ? quote.quote : buildFallbackCue(quote.quote)) || ""
+      cue?.cue || buildFallbackCue(quote.quote, quote.section) || ""
     ).trim();
     const back = String(quote.quote || "").trim();
     if (!front || !back) {
@@ -1332,9 +1340,13 @@ export async function syncCardsFromLegacy({ deck = "" } = {}) {
         createdAt: Number(quote.createdAt) || Number(cue?.createdAt) || Date.now(),
         updatedAt: legacyUpdatedAt || Date.now()
       });
-    } else if (legacyUpdatedAt > Number(existing.legacyUpdatedAt || 0)) {
-      // The legacy record was edited (usually by the deck builder). Refresh
-      // content, but keep the card's own SRS state and stable order.
+    } else if (
+      existing.origin === "legacy"
+      && legacyUpdatedAt > Number(existing.legacyUpdatedAt || 0)
+    ) {
+      // Only refresh cards this bridge owns. A user-authored card may link to
+      // a quote as context, but its front/back must never be overwritten by
+      // legacy sync. Card-owned SRS and stable order are always preserved.
       toUpdate.push({
         ...existing,
         front,

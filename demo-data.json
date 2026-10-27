@@ -3954,5 +3954,445 @@
       "updatedAt": 1777371862934
     }
   ],
-  "cues": []
+  "cues": [],
+  "cards": [
+    {
+      "id": "demo-card-25ab3979-626d-4370-9470-21649d50a63e",
+      "type": "card",
+      "front": "What does “Thunder and lightning.” reveal?",
+      "back": "pathetic fallacy\n\nEvidence: “Thunder and lightning.” — Act 1 > Scene 1",
+      "deck": "Macbeth",
+      "deckPath": [
+        "Macbeth"
+      ],
+      "tags": [
+        "technique"
+      ],
+      "priority": 3,
+      "order": 0,
+      "meta": {
+        "nextReview": 0,
+        "interval": 1,
+        "ease": 2.5,
+        "repetitions": 0,
+        "confidence": 0.8
+      },
+      "links": {
+        "quoteId": "b02437ac-0c1c-47b0-b6c1-6860280b29e1",
+        "sourceId": "17ddbe81-c849-45a5-a945-e0c616ac7c97"
+      },
+      "origin": "demo",
+      "createdAt": 1777370865667,
+      "updatedAt": 1777370865667
+    },
+    {
+      "id": "demo-card-2f2f3bae-ea8d-47f5-ac20-9cab65aca428",
+      "type": "card",
+      "front": "What does “Third WitchThere to meet with Macbeth.” reveal?",
+      "back": "Shakespeare perhaps plants doubt into the audience about Macbeth by showing how he is associated with the witches before we meet him. This links to the idea of fate versus free will, as we wonder if Macbeth was simply fated to turn out evil. Perhaps the witches are also ATTRACTED to his latent evil rather than causing it. Shakespeare could be hinting that having these “vaulting” ambitions draws more evil to a person until they are corrupted, cause chaos and are ultimately destroyed for the world to return to order, warning to not even think about committing regicide.\n\nEvidence: “Third WitchThere to meet with Macbeth.” — Act 1 > Scene 1",
+      "deck": "Macbeth",
+      "deckPath": [
+        "Macbeth"
+      ],
+      "tags": [
+        "fate",
+        "ambition",
+        "supernatural",
+        "character",
+        "context"
+      ],
+      "priority": 3,
+      "order": 1,
+      "meta": {
+        "nextReview": 0,
+        "interval": 1,
+        "ease": 2.5,
+        "repetitions": 0,
+        "confidence": 0.8
+      },
+      "links": {
+        "quoteId": "5a284908-4808-4ad3-88df-6fa19482124e",
+        "sourceId": "17ddbe81-c849-45a5-a945-e0c616ac7c97"
+      },
+      "origin": "demo",
+      "createdAt": 1777370865667,
+      "updatedAt": 1777370865667
+    },
+    {
+      "id": "demo-card-37d6f70d-b1ad-41b5-ac58-7605083dc21f",
+      "type": "card",
+      "front": "What does “When the battle's lost and won.” reveal?",
+      "back": "paradoxical hinting how truth is unstable and has multiple interpretations by showing how even basic concepts like winning and losing are blurred, and creates unease in the jacobean audience who were already distrustful following the gunpowder plot to assassinate the king. This also foreshadows the development of Macbeth, who wins the battle but ultimately loses his morality, compassion, friends, wife and life.\n\nEvidence: “When the battle's lost and won.” — Act 1 > Scene 1",
+      "deck": "Macbeth",
+      "deckPath": [
+        "Macbeth"
+      ],
+      "tags": [
+        "paradox",
+        "character",
+        "context"
+      ],
+      "priority": 3,
+      "order": 2,
+      "meta": {
+        "nextReview": 0,
+        "interval": 1,
+        "ease": 2.5,
+        "repetitions": 0,
+        "confidence": 0.8
+      },
+      "links": {
+        "quoteId": "876a162a-dbd8-4313-96e3-0938ad3b8bd7",
+        "sourceId": "17ddbe81-c849-45a5-a945-e0c616ac7c97"
+      },
+      "origin": "demo",
+      "createdAt": 1777370865667,
+      "updatedAt": 1777370865667
+    },
+    {
+      "id": "demo-card-53170c0d-04e4-44c0-9c94-df2fbfe10425",
+      "type": "card",
+      "front": "What does “Fair is foul, and foul is fair:Hover through the fog and filthy air.” reveal?",
+      "back": "Shakespeare uses paradoxical language in “fair is foul” to establish a world where moral boundaries are collapsed, reflecting jacobean society following the gunpowder plot. This reinforces the theme of equivocation and foreshadows Macbeth’s own morality blurring as his morality contradicts his evil deeds until he is destroyed. The continued use of pathetic fallacy describing the atmosphere as “fog and filthy air” symbolises the recurring themes of confusion and corruption of society in the jacobean era and the play of Macbeth.\n\nEvidence: “Fair is foul, and foul is fair:Hover through the fog and filthy air.” — Act 1 > Scene 1",
+      "deck": "Macbeth",
+      "deckPath": [
+        "Macbeth"
+      ],
+      "tags": [
+        "paradox",
+        "appearance-vs-reality",
+        "character",
+        "context",
+        "technique"
+      ],
+      "priority": 3,
+      "order": 3,
+      "meta": {
+        "nextReview": 0,
+        "interval": 1,
+        "ease": 2.5,
+        "repetitions": 0,
+        "confidence": 0.8
+      },
+      "links": {
+        "quoteId": "5dab2dae-eaab-4f5a-bf0b-267deaca1c0e",
+        "sourceId": "17ddbe81-c849-45a5-a945-e0c616ac7c97"
+      },
+      "origin": "demo",
+      "createdAt": 1777370865667,
+      "updatedAt": 1777370865667
+    },
+    {
+      "id": "demo-card-88f3c1be-c4b6-44b8-a2ba-fa31f430ed71",
+      "type": "card",
+      "front": "What does “For brave Macbeth--well he deserves that name--” reveal?",
+      "back": "He is initially portrayed as a brave and noble warrior that fights for a just cause to drive away traitors and rebels. Perhaps Shakespeare could be commenting that traitors may start as noble and valiant, like Macbeth, having honour and wealth, yet be driven to commit evil sins by their ambition. It also sets up a tragic fall be depicting him as an initially heroic honourable character who then falls to tyranny and defeat after succumbing to ambition\n\nEvidence: “For brave Macbeth--well he deserves that name--” — Act 1 > Scene 2",
+      "deck": "Macbeth",
+      "deckPath": [
+        "Macbeth"
+      ],
+      "tags": [
+        "ambition",
+        "character"
+      ],
+      "priority": 3,
+      "order": 4,
+      "meta": {
+        "nextReview": 0,
+        "interval": 1,
+        "ease": 2.5,
+        "repetitions": 0,
+        "confidence": 0.8
+      },
+      "links": {
+        "quoteId": "369085f7-a631-423d-a621-a27e670a1058",
+        "sourceId": "7973a409-21f5-4784-a73c-5aa3a2283434"
+      },
+      "origin": "demo",
+      "createdAt": 1777370865667,
+      "updatedAt": 1777370865667
+    },
+    {
+      "id": "demo-card-8a7c102f-de0f-4179-8dc7-6fff749412c5",
+      "type": "card",
+      "front": "What does “Till he unseam'd him from the nave to the chaps,” reveal?",
+      "back": "Shakespeare uses brutal gory imagery to describe Macbeth's heroic assault on the battlefield. However, this violence is excessive and perhaps foreshadows his violent tendencies and murderous paranoia later in the play. It also could imply that Macbeth was initially capable of violence rather than receiving it from his encounter with the witches.\n\nEvidence: “Till he unseam'd him from the nave to the chaps,” — Act 1 > Scene 2",
+      "deck": "Macbeth",
+      "deckPath": [
+        "Macbeth"
+      ],
+      "tags": [
+        "violence",
+        "supernatural",
+        "character",
+        "technique"
+      ],
+      "priority": 3,
+      "order": 5,
+      "meta": {
+        "nextReview": 0,
+        "interval": 1,
+        "ease": 2.5,
+        "repetitions": 0,
+        "confidence": 0.8
+      },
+      "links": {
+        "quoteId": "1e8f434b-17a4-452b-923a-107f62ba4258",
+        "sourceId": "7973a409-21f5-4784-a73c-5aa3a2283434"
+      },
+      "origin": "demo",
+      "createdAt": 1777370865667,
+      "updatedAt": 1777370865667
+    },
+    {
+      "id": "demo-card-94416d39-bb76-43db-8b64-6ebcfcdcdc49",
+      "type": "card",
+      "front": "What does “And fortune, on his damned quarrel smiling,Show'd like a rebel's whore: but all's too weak:” reveal?",
+      "back": "Fortune is personified as a woman who favours the rebel Macdonwald almost seductively, where the use of the simile “like a rebel’s whore” suggests that fortune is cheaply giving herself to a traitor, implying that macdonwald’s success is undeserved and immoral. Perhaps this is done to highlight the disruption and instability of society in the jacobean era following the gunpowder plot, and how even natural forces like “fortune” was corrupted by evil and traitors at the time. However, Macbeth - a noble “brave” warrior representing a force of integrity and good had restored order by “disdaining fortune”, almost rejecting it, suggesting that the actions of a person can determine their fate and outcome rather than it being predetermined, and it also suggests that Macbeth actively chooses his fate rather than have it decided by supernatural forces like the witches, since if he’s able to “disdain” fortune, he was able to choose a better alternative than committing regicide.\n\nEvidence: “And fortune, on his damned quarrel smiling,Show'd like a rebel's whore: but all's too weak:” — Act 1 > Scene 2",
+      "deck": "Macbeth",
+      "deckPath": [
+        "Macbeth"
+      ],
+      "tags": [
+        "fate",
+        "supernatural",
+        "character",
+        "context",
+        "technique"
+      ],
+      "priority": 3,
+      "order": 6,
+      "meta": {
+        "nextReview": 0,
+        "interval": 1,
+        "ease": 2.5,
+        "repetitions": 0,
+        "confidence": 0.8
+      },
+      "links": {
+        "quoteId": "388f7a22-bd6d-43bc-bf3d-36f29b174797",
+        "sourceId": "7973a409-21f5-4784-a73c-5aa3a2283434"
+      },
+      "origin": "demo",
+      "createdAt": 1777370865667,
+      "updatedAt": 1777370865667
+    },
+    {
+      "id": "demo-card-ac47665d-c6e8-48c0-a365-e4195fb48836",
+      "type": "card",
+      "front": "What does “And fix'd his head upon our battlements.” reveal?",
+      "back": "public display of violence showing how it was glorified in the jacobean era\n\nEvidence: “And fix'd his head upon our battlements.” — Act 1 > Scene 2",
+      "deck": "Macbeth",
+      "deckPath": [
+        "Macbeth"
+      ],
+      "tags": [
+        "violence",
+        "context"
+      ],
+      "priority": 3,
+      "order": 7,
+      "meta": {
+        "nextReview": 0,
+        "interval": 1,
+        "ease": 2.5,
+        "repetitions": 0,
+        "confidence": 0.8
+      },
+      "links": {
+        "quoteId": "d93166e6-6469-45c5-a381-58adf6a957cb",
+        "sourceId": "7973a409-21f5-4784-a73c-5aa3a2283434"
+      },
+      "origin": "demo",
+      "createdAt": 1777370865667,
+      "updatedAt": 1777370865667
+    },
+    {
+      "id": "demo-card-b46657c2-1786-4f09-a670-88cc34e61b1e",
+      "type": "card",
+      "front": "What does “Disdaining fortune, with his brandish'd steel,” reveal?",
+      "back": "Macbeth is initially presented as a man of action acting patriotically for his country. However, the use of \"Disdaining fortune\" could also hint at his arrogant nature, as he sees himself superior to even fate\n\nEvidence: “Disdaining fortune, with his brandish'd steel,” — Act 1 > Scene 2",
+      "deck": "Macbeth",
+      "deckPath": [
+        "Macbeth"
+      ],
+      "tags": [
+        "fate",
+        "character"
+      ],
+      "priority": 3,
+      "order": 8,
+      "meta": {
+        "nextReview": 0,
+        "interval": 1,
+        "ease": 2.5,
+        "repetitions": 0,
+        "confidence": 0.8
+      },
+      "links": {
+        "quoteId": "db7682da-885d-4646-a564-45de95dedd3f",
+        "sourceId": "7973a409-21f5-4784-a73c-5aa3a2283434"
+      },
+      "origin": "demo",
+      "createdAt": 1777370865667,
+      "updatedAt": 1777370865667
+    },
+    {
+      "id": "demo-card-ba45e565-601e-4e20-a3e6-f3cc762585f0",
+      "type": "card",
+      "front": "What does “First WitchWhen shall we three meet againIn thunder, lightning, or in rain?” reveal?",
+      "back": "witches associated with disruption of the natural order and the great chain of being, and general instability, which would frighten the jacobean audience.\n\nEvidence: “First WitchWhen shall we three meet againIn thunder, lightning, or in rain?” — Act 1 > Scene 1",
+      "deck": "Macbeth",
+      "deckPath": [
+        "Macbeth"
+      ],
+      "tags": [
+        "supernatural",
+        "context"
+      ],
+      "priority": 3,
+      "order": 9,
+      "meta": {
+        "nextReview": 0,
+        "interval": 1,
+        "ease": 2.5,
+        "repetitions": 0,
+        "confidence": 0.8
+      },
+      "links": {
+        "quoteId": "eebc26ea-1715-4d38-9857-79e0310c3fea",
+        "sourceId": "17ddbe81-c849-45a5-a945-e0c616ac7c97"
+      },
+      "origin": "demo",
+      "createdAt": 1777370865667,
+      "updatedAt": 1777370865667
+    },
+    {
+      "id": "demo-card-dfc66998-dccc-42ee-9b4f-61aab18de4b5",
+      "type": "card",
+      "front": "What does “Second WitchWhen the hurlyburly's done,” reveal?",
+      "back": "the violence of war is dismissed casually as a “hurlyburly” - witches are detached from human morality, and that violence is insignificant to them, someone wins and someone loses, but witches treat it the same, suggesting that human conflict is pointless and morally empty from a higher evil perspective, and shakespeare could be warning the audience from attempting meaningless violence such as the gunpowder plot\n\nEvidence: “Second WitchWhen the hurlyburly's done,” — Act 1 > Scene 1",
+      "deck": "Macbeth",
+      "deckPath": [
+        "Macbeth"
+      ],
+      "tags": [
+        "violence",
+        "supernatural",
+        "context"
+      ],
+      "priority": 3,
+      "order": 10,
+      "meta": {
+        "nextReview": 0,
+        "interval": 1,
+        "ease": 2.5,
+        "repetitions": 0,
+        "confidence": 0.8
+      },
+      "links": {
+        "quoteId": "881ad208-ea7f-4205-89b2-f5801f7586c8",
+        "sourceId": "17ddbe81-c849-45a5-a945-e0c616ac7c97"
+      },
+      "origin": "demo",
+      "createdAt": 1777370865667,
+      "updatedAt": 1777370865667
+    },
+    {
+      "id": "demo-card-e958a126-51a2-446f-a3a2-952a976ce55f",
+      "type": "card",
+      "front": "What does “Like valour's minion carved out his passage” reveal?",
+      "back": "he initially serves honour!! Later serves ambition and his own desires as well as his wife, who was seen as frightening and subverting feminine expectations in the Jacobean era, showing how one's influence has an impact on their actions - carves out his passage is a metaphor for him physically slicing through the battlefield as he “carved out his passage”, however it could also be alluding to how Macbeth chose his own fate and carved it out for himself rather than have it decided already. This depiction of an almost mythical noble national hero makes Macbeth’s later descent into tyranny more tragic as it contrasts to what he once was.\n\nEvidence: “Like valour's minion carved out his passage” — Act 1 > Scene 2",
+      "deck": "Macbeth",
+      "deckPath": [
+        "Macbeth"
+      ],
+      "tags": [
+        "fate",
+        "ambition",
+        "character",
+        "context",
+        "technique"
+      ],
+      "priority": 3,
+      "order": 11,
+      "meta": {
+        "nextReview": 0,
+        "interval": 1,
+        "ease": 2.5,
+        "repetitions": 0,
+        "confidence": 0.8
+      },
+      "links": {
+        "quoteId": "641985a1-366c-418a-a4a3-5eabe195912b",
+        "sourceId": "7973a409-21f5-4784-a73c-5aa3a2283434"
+      },
+      "origin": "demo",
+      "createdAt": 1777370865667,
+      "updatedAt": 1777370865667
+    },
+    {
+      "id": "demo-card-f7779d16-f4b7-4778-b459-cb6b271e894d",
+      "type": "card",
+      "front": "What does “Which smoked with bloody execution,” reveal?",
+      "back": "Graphic imagery showing how violently and effectively he kills, which was glorified in the jacobean era, and later violence corrupts him, being the reason for Macbeth's downfall\n\nEvidence: “Which smoked with bloody execution,” — Act 1 > Scene 2",
+      "deck": "Macbeth",
+      "deckPath": [
+        "Macbeth"
+      ],
+      "tags": [
+        "violence",
+        "character",
+        "context",
+        "technique"
+      ],
+      "priority": 3,
+      "order": 12,
+      "meta": {
+        "nextReview": 0,
+        "interval": 1,
+        "ease": 2.5,
+        "repetitions": 0,
+        "confidence": 0.8
+      },
+      "links": {
+        "quoteId": "03d48126-b315-4a1d-8c1e-6f2b36da3bcc",
+        "sourceId": "7973a409-21f5-4784-a73c-5aa3a2283434"
+      },
+      "origin": "demo",
+      "createdAt": 1777370865667,
+      "updatedAt": 1777370865667
+    },
+    {
+      "id": "demo-card-f7a09dc8-65a4-4645-9859-b891ac89246c",
+      "type": "card",
+      "front": "What does “As cannons overcharged with double cracks,” reveal?",
+      "back": "The use of overcharged once again could be hinting that Macbeth was excessive in his violence and ambition, and could foreshadow his descent into following his “black and deep desires” and ambition later in the play\n\nEvidence: “As cannons overcharged with double cracks,” — Act 1 > Scene 2",
+      "deck": "Macbeth",
+      "deckPath": [
+        "Macbeth"
+      ],
+      "tags": [
+        "violence",
+        "ambition",
+        "character"
+      ],
+      "priority": 3,
+      "order": 13,
+      "meta": {
+        "nextReview": 0,
+        "interval": 1,
+        "ease": 2.5,
+        "repetitions": 0,
+        "confidence": 0.8
+      },
+      "links": {
+        "quoteId": "8b4bad48-c81d-46e8-91a9-79dab8a8e962",
+        "sourceId": "7973a409-21f5-4784-a73c-5aa3a2283434"
+      },
+      "origin": "demo",
+      "createdAt": 1777370865667,
+      "updatedAt": 1777370865667
+    }
+  ]
 }

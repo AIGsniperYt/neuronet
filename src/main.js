@@ -648,16 +648,25 @@ async function currentFingerprint() {
   return fingerprintDataset(nodes, quotes, cues);
 }
 
-async function demoFingerprint() {
-  try {
-    const res = await fetch("demo-data.json", { cache: "no-store" });
-    if (!res.ok) return null;
-    const payload = await res.json();
-    const { dataset } = upgradeDataset(payload);
-    return fingerprintDataset(dataset?.nodes || [], dataset?.quotes || [], dataset?.cues || []);
-  } catch (e) {
-    return null;
+// Load and upgrade the shipped demo dataset once per page session. `dataset`
+// keeps the explicit `cards` array, so demo detection can compare card
+// identity instead of guessing from legacy quote counts.
+let demoDatasetPromise = null;
+async function loadDemoDataset() {
+  if (!demoDatasetPromise) {
+    demoDatasetPromise = (async () => {
+      try {
+        const res = await fetch("demo-data.json", { cache: "no-store" });
+        if (!res.ok) return null;
+        const payload = await res.json();
+        const { dataset } = upgradeDataset(payload);
+        return dataset || null;
+      } catch (e) {
+        return null;
+      }
+    })();
   }
+  return demoDatasetPromise;
 }
 
 async function fetchDemoPayload() {
@@ -728,6 +737,49 @@ async function stripReservedTagMetadata() {
   }
 }
 
+// The tag store is a derived index, not the source of truth. Keep it in sync
+// with nodes, quotes, and cards so backups and old databases cannot inherit
+// stale tags. Card tags are included because cards are first-class.
+function collectTagTitles({ nodes = [], quotes = [], cards = [] } = {}) {
+  const titles = new Map();
+  const collect = (tags) => {
+    for (const tag of tags || []) {
+      const value = String(tag || "").trim();
+      if (!value || value === "custom-deck") continue;
+      const key = value.toLowerCase();
+      if (!titles.has(key)) titles.set(key, value);
+    }
+  };
+  for (const node of nodes) collect(node?.meta?.tags);
+  for (const quote of quotes) collect(quote?.meta?.tags);
+  for (const card of cards) collect(card?.tags);
+  return titles;
+}
+
+async function rebuildTagStoreFromData(data = {}) {
+  await clearTags();
+  for (const title of collectTagTitles(data).values()) {
+    await addTag({ title, subject: "" });
+  }
+}
+
+// Startup self-heal for old databases: rebuild the derived tag index only
+// when it disagrees with the records, so orphaned tags cannot linger.
+async function syncTagStoreFromData(data = {}) {
+  const existing = await getAllTags();
+  const expected = collectTagTitles(data);
+  const current = new Set(
+    existing
+      .map((tag) => String(tag?.title || "").trim().toLowerCase())
+      .filter(Boolean)
+  );
+  if (
+    expected.size === current.size
+    && [...expected.keys()].every((key) => current.has(key))
+  ) return;
+  await rebuildTagStoreFromData(data);
+}
+
 async function importPayload(payload) {
   // Auto-upgrade any legacy data to the markdown-first schema on the way in,
   // so old export files work as-is (no manual migration needed).
@@ -742,6 +794,7 @@ async function importPayload(payload) {
   await clearQuotes();
   await clearCues();
   await clearCards();
+  await clearTags();
   await addNodes(nodes);
   await addQuotes(quotes);
   await addCues(cues);
@@ -750,6 +803,19 @@ async function importPayload(payload) {
   // imported backup is immediately studyable.
   await syncCardsFromLegacy();
   await stripReservedTagMetadata();
+  // Rebuild the derived tag index from the final imported records, including
+  // any cards backfilled above. This also removes stale tags from the DB the
+  // import replaced.
+  const [finalNodes, finalQuotes, finalCards] = await Promise.all([
+    getAllNodes(),
+    getAllQuotes(),
+    getAllCards()
+  ]);
+  await rebuildTagStoreFromData({
+    nodes: finalNodes,
+    quotes: finalQuotes,
+    cards: finalCards
+  });
 
   if (USE_BACKEND && window.currentUser) {
     const [cloudNodes, cloudQuotes, cloudCues] = await Promise.all([
@@ -882,18 +948,29 @@ async function deleteAllData() {
 }
 
 async function isOnDemoData(nodes, quotes, cues, cards = []) {
-  const demoFp = await demoFingerprint();
-  if (demoFp == null) return false;
-  if (fingerprintDataset(nodes, quotes, cues) !== demoFp) return false;
+  const dataset = await loadDemoDataset();
+  if (!dataset) return false;
+  if (
+    fingerprintDataset(nodes, quotes, cues)
+    !== fingerprintDataset(dataset.nodes || [], dataset.quotes || [], dataset.cues || [])
+  ) return false;
 
-  // The demo payload is legacy-only. A pristine demo therefore has exactly
-  // the cards backfilled from its quotes; user-created cards break the match
-  // even though they are not part of the legacy fingerprint.
+  const demoCards = Array.isArray(dataset.cards) ? dataset.cards : [];
+  if (demoCards.length > 0) {
+    // Explicit demo cards have stable IDs. Studying them changes SRS metadata,
+    // so compare identity and count rather than the full card payload.
+    const expectedIds = new Set(demoCards.map((card) => card.id).filter(Boolean));
+    return cards.length === expectedIds.size
+      && cards.every((card) => expectedIds.has(card.id));
+  }
+
+  // Backward compatibility for a demo payload that predates explicit cards:
+  // it has exactly the cards backfilled from its quotes.
   const expectedCards = (quotes || []).filter(
     (quote) => quote?.id && quote?.subject && String(quote.quote || "").trim()
   ).length;
-  return (cards || []).length === expectedCards
-    && (cards || []).every((card) => card?.origin === "legacy");
+  return cards.length === expectedCards
+    && cards.every((card) => card?.origin === "legacy");
 }
 
 async function wipeDatabase() {
@@ -1739,6 +1816,19 @@ document.addEventListener("DOMContentLoaded", async () => {
   // old reserved deck marker from stored knowledge metadata.
   await syncCardsFromLegacy();
   await stripReservedTagMetadata();
+
+  // The tag store is a derived index. Reconcile it with the records so an old
+  // database cannot keep orphaned tags or tags that no longer exist.
+  const [tagNodes, tagQuotes, tagCards] = await Promise.all([
+    getAllNodes(),
+    getAllQuotes(),
+    getAllCards()
+  ]);
+  await syncTagStoreFromData({
+    nodes: tagNodes,
+    quotes: tagQuotes,
+    cards: tagCards
+  });
 
   loadingMessage.textContent = "Authenticating with the cloud...";
   let user;
