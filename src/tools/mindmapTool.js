@@ -2547,9 +2547,9 @@ const state = {
           itemEl.innerHTML = `
             <div class="connection-info">
               <span>${getNodeTypeIcon(neighbor.type)}</span>
-              <span class="connection-name">${getNodeDisplayTitle(neighbor)}</span>
+              <span class="connection-name">${escapeHtml(getNodeDisplayTitle(neighbor))}</span>
             </div>
-            <button class="btn-break" title="Break Connection" data-target-id="${neighborId}">&times;</button>
+            <button class="btn-break" title="Break Connection" data-target-id="${escapeHtml(neighborId)}">&times;</button>
           `;
 
           itemEl.querySelector(".btn-break").addEventListener("click", async (e) => {
