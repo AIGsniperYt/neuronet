@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NeuroNet — Version Showcase</title>
+<style>
+  :root {
+    --bg: #07130f;
+    --bg-2: #0b1f17;
+    --panel: rgba(16, 43, 32, 0.72);
+    --panel-strong: rgba(10, 30, 22, 0.9);
+    --border: rgba(44, 255, 179, 0.18);
+    --border-strong: rgba(44, 255, 179, 0.42);
+    --accent: #2cffb3;
+    --accent-soft: rgba(44, 255, 179, 0.12);
+    --text: #e6fff5;
+    --muted: rgba(230, 255, 245, 0.62);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    color: var(--text);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background:
+      radial-gradient(circle at 15% 0%, rgba(44, 255, 179, 0.12), transparent 34rem),
+      radial-gradient(circle at 90% 15%, rgba(44, 160, 255, 0.08), transparent 30rem),
+      linear-gradient(160deg, var(--bg), var(--bg-2) 55%, #06100c);
+  }
+  a { color: inherit; }
+  .page {
+    width: min(1080px, calc(100% - 2rem));
+    margin: 0 auto;
+    padding: 4rem 0 3rem;
+  }
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  h1 {
+    margin: 1rem 0 0.6rem;
+    font-size: clamp(2.2rem, 6vw, 4.2rem);
+    line-height: 1.02;
+    letter-spacing: -0.04em;
+  }
+  h1 span { color: var(--accent); }
+  .lede {
+    max-width: 46rem;
+    margin: 0;
+    color: var(--muted);
+    font-size: clamp(1rem, 2vw, 1.15rem);
+    line-height: 1.65;
+  }
+  .latest {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin: 2.5rem 0 1.5rem;
+    padding: 1.2rem 1.3rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 1.1rem;
+    background: linear-gradient(135deg, rgba(44, 255, 179, 0.14), var(--panel-strong));
+    text-decoration: none;
+    transition: transform 160ms ease, border-color 160ms ease;
+  }
+  .latest:hover { transform: translateY(-2px); border-color: var(--accent); }
+  .latest h2 { margin: 0 0 0.25rem; font-size: 1.15rem; }
+  .latest p { margin: 0; color: var(--muted); font-size: 0.92rem; }
+  .latest .open-link { margin: 0; white-space: nowrap; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+  .version-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 15rem;
+    padding: 1.15rem;
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    background: var(--panel);
+    text-decoration: none;
+    backdrop-filter: blur(10px);
+    transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+  }
+  .version-card:hover {
+    transform: translateY(-3px);
+    border-color: var(--border-strong);
+    background: var(--panel-strong);
+  }
+  .version-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.8rem;
+  }
+  .version-badge {
+    padding: 0.25rem 0.55rem;
+    border-radius: 0.45rem;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .version-date { color: var(--muted); font-size: 0.78rem; }
+  .version-card h2 { margin: 0 0 0.45rem; font-size: 1.12rem; }
+  .version-card p {
+    margin: 0 0 1rem;
+    color: var(--muted);
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+  .version-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem 0.9rem;
+    margin-top: auto;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+  code {
+    padding: 0.1rem 0.3rem;
+    border-radius: 0.3rem;
+    background: rgba(255, 255, 255, 0.07);
+    color: var(--text);
+    font-size: 0.92em;
+  }
+  .open-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-top: 0.9rem;
+    color: var(--accent);
+    font-size: 0.88rem;
+    font-weight: 700;
+  }
+  .empty-state {
+    margin-top: 1rem;
+    padding: 2rem;
+    border: 1px dashed var(--border);
+    border-radius: 1rem;
+    color: var(--muted);
+    text-align: center;
+  }
+  .empty-state h2 { margin: 0 0 0.5rem; color: var(--text); }
+  .howto {
+    margin-top: 3rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 0.9rem;
+    line-height: 1.65;
+  }
+  .howto h2 { margin: 0 0 0.6rem; color: var(--text); font-size: 1.05rem; }
+  .howto ol { margin: 0; padding-left: 1.2rem; }
+  .howto li { margin-bottom: 0.3rem; }
+  .note {
+    margin-top: 1rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    background: rgba(44, 255, 179, 0.05);
+  }
+  footer {
+    margin-top: 2.5rem;
+    color: var(--muted);
+    font-size: 0.78rem;
+  }
+  @media (max-width: 560px) {
+    .page { padding-top: 2.5rem; }
+    .latest { align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+  <main class="page">
+    <span class="eyebrow">NeuroNet · Version archive</span>
+    <h1>Watch the <span>knowledge system</span> evolve.</h1>
+    <p class="lede">
+      Working snapshots of NeuroNet, kept side by side. Open any version to try
+      it exactly as it was, or jump into the latest build.
+    </p>
+
+    <a class="latest" href="../">
+      <div>
+        <h2>Latest app →</h2>
+        <p>The current <code>main</code> build. This is the live app, not a frozen snapshot.</p>
+      </div>
+      <span class="open-link">Open latest <span aria-hidden="true">→</span></span>
+    </a>
+
+    <div class="grid"></div>
+    <div class="empty-state">
+        <h2>No snapshots yet</h2>
+        <p>Run the <strong>Deploy NeuroNet showcase</strong> workflow from the GitHub Actions tab to add one.</p>
+      </div>
+
+    <section class="howto">
+      <h2>Add another snapshot</h2>
+      <ol>
+        <li>Open the repo on GitHub → <strong>Actions</strong> → <strong>Deploy NeuroNet showcase</strong>.</li>
+        <li>Click <strong>Run workflow</strong>.</li>
+        <li>Enter a branch, tag, or commit (for example <code>v8</code> or <code>demo-v10</code>).</li>
+        <li>Optionally set the version folder, label, and description, then run it.</li>
+      </ol>
+      <div class="note">
+        Every snapshot gets its own browser database. Importing demo data into
+        one version will not touch the latest app or any other snapshot.
+      </div>
+    </section>
+
+    <footer>Snapshots are generated from the git history of this repository.</footer>
+  </main>
+</body>
+</html>
