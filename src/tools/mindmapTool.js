@@ -477,6 +477,90 @@ const state = {
     return !state.focusSubject || state.scopeNodeIds.has(id);
   }
 
+  // Search used to inspect only title/preview fields, so a word in the body of
+  // a source or analysis looked like a silent failure. Build a complete,
+  // cached haystack per graph node; buildGraph replaces node objects on data
+  // changes, so a WeakMap invalidates itself.
+  const nodeSearchTextCache = new WeakMap();
+  function getNodeSearchText(node) {
+    if (nodeSearchTextCache.has(node)) return nodeSearchTextCache.get(node);
+    const data = node?.data || {};
+    const meta = data.meta || {};
+    const values = [
+      getNodeDisplayTitle(data),
+      getNodePreview(data),
+      data.title,
+      data.subject,
+      data.deck,
+      data.section,
+      data.text,
+      data.quote,
+      data.analysis,
+      data.cue,
+      data.content,
+      data.contentText,
+      data.front,
+      data.back,
+      data.year,
+      data.series,
+      data.examBoard,
+      data.paper,
+      data.paperCode,
+      ...(Array.isArray(data.tags) ? data.tags : []),
+      ...(Array.isArray(meta.tags) ? meta.tags : []),
+      ...(Array.isArray(meta.layerPath) ? meta.layerPath : [])
+    ];
+    const haystack = values
+      .filter((value) => value !== null && value !== undefined)
+      .join(" ")
+      .toLowerCase();
+    nodeSearchTextCache.set(node, haystack);
+    return haystack;
+  }
+
+  function matchingGraphNodeCount() {
+    let count = 0;
+    state.graph.nodes.forEach((node, id) => {
+      if (isNodeInScope(id) && nodeMatchesGraphFilter(node)) count += 1;
+    });
+    return count;
+  }
+
+  function graphFilterLabel(filter) {
+    switch (filter) {
+      case "subject": return "Subjects";
+      case "layer": return "Layers";
+      case "source": return "Sources";
+      case "quote": return "Quotes";
+      case "analysis": return "Analyses";
+      case "pastpaper": return "Past papers";
+      case "cue": return "Cues";
+      case "tag": return "Tags";
+      case "card": return "Cards";
+      default: return "";
+    }
+  }
+
+  function updateGraphSearchStatus() {
+    const term = state.graphSearch.trim();
+    const filter = state.graphTypeFilter;
+    if (!term && filter === "all") {
+      setGraphStatus("");
+      return;
+    }
+    const count = matchingGraphNodeCount();
+    const noun = count === 1 ? "match" : "matches";
+    const scope = graphFilterLabel(filter);
+    if (count === 0) {
+      setGraphStatus(term ? `No matches for “${term}”` : `No ${scope.toLowerCase()} to show`, "warning", { sticky: true });
+      return;
+    }
+    const text = term
+      ? `${count} ${noun}${scope ? ` in ${scope.toLowerCase()}` : ""}`
+      : `${count} ${scope.toLowerCase()}`;
+    setGraphStatus(text, "success", { sticky: true });
+  }
+
   function nodeMatchesGraphFilter(node) {
     if (!node) return false;
     const filter = state.graphTypeFilter;
@@ -489,16 +573,7 @@ const state = {
     }
     const term = state.graphSearch.trim().toLowerCase();
     if (!term) return true;
-    const data = node.data || {};
-    const haystack = [
-      getNodeDisplayTitle(data),
-      getNodePreview(data),
-      data.subject,
-      data.deck,
-      ...(data.tags || []),
-      ...(data.meta?.tags || [])
-    ].join(" ").toLowerCase();
-    return haystack.includes(term);
+    return getNodeSearchText(node).includes(term);
   }
 
   const GRAPH_FILTER_TYPES = new Set([
@@ -533,6 +608,7 @@ const state = {
     state.userInteracted = false;
     syncGraphFilterUI();
     updateEmptyState();
+    updateGraphSearchStatus();
     scheduleLayoutSave(400);
   }
 
@@ -2983,6 +3059,7 @@ const state = {
       updateEmptyState();
     }
     updateStats();
+    updateGraphSearchStatus();
     scheduleLayoutSave();
   }
 
@@ -4574,6 +4651,7 @@ const state = {
 
     updateStats();
     updateEmptyState();
+    updateGraphSearchStatus();
   }
 
   async function createNewNode(type) {
@@ -4825,13 +4903,43 @@ const state = {
 
     graphSearchInput?.addEventListener("input", () => {
       state.graphSearch = graphSearchInput.value;
+      // Searching is a navigation action: reframe so matches are on screen
+      // rather than leaving the camera parked on an unrelated part of the map.
+      state.userInteracted = false;
       updateEmptyState();
+      updateGraphSearchStatus();
+    });
+    graphSearchInput?.addEventListener("search", () => {
+      // Safari's native clear button fires "search" without a reliable input
+      // event in older iOS versions.
+      state.graphSearch = graphSearchInput.value;
+      state.userInteracted = false;
+      updateEmptyState();
+      updateGraphSearchStatus();
+    });
+    graphSearchInput?.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape" || !graphSearchInput.value) return;
+      e.preventDefault();
+      graphSearchInput.value = "";
+      state.graphSearch = "";
+      state.userInteracted = false;
+      updateEmptyState();
+      updateGraphSearchStatus();
+      graphSearchInput.blur();
     });
     graphFilterPills().forEach((pill) => {
       pill.addEventListener("click", () => setGraphTypeFilter(pill.dataset.graphType));
     });
     graphFitBtn?.addEventListener("click", () => {
       state.userInteracted = false;
+      const term = state.graphSearch.trim();
+      const filter = state.graphTypeFilter;
+      if (term || filter !== "all") {
+        const count = matchingGraphNodeCount();
+        setGraphStatus(`${count} ${count === 1 ? "match" : "matches"} framed`, "success");
+      } else {
+        setGraphStatus("Fit to graph", "success");
+      }
     });
 
     if (gridContainer) {
