@@ -1,0 +1,664 @@
+<style>
+  .mindmap-shell {
+    display: grid;
+    grid-template-columns: 1fr 0fr;
+    grid-template-rows: auto 1fr;
+    gap: 0;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  ::-webkit-scrollbar,
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-thumb {
+    display: none;
+  }
+
+  html, body, * {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .mindmap-header {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 16px;
+    background: rgba(10,30,22,0.85);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+
+  .mindmap-header h2 {
+    color: var(--accent);
+    font-size: 1.3rem;
+    font-weight: 700;
+    margin: 0;
+  }
+
+  .mindmap-header p {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    margin: 0;
+    flex: 1;
+  }
+
+  .stats-bar {
+    display: flex;
+    gap: 8px;
+    margin-left: auto;
+  }
+
+  .stat-pill {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 6px 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 999px;
+    font-size: 0.8rem;
+  }
+
+  .stat-pill strong {
+    font-size: 1rem;
+    line-height: 1;
+  }
+
+  .stat-pill .stat-label {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+  }
+
+  /* Color-coded stat pills */
+  .stat-pill.stat-subjects strong { color: #ff6b6b; }
+  .stat-pill.stat-subjects { border-color: rgba(255, 107, 107, 0.2); }
+
+  .stat-pill.stat-sources strong { color: #4da6ff; }
+  .stat-pill.stat-sources { border-color: rgba(77, 166, 255, 0.2); }
+
+  .stat-pill.stat-quotes strong { color: #ff9b39; }
+  .stat-pill.stat-quotes { border-color: rgba(255, 155, 57, 0.2); }
+
+  .stat-pill.stat-analyses strong { color: #2cffb3; }
+  .stat-pill.stat-analyses { border-color: rgba(44, 255, 179, 0.2); }
+
+  .stat-pill.stat-cues strong { color: #ff79c6; }
+  .stat-pill.stat-cues { border-color: rgba(255, 121, 198, 0.2); }
+
+  .stat-pill.stat-tags strong { color: #f1fa8c; }
+  .stat-pill.stat-tags { border-color: rgba(241, 250, 140, 0.2); }
+
+  .stat-pill.stat-links strong { color: #b388ff; }
+  .stat-pill.stat-links { border-color: rgba(179, 136, 255, 0.2); }
+
+  .blueprint-area {
+    position: relative;
+    background: 
+      linear-gradient(rgba(44, 255, 179, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(44, 255, 179, 0.03) 1px, transparent 1px),
+      linear-gradient(rgba(10, 30, 22, 0.95), rgba(7, 18, 13, 0.98));
+    background-size: 40px 40px, 40px 40px, 100% 100%;
+    border: 1px solid rgba(44, 255, 179, 0.15);
+    overflow: hidden;
+  }
+
+  .blueprint-area::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 30% 30%, rgba(44, 255, 179, 0.02), transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  #mindmapCanvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 10;
+    cursor: default;
+  }
+
+  .node-point.source {
+    border-color: #4da6ff;
+  }
+
+  .node-point.quote {
+    border-color: #ff9b39;
+  }
+
+  .node-point.analysis {
+    border-color: #2cffb3;
+  }
+
+  .node-point:hover {
+    transform: translate(-50%, -50%) scale(1.3);
+    box-shadow: 0 0 12px currentColor;
+  }
+
+  .node-point.selected {
+    transform: translate(-50%, -50%) scale(1.4);
+    box-shadow: 0 0 16px currentColor;
+  }
+
+  .node-label {
+    position: absolute;
+    pointer-events: none;
+    font-size: 0.75rem;
+    color: rgba(230, 255, 245, 0.7);
+    white-space: nowrap;
+    transform: translate(-50%, -30px);
+    z-index: 5;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .node-sidebar {
+    position: relative;
+    width: 0;
+    height: 100%;
+    background: rgba(10, 30, 22, 0.98);
+    border-left: 0px solid rgba(44, 255, 179, 0.2);
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-left-width 0.3s;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .node-sidebar.open {
+    width: 400px;
+    border-left-width: 1px;
+  }
+
+  .sidebar-inner {
+    width: 400px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .sidebar-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-shrink: 0;
+  }
+
+  .sidebar-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-main);
+    margin-bottom: 4px;
+  }
+
+  .sidebar-type {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85rem;
+    color: var(--accent);
+  }
+
+  .sidebar-close {
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 1.2rem;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+  }
+
+  .sidebar-close:hover {
+    background: rgba(255,255,255,0.1);
+    color: var(--text-main);
+  }
+
+  .sidebar-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+  }
+
+  .content-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+    flex-shrink: 0;
+  }
+
+  .content-text {
+    line-height: 1.7;
+    color: rgba(230, 255, 245, 0.9);
+    font-size: 0.95rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .sidebar-actions {
+    padding: 16px 20px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    display: flex;
+    flex-shrink: 0;
+    gap: 12px;
+  }
+
+  .sidebar-actions .btn {
+    flex: 1;
+  }
+
+  .btn {
+    flex: 1;
+    padding: 12px 16px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.05);
+    color: #e6fff5;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
+  }
+
+  .btn:hover {
+    border-color: rgba(44, 255, 179, 0.45);
+    background: rgba(44, 255, 179, 0.08);
+  }
+
+  .btn.primary {
+    background: linear-gradient(130deg, rgba(44, 255, 179, 0.24), rgba(44, 255, 179, 0.11));
+    border-color: rgba(44, 255, 179, 0.45);
+  }
+
+  .btn.primary:hover {
+    background: linear-gradient(130deg, rgba(44, 255, 179, 0.32), rgba(44, 255, 179, 0.18));
+  }
+
+  .btn.danger {
+    border-color: rgba(255, 107, 107, 0.4);
+    color: #ff6b6b;
+  }
+
+  .btn.danger:hover {
+    background: rgba(255, 107, 107, 0.15);
+  }
+
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 40px;
+  }
+
+  .empty-state-icon {
+    font-size: 3rem;
+    margin-bottom: 16px;
+    opacity: 0.4;
+  }
+
+  .empty-state p {
+    font-size: 0.9rem;
+    max-width: 250px;
+  }
+
+  /* Header Actions */
+  .header-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .dropdown {
+    position: relative;
+    display: inline-block;
+  }
+
+  .dropdown-content {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: 100%;
+    background: rgba(10, 30, 22, 0.98);
+    min-width: 160px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    border: 1px solid rgba(44, 255, 179, 0.2);
+    border-radius: 8px;
+    z-index: 100;
+    margin-top: 8px;
+    overflow: hidden;
+  }
+
+  .dropdown-content button {
+    width: 100%;
+    padding: 12px 16px;
+    background: transparent;
+    border: none;
+    color: var(--text-main);
+    text-align: left;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .dropdown-content button:hover {
+    background: rgba(44, 255, 179, 0.1);
+    color: var(--accent);
+  }
+
+  .dropdown.open .dropdown-content {
+    display: block;
+    animation: dropdownFadeIn 0.2s ease-out;
+  }
+
+  @keyframes dropdownFadeIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .btn-header {
+    padding: 8px 14px;
+    font-size: 0.85rem;
+  }
+
+  .btn.active {
+    background: rgba(44, 255, 179, 0.2);
+    border-color: var(--accent);
+    box-shadow: 0 0 10px rgba(44, 255, 179, 0.2);
+  }
+
+  .connecting-overlay {
+    position: absolute;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(44, 255, 179, 0.9);
+    color: #0a1e16;
+    padding: 8px 20px;
+    border-radius: 999px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    z-index: 100;
+    pointer-events: none;
+    display: none;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+  }
+
+  .connecting-overlay.visible {
+    display: block;
+    animation: pulseConnecting 2s infinite;
+  }
+
+  @keyframes pulseConnecting {
+    0% { opacity: 0.8; transform: translateX(-50%) scale(1); }
+    50% { opacity: 1; transform: translateX(-50%) scale(1.05); }
+    100% { opacity: 0.8; transform: translateX(-50%) scale(1); }
+  }
+  /* Connections List */
+  .connections-list {
+    margin-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding-top: 12px;
+  }
+
+  .connections-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: rgba(230, 255, 245, 0.6);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .connections-header:hover {
+    color: var(--accent);
+  }
+
+  .connections-items {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  .connection-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    font-size: 0.85rem;
+    transition: all 0.2s ease;
+  }
+
+  .connection-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .connection-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .connection-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .btn-break {
+    background: transparent;
+    border: none;
+    color: rgba(255, 93, 93, 0.4);
+    cursor: pointer;
+    padding: 2px 6px;
+    font-size: 1.1rem;
+    transition: all 0.2s ease;
+    border-radius: 4px;
+  }
+
+  .btn-break:hover {
+    color: #ff5d5d;
+    background: rgba(255, 93, 93, 0.1);
+  }
+
+  .connections-container.collapsed .connections-items {
+    display: none;
+  }
+
+  /* Tags Section */
+  .tags-section {
+    margin-top: 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding-top: 12px;
+  }
+
+  .tags-header {
+    font-size: 0.8rem;
+    color: rgba(230, 255, 245, 0.6);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .tags-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .tag-pill {
+    background: rgba(241, 250, 140, 0.15);
+    border: 1px solid rgba(241, 250, 140, 0.3);
+    color: #f1fa8c;
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-size: 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    transition: all 0.2s ease;
+  }
+
+  .tag-pill:hover {
+    background: rgba(241, 250, 140, 0.25);
+    border-color: rgba(241, 250, 140, 0.5);
+  }
+
+  .tag-remove {
+    background: transparent;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 0;
+    line-height: 1;
+    opacity: 0.6;
+  }
+
+  .tag-remove:hover {
+    opacity: 1;
+  }
+
+  .tag-add-pill {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px dashed rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.6);
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .tag-add-pill:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(44, 255, 179, 0.4);
+    color: var(--accent);
+  }
+</style>
+
+<div class="mindmap-shell">
+  <div class="mindmap-header">
+    <h2>Mindmap</h2>
+    <p>Visualize connections between your knowledge nodes</p>
+    
+    <div class="header-actions">
+      <button id="connectNodesBtn" class="btn btn-header">Connect Nodes</button>
+      <div class="dropdown" id="newNodeDropdown">
+        <button class="btn btn-header primary dropdown-toggle">New Node ▾</button>
+        <div class="dropdown-content">
+          <button data-type="analysis"><span>💡</span> Analysis</button>
+          <button data-type="quote"><span>💬</span> Quote</button>
+          <button data-type="cue"><span>🎯</span> Cue</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats-bar">
+      <div class="stat-pill">
+        <strong id="totalNodes">0</strong>
+        <span class="stat-label">Total</span>
+      </div>
+      <div class="stat-pill stat-subjects">
+        <strong id="totalSubjects">0</strong>
+        <span class="stat-label">Subjects</span>
+      </div>
+      <div class="stat-pill stat-sources">
+        <strong id="totalSources">0</strong>
+        <span class="stat-label">Sources</span>
+      </div>
+      <div class="stat-pill stat-quotes">
+        <strong id="totalQuotes">0</strong>
+        <span class="stat-label">Quotes</span>
+      </div>
+      <div class="stat-pill stat-analyses">
+        <strong id="totalAnalyses">0</strong>
+        <span class="stat-label">Analyses</span>
+      </div>
+      <div class="stat-pill stat-cues">
+        <strong id="totalCues">0</strong>
+        <span class="stat-label">Cues</span>
+      </div>
+      <div class="stat-pill stat-tags">
+        <strong id="totalTags">0</strong>
+        <span class="stat-label">Tags</span>
+      </div>
+      <div class="stat-pill stat-links">
+        <strong id="totalConnections">0</strong>
+        <span class="stat-label">Links</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="blueprint-area" id="blueprintArea">
+    <div id="connectingOverlay" class="connecting-overlay">Select target node to connect...</div>
+    <canvas id="mindmapCanvas"></canvas>
+    
+    <div id="emptyState" class="empty-state">
+      <div class="empty-state-icon">🕸️</div>
+      <p>No nodes yet. Add sources, quotes, and analyses to see your knowledge network.</p>
+    </div>
+  </div>
+
+  <div id="nodeSidebar" class="node-sidebar">
+    <div class="sidebar-inner">
+      <div class="sidebar-header">
+        <div>
+          <div id="sidebarTitle" class="sidebar-title"></div>
+          <div id="sidebarType" class="sidebar-type"></div>
+        </div>
+        <button id="sidebarClose" class="sidebar-close">&times;</button>
+      </div>
+
+      <div id="connectionsContainer" class="connections-list">
+        <div class="connections-header" id="connectionsHeader">
+          <span>Connections (<span id="connectionCount">0</span>)</span>
+          <span id="connectionsToggle">▼</span>
+        </div>
+        <div id="connectionsItems" class="connections-items"></div>
+      </div>
+      
+      <div class="sidebar-content">
+        <div class="content-label" id="sidebarContentLabel">Content</div>
+        <div id="fullContent" class="content-text"></div>
+        <div id="metaContent" class="content-text" style="display: none;"></div>
+      </div>
+      
+      <div class="sidebar-actions">
+        <button id="toggleMetadataBtn" class="btn">Metadata</button>
+        <button id="editNodeBtn" class="btn primary">Edit</button>
+        <button id="deleteNodeBtn" class="btn danger">Delete</button>
+      </div>
+    </div>
+  </div>
+</div>
