@@ -3935,12 +3935,19 @@ const state = {
     }
   }
 
+  function isConnectableItem(item) {
+    // Cards live in the cards store. The generic link path writes through
+    // addNode(), so connecting a card would copy it into the nodes store.
+    // Card linking is a separate design question; keep cards out of Connect.
+    return Boolean(item) && item.type !== "card";
+  }
+
   async function linkNodes(id1, id2) {
     if (id1 === id2) return;
 
     const item1 = findItemById(id1);
     const item2 = findItemById(id2);
-    if (!item1 || !item2) return;
+    if (!isConnectableItem(item1) || !isConnectableItem(item2)) return;
 
     // Use proper bidirectional linking for analysis-quote connections
     if (item1.type === "analysis" && item2.type === "quote") {
@@ -3990,7 +3997,7 @@ const state = {
   async function breakLink(id1, id2) {
     const item1 = findItemById(id1);
     const item2 = findItemById(id2);
-    if (!item1 || !item2) return;
+    if (!isConnectableItem(item1) || !isConnectableItem(item2)) return;
 
     // Use proper bidirectional unlinking for analysis-quote connections
     if (item1.type === "analysis" && item2.type === "quote") {
@@ -4476,12 +4483,13 @@ const state = {
           y: e.clientY - rect.top
         };
         const node = findNodeAtPosition(pos.x, pos.y);
+        const nodeItem = node ? findItemById(node.id) : null;
 
-        if (node) {
+        if (node && isConnectableItem(nodeItem)) {
           if (!state.connectingSourceId) {
             state.connectingSourceId = node.id;
             if (connectingOverlay) {
-              connectingOverlay.textContent = `Connecting from: ${getNodeDisplayTitle(node)}... Select target.`;
+              connectingOverlay.textContent = `Connecting from: ${getNodeDisplayTitle(nodeItem)}... Select target.`;
               connectingOverlay.classList.add("visible");
             }
           } else {
