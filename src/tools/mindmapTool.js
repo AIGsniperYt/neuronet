@@ -110,6 +110,7 @@ const state = {
   const graphToolbar = document.getElementById("graphToolbar");
   const graphSearchInput = document.getElementById("graphSearch");
   const graphFitBtn = document.getElementById("graphFitBtn");
+  const graphStatus = document.getElementById("graphStatus");
   const blueprintArea = document.getElementById("blueprintArea");
   const gridView = document.getElementById("mindmapGridView");
   const gridContainer = document.getElementById("mindmapGrid");
@@ -270,6 +271,23 @@ const state = {
   }
 
   let layoutSettleTimer = 0;
+  let graphStatusTimer = 0;
+  function setGraphStatus(text, tone = "neutral", { sticky = false } = {}) {
+    if (!graphStatus) return;
+    if (graphStatusTimer) {
+      clearTimeout(graphStatusTimer);
+      graphStatusTimer = 0;
+    }
+    graphStatus.textContent = text || "";
+    graphStatus.dataset.tone = tone;
+    if (!text || sticky) return;
+    graphStatusTimer = setTimeout(() => {
+      graphStatusTimer = 0;
+      graphStatus.textContent = "";
+      delete graphStatus.dataset.tone;
+    }, 2400);
+  }
+
   function markLayoutUnstable(delay = 3500) {
     positionsStable = false;
     if (layoutSettleTimer) clearTimeout(layoutSettleTimer);
@@ -3812,13 +3830,28 @@ const state = {
   }
 
   function relayoutGraph() {
-    if (state.viewMode === "grid") return;
+    if (state.viewMode === "grid") {
+      setGraphStatus("Switch to Graph to re-layout.", "warning");
+      return;
+    }
+    if (state.graph.nodes.size === 0) {
+      setGraphStatus("Nothing to lay out yet.", "warning");
+      return;
+    }
     const width = canvas?.parentElement?.clientWidth || canvas?.width || 800;
     const height = canvas?.parentElement?.clientHeight || canvas?.height || 600;
+    state.sceneTransition = null;
     state.lockedNodes.clear();
+    state.draggingNodeId = null;
+    state.isPanning = false;
     state.panOffset = { x: 0, y: 0 };
     state.zoom = 1;
+    // Re-layout is also a camera reset: let auto-fit frame the fresh
+    // explosion instead of leaving a previously panned/zoomed view in place.
+    state.userInteracted = false;
+    state.simulationRunning = true;
     layoutRadial(width, height);
+    markLayoutUnstable(3000);
     lastCanvasSize = { width, height };
     if (state.viewMode === "dots") {
       buildDotsLayout({ applyTargets: true });
@@ -3831,6 +3864,7 @@ const state = {
         1.2
       );
     }
+    setGraphStatus("Layout reset", "success");
   }
 
   // The flattened knowledge list is rebuilt on every frame by the renderer and
@@ -5471,6 +5505,10 @@ const state = {
     if (layoutSettleTimer) {
       clearTimeout(layoutSettleTimer);
       layoutSettleTimer = 0;
+    }
+    if (graphStatusTimer) {
+      clearTimeout(graphStatusTimer);
+      graphStatusTimer = 0;
     }
     document.removeEventListener("db-change", handleDBChange);
     document.removeEventListener("keydown", handleSidebarEscape);

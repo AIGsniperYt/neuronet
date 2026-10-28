@@ -246,6 +246,26 @@
     padding: 7px 12px;
   }
 
+  .graph-status {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding-left: 2px;
+    color: var(--text-muted);
+    font-size: var(--text-xs, 0.78rem);
+    line-height: 1.25;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .graph-status:empty {
+    display: none;
+  }
+
+  .graph-status[data-tone="success"] { color: #2cffb3; }
+  .graph-status[data-tone="warning"] { color: #ffd166; }
+  .graph-status[data-tone="error"] { color: #ff6b6b; }
+
   .graph-toolbar[hidden] {
     display: none !important;
   }
@@ -2063,6 +2083,7 @@
     <div id="graphToolbar" class="graph-toolbar">
       <input id="graphSearch" class="graph-search" type="search" placeholder="Find a node…" aria-label="Find a node" autocomplete="off">
       <button type="button" id="graphFitBtn" class="btn">Fit</button>
+      <span id="graphStatus" class="graph-status" role="status" aria-live="polite"></span>
     </div>
 
     <div id="mindmapGridView" class="mindmap-grid-view" hidden>
