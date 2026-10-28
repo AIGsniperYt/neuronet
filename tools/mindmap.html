@@ -1748,13 +1748,70 @@
   .node-sidebar { grid-column: 2; grid-row: 1 / span 2; }
   .node-sidebar-backdrop { display: none; }
 
-  /* One inspector, three tabs. The old second sidebar is gone. */
+  /* Keyboard focus for the canvas itself. */
+  #mindmapCanvas:focus-visible {
+    outline: 2px solid rgba(44, 255, 179, 0.6);
+    outline-offset: -4px;
+  }
+
+  /* Thin, always-visible scrollbars: touch users need to see that a panel
+     scrolls, and desktop users lost the same affordance to overlay bars. */
+  .mindmap-grid-view,
+  .sidebar-content,
+  .connections-list,
+  .library-heap-items,
+  .inspector-tabs {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(44, 255, 179, 0.38) rgba(255, 255, 255, 0.04);
+  }
+
+  .mindmap-grid-view::-webkit-scrollbar,
+  .sidebar-content::-webkit-scrollbar,
+  .connections-list::-webkit-scrollbar,
+  .library-heap-items::-webkit-scrollbar,
+  .inspector-tabs::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .mindmap-grid-view::-webkit-scrollbar-thumb,
+  .sidebar-content::-webkit-scrollbar-thumb,
+  .connections-list::-webkit-scrollbar-thumb,
+  .library-heap-items::-webkit-scrollbar-thumb,
+  .inspector-tabs::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: rgba(44, 255, 179, 0.34);
+    background-clip: content-box;
+  }
+
+  .mindmap-grid-view::-webkit-scrollbar-track,
+  .sidebar-content::-webkit-scrollbar-track,
+  .connections-list::-webkit-scrollbar-track,
+  .library-heap-items::-webkit-scrollbar-track,
+  .inspector-tabs::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.035);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .blueprint-area *,
+    .node-sidebar *,
+    .mindmap-grid-view * {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
   .header-actions [hidden] {
     display: none !important;
   }
 
+  /* One inspector, three tabs. The old second sidebar is gone. */
   .inspector-tabs {
-    display: flex;    gap: 4px;
+    display: flex;
+    gap: 4px;
     flex: 0 0 auto;
     padding: 8px 10px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
@@ -1990,7 +2047,7 @@
 
   <div class="blueprint-area" id="blueprintArea">
     <div id="connectingOverlay" class="connecting-overlay">Select target node to connect...</div>
-    <canvas id="mindmapCanvas"></canvas>
+    <canvas id="mindmapCanvas" tabindex="0" role="application" aria-label="Knowledge graph. Drag to pan, use arrow keys to pan and plus or minus to zoom."></canvas>
 
     <div id="graphToolbar" class="graph-toolbar">
       <input id="graphSearch" class="graph-search" type="search" placeholder="Find a node…" aria-label="Find a node" autocomplete="off">
@@ -2108,7 +2165,7 @@
 
   <div id="nodeSidebarBackdrop" class="node-sidebar-backdrop" aria-hidden="true"></div>
 
-  <div id="nodeSidebar" class="node-sidebar" aria-hidden="true">
+  <div id="nodeSidebar" class="node-sidebar" aria-hidden="true" tabindex="-1">
     <div class="sidebar-inner">
       <div class="sidebar-header">
         <div>
@@ -2119,12 +2176,12 @@
       </div>
 
       <div class="inspector-tabs" role="tablist" aria-label="Inspector sections">
-        <button type="button" class="inspector-tab active" role="tab" data-inspector-tab="details" aria-selected="true">Details</button>
-        <button type="button" class="inspector-tab" role="tab" data-inspector-tab="connections" aria-selected="false">Connections <span id="connectionTabCount" class="inspector-tab-count">0</span></button>
-        <button type="button" class="inspector-tab" role="tab" data-inspector-tab="heap" aria-selected="false">Heap</button>
+        <button type="button" class="inspector-tab active" role="tab" id="inspectorTabDetails" data-inspector-tab="details" aria-selected="true" aria-controls="inspectorPanelDetails">Details</button>
+        <button type="button" class="inspector-tab" role="tab" id="inspectorTabConnections" data-inspector-tab="connections" aria-selected="false" aria-controls="inspectorPanelConnections">Connections <span id="connectionTabCount" class="inspector-tab-count">0</span></button>
+        <button type="button" class="inspector-tab" role="tab" id="inspectorTabHeap" data-inspector-tab="heap" aria-selected="false" aria-controls="inspectorPanelHeap">Heap</button>
       </div>
 
-      <section class="inspector-panel" data-inspector-panel="details" role="tabpanel">
+      <section class="inspector-panel" id="inspectorPanelDetails" data-inspector-panel="details" role="tabpanel" aria-labelledby="inspectorTabDetails">
         <div id="inspectorDetailsEmpty" class="inspector-empty" hidden>
           <p>Select a node or card to see its details.</p>
         </div>
@@ -2141,7 +2198,7 @@
         </div>
       </section>
 
-      <section class="inspector-panel" data-inspector-panel="connections" role="tabpanel" hidden>
+      <section class="inspector-panel" id="inspectorPanelConnections" data-inspector-panel="connections" role="tabpanel" aria-labelledby="inspectorTabConnections" hidden>
         <div id="connectionsContainer" class="connections-list">
           <div class="connections-header" id="connectionsHeader">
             <span>Connections (<span id="connectionCount">0</span>)</span>
@@ -2151,7 +2208,7 @@
         </div>
       </section>
 
-      <section class="inspector-panel" data-inspector-panel="heap" role="tabpanel" hidden>
+      <section class="inspector-panel" id="inspectorPanelHeap" data-inspector-panel="heap" role="tabpanel" aria-labelledby="inspectorTabHeap" hidden>
         <header class="library-heap-sidebar-head">
           <div>
             <span class="library-heap-kicker">Current heap</span>

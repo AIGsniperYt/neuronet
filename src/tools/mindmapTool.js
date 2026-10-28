@@ -153,6 +153,7 @@ const state = {
   // node detail panel.
   let ignoreCanvasClicksUntil = 0;
   let headerResizeObserver = null;
+  let inspectorReturnFocus = null;
 
   const config = {
     nodeRadius: 8,
@@ -1617,6 +1618,7 @@ const state = {
       const active = button.dataset.inspectorTab === nextTab;
       button.classList.toggle("active", active);
       button.setAttribute("aria-selected", String(active));
+      button.tabIndex = active ? 0 : -1;
     });
     nodeSidebar?.querySelectorAll("[data-inspector-panel]").forEach((panel) => {
       panel.hidden = panel.dataset.inspectorPanel !== nextTab;
@@ -1655,13 +1657,20 @@ const state = {
     }
   }
 
-  function openInspector(tab = "details") {
+  function openInspector(tab = "details", options = {}) {
     if (nodeSidebar) {
       nodeSidebar.classList.add("open");
       nodeSidebar.setAttribute("aria-hidden", "false");
     }
     nodeSidebarBackdrop?.classList.add("visible");
     setInspectorTab(tab);
+    if (options.focus) {
+      requestAnimationFrame(() => {
+        if (nodeSidebar?.classList.contains("open")) {
+          nodeSidebar.focus({ preventScroll: true });
+        }
+      });
+    }
   }
 
   function updateHeapSidebarVisibility() {
@@ -2258,6 +2267,10 @@ const state = {
     });
   }
 
+  const prefersReducedMotion = () =>
+    typeof window.matchMedia === "function"
+    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
   function startSceneTransition(mode) {
     const now = performance.now();
     state.cardScene.forEach((scene) => {
@@ -2270,9 +2283,11 @@ const state = {
     });
     state.sceneTransition = {
       mode,
-      start: now,
+      // Reduced motion keeps the state change but skips the morph: starting
+      // the clock in the past lets the first tick land on the final frame.
+      start: prefersReducedMotion() ? now - DOT_MORPH_MS : now,
       duration: DOT_MORPH_MS,
-      t: 0,
+      t: prefersReducedMotion() ? 1 : 0,
       // Keep the camera exactly where the learner left it. If the camera was
       // still auto-fitting before Dots, it resumes fitting after the return;
       // if they had taken control, it stays put.
@@ -4117,19 +4132,26 @@ const state = {
     return null;
   }
 
-  function openNodeSidebar(nodeId) {
+  function openNodeSidebar(nodeId, trigger = null) {
     state.selectedNodeId = nodeId;
     state.sidebarView = "content";
+
+    if (trigger instanceof HTMLElement) inspectorReturnFocus = trigger;
+    else if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
+      inspectorReturnFocus = document.activeElement;
+    }
 
     const selectedItem = findItemById(nodeId);
     if (!selectedItem) return;
 
     renderSidebar(selectedItem);
     syncGridSelection();
-    openInspector("details");
+    openInspector("details", { focus: true });
   }
 
   function closeSidebar() {
+    const returnFocus = inspectorReturnFocus;
+    inspectorReturnFocus = null;
     if (nodeSidebar) {
       nodeSidebar.classList.remove("open");
       nodeSidebar.setAttribute("aria-hidden", "true");
@@ -4141,6 +4163,11 @@ const state = {
     state.heapSidebarOpen = false;
     if (toggleHeapSidebarBtn) toggleHeapSidebarBtn.setAttribute("aria-expanded", "false");
     syncGridSelection();
+    if (returnFocus?.isConnected) {
+      returnFocus.focus({ preventScroll: true });
+    } else if (document.activeElement === document.body && canvas) {
+      canvas.focus({ preventScroll: true });
+    }
   }
 
   async function handleDeleteNode() {
@@ -4503,12 +4530,63 @@ const state = {
     nodeSidebar?.querySelectorAll("[data-inspector-tab]").forEach((button) => {
       button.addEventListener("click", () => setInspectorTab(button.dataset.inspectorTab));
     });
+    nodeSidebar?.querySelector(".inspector-tabs")?.addEventListener("keydown", (e) => {
+      const tabs = Array.from(nodeSidebar.querySelectorAll("[data-inspector-tab]"));
+      const current = tabs.indexOf(document.activeElement);
+      if (current < 0) return;
+      let next = current;
+      if (e.key === "ArrowRight") next = (current + 1) % tabs.length;
+      else if (e.key === "ArrowLeft") next = (current - 1 + tabs.length) % tabs.length;
+      else if (e.key === "Home") next = 0;
+      else if (e.key === "End") next = tabs.length - 1;
+      else return;
+      e.preventDefault();
+      tabs[next].focus();
+      setInspectorTab(tabs[next].dataset.inspectorTab);
+    });
     if (viewToggle) {
       viewToggle.querySelectorAll(".view-toggle-btn").forEach((button) => {
         button.addEventListener("click", () => setViewMode(button.dataset.view));
       });
     }
     relayoutGraphBtn?.addEventListener("click", relayoutGraph);
+
+    // Keyboard access to the canvas. Touch users get pointer gestures; this
+    // keeps the same pan/zoom reachable without a mouse or trackpad.
+    canvas?.addEventListener("keydown", (e) => {
+      if (state.viewMode === "grid") return;
+      const step = e.shiftKey ? 160 : 48;
+      const zoomBy = (factor) => {
+        const oldZoom = state.zoom;
+        const nextZoom = Math.min(config.maxZoom, Math.max(config.minZoom, oldZoom * factor));
+        if (nextZoom === oldZoom) return;
+        state.zoom = nextZoom;
+        state.panOffset.x *= nextZoom / oldZoom;
+        state.panOffset.y *= nextZoom / oldZoom;
+        state.userInteracted = true;
+      };
+
+      switch (e.key) {
+        case "ArrowLeft": state.panOffset.x += step; break;
+        case "ArrowRight": state.panOffset.x -= step; break;
+        case "ArrowUp": state.panOffset.y += step; break;
+        case "ArrowDown": state.panOffset.y -= step; break;
+        case "+":
+        case "=": zoomBy(1.2); break;
+        case "-":
+        case "_": zoomBy(1 / 1.2); break;
+        case "0":
+        case "f":
+        case "F":
+          state.userInteracted = false;
+          e.preventDefault();
+          return;
+        default:
+          return;
+      }
+      e.preventDefault();
+      state.userInteracted = true;
+    });
 
     librarySearchInput?.addEventListener("input", () => {
       state.librarySearch = librarySearchInput.value;
@@ -4563,7 +4641,7 @@ const state = {
           toggleLibraryCardSelection(card.dataset.nodeId);
           return;
         }
-        openNodeSidebar(card.dataset.nodeId);
+        openNodeSidebar(card.dataset.nodeId, card);
         if (window.__neuronetCanvas?.triggerRadialPulse) {
           window.__neuronetCanvas.triggerRadialPulse(e.clientX, e.clientY, 1.0);
         }
@@ -4589,7 +4667,7 @@ const state = {
           toggleLibraryCardSelection(card.dataset.nodeId);
           return;
         }
-        openNodeSidebar(card.dataset.nodeId);
+        openNodeSidebar(card.dataset.nodeId, card);
       });
     }
 
@@ -5108,7 +5186,9 @@ const state = {
   }
 
   function handleSidebarEscape(event) {
-    if (event.key === "Escape") closeSidebar();
+    if (event.key !== "Escape") return;
+    if (!nodeSidebar?.classList.contains("open")) return;
+    closeSidebar();
   }
 
   function syncHeaderHeight() {
