@@ -456,7 +456,7 @@ function renderGallery(versions) {
       <h2>Add another snapshot</h2>
       <ol>
         <li>Open the repo on GitHub → <strong>Actions</strong> → <strong>Deploy NeuroNet showcase</strong>.</li>
-        <li>Click <strong>Run workflow</strong>.</li>
+        <li>Click <strong>Run workflow</strong> and keep the workflow branch on <code>main</code>.</li>
         <li>Enter a branch, tag, or commit (for example <code>v8</code> or <code>demo-v10</code>).</li>
         <li>Optionally set the version folder, label, and description, then run it.</li>
       </ol>
