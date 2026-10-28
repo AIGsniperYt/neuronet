@@ -104,6 +104,7 @@ const state = {
   const gridContainer = document.getElementById("mindmapGrid");
   const dotsLegend = document.getElementById("mindmapDotsLegend");
   const viewToggle = document.getElementById("mindmapViewToggle");
+  const relayoutGraphBtn = document.getElementById("relayoutGraphBtn");
   const libraryHeapBar = document.getElementById("libraryHeapBar");
   const libraryHeapSelect = document.getElementById("libraryHeapSelect");
   const libraryHeapStatus = document.getElementById("libraryHeapStatus");
@@ -3215,7 +3216,8 @@ const state = {
     return 8;
   }
 
-  function layoutRadial(containerWidth, containerHeight) {
+  function layoutRadial(containerWidth, containerHeight, options = {}) {
+    const preserveExisting = Boolean(options.preserveExisting);
     const centerX = containerWidth / 2;
     const centerY = containerHeight / 2;
     const graph = state.graph;
@@ -3240,6 +3242,12 @@ const state = {
         }
         return;
       }
+      // Ordinary data changes must not move a graph the user has arranged.
+      // Only Re-layout (preserveExisting: false) restarts the explosion.
+      if (preserveExisting && state.nodePositions.has(id)) {
+        if (!state.velocities.has(id)) state.velocities.set(id, { x: 0, y: 0 });
+        return;
+      }
       if (id === focusId) {
         state.nodePositions.set(id, { x: centerX, y: centerY });
         state.velocities.set(id, { x: 0, y: 0 });
@@ -3259,9 +3267,35 @@ const state = {
 
   function initializePositions(containerWidth, containerHeight) {
     buildGraph();
-    layoutRadial(containerWidth, containerHeight);
+    // The initial refresh already seeded positions. Re-running a full explode
+    // here would discard them and play the animation twice on every load.
+    if (state.nodePositions.size === 0) {
+      layoutRadial(containerWidth, containerHeight);
+    }
     seedCardScenePositions();
     lastCanvasSize = { width: containerWidth, height: containerHeight };
+  }
+
+  function relayoutGraph() {
+    if (state.viewMode === "grid") return;
+    const width = canvas?.parentElement?.clientWidth || canvas?.width || 800;
+    const height = canvas?.parentElement?.clientHeight || canvas?.height || 600;
+    state.lockedNodes.clear();
+    state.panOffset = { x: 0, y: 0 };
+    state.zoom = 1;
+    layoutRadial(width, height);
+    lastCanvasSize = { width, height };
+    if (state.viewMode === "dots") {
+      buildDotsLayout({ applyTargets: true });
+    }
+    if (canvas && window.__neuronetCanvas?.triggerRadialPulse) {
+      const rect = canvas.getBoundingClientRect();
+      window.__neuronetCanvas.triggerRadialPulse(
+        rect.left + rect.width / 2,
+        rect.top + rect.height / 2,
+        1.2
+      );
+    }
   }
 
   function getAllItems() {
@@ -3854,7 +3888,7 @@ const state = {
 
     const layoutWidth = canvas?.parentElement?.clientWidth || 800;
     const layoutHeight = canvas?.parentElement?.clientHeight || 600;
-    layoutRadial(layoutWidth, layoutHeight);
+    layoutRadial(layoutWidth, layoutHeight, { preserveExisting: true });
     seedCardScenePositions();
     lastCanvasSize = { width: layoutWidth, height: layoutHeight };
 
@@ -4050,6 +4084,7 @@ const state = {
         button.addEventListener("click", () => setViewMode(button.dataset.view));
       });
     }
+    relayoutGraphBtn?.addEventListener("click", relayoutGraph);
 
     if (gridContainer) {
       gridContainer.addEventListener("click", async (e) => {
