@@ -1837,10 +1837,32 @@ const state = {
       radius: chosen.radius,
       cell: chosen.cell,
       top,
+      maxHeight: chosen.maxHeight,
+      canScroll: top + chosen.maxHeight + bottom > height,
+      basePanY: state.panOffset.y,
       empty: false
     };
+    clampDotsScroll();
 
     if (applyTargets) applyDotsTargets();
+  }
+
+  function clampDotsScroll() {
+    const layout = state.dotsLayout;
+    if (!layout || layout.empty || !layout.canScroll) return;
+    const overflow = Math.max(0, layout.top + layout.maxHeight + 14 - layout.height);
+    const min = layout.basePanY - overflow;
+    const max = layout.basePanY;
+    state.panOffset.y = Math.min(max, Math.max(min, state.panOffset.y));
+  }
+
+  function scrollDots(deltaY) {
+    const layout = state.dotsLayout;
+    if (!layout || layout.empty || !layout.canScroll) return false;
+    state.userInteracted = true;
+    state.panOffset.y -= deltaY;
+    clampDotsScroll();
+    return true;
   }
 
   function captureCardHomes() {
@@ -1971,7 +1993,10 @@ const state = {
 
     const centerX = canvas.width / 2;
     const centerY = canvas.height / 2;
-    const hitRadius = Math.max(6, Math.min(14, layout.cell * 0.5));
+    // At the minimum cell size a dot is only a few pixels wide. Grow the
+    // invisible hit target so touch users can still select it; nearest-dot
+    // resolution keeps overlapping targets deterministic.
+    const hitRadius = Math.max(14, Math.min(22, layout.cell * 0.5));
     let best = null;
     let bestDistance = Infinity;
 
@@ -2107,6 +2132,29 @@ const state = {
     ctx.font = "13px Inter, system-ui, sans-serif";
     ctx.fillStyle = "rgba(230, 255, 245, 0.38)";
     ctx.fillText("Add cards in Memory or Quick Add to see them here.", width / 2, centerY + 14);
+    ctx.restore();
+  }
+
+  function drawDotsScrollHint(layout, alpha, width, height) {
+    if (!layout || layout.empty || !layout.canScroll || alpha <= 0.01) return;
+    ctx.save();
+    ctx.globalAlpha = alpha * 0.85;
+    ctx.font = "600 11px Inter, system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const label = "\u2195 Scroll for more";
+    const boxWidth = ctx.measureText(label).width + 20;
+    const boxHeight = 22;
+    const boxX = width - boxWidth - 12;
+    const boxY = height - boxHeight - 10;
+    drawRoundedRect(ctx, boxX, boxY, boxWidth, boxHeight, 11);
+    ctx.fillStyle = "rgba(7, 18, 13, 0.88)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(44, 255, 179, 0.22)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = "rgba(230, 255, 245, 0.62)";
+    ctx.fillText(label, boxX + boxWidth / 2, boxY + boxHeight / 2 + 0.5);
     ctx.restore();
   }
 
@@ -2276,6 +2324,9 @@ const state = {
     if (chromeAlpha > 0.01) drawDotsSections(state.dotsLayout, chromeAlpha);
     if (chromeAlpha > 0.01 && (!state.dotsLayout || state.dotsLayout.empty)) {
       drawDotsEmpty(width, height, chromeAlpha, state.dotsLayout?.top || 0);
+    }
+    if (chromeAlpha > 0.01) {
+      drawDotsScrollHint(state.dotsLayout, chromeAlpha, width, height);
     }
 
     state.cardScene.forEach((scene) => {
@@ -3353,6 +3404,9 @@ const state = {
 
   function fitCameraToGraph() {
     if (state.sceneTransition) return;
+    // Dots targets are baked in screen space from the camera at entry. Letting
+    // the auto-fit keep running would slide the chart off its own layout.
+    if (state.viewMode === "dots") return;
     if (state.graph.nodes.size === 0 || state.userInteracted || !canvas) return;
 
     // Frame the knowledge graph only. Cards are satellites of their context,
@@ -4142,11 +4196,23 @@ const state = {
       };
 
       canvas.addEventListener("pointerdown", (e) => {
-        if (state.viewMode === "dots") return;
         if (e.pointerType === "mouse" && e.button !== 0 && e.button !== 1) return;
 
         canvas.setPointerCapture?.(e.pointerId);
         const point = canvasPoint(e);
+
+        if (state.viewMode === "dots") {
+          // Dots is a tall chart. One finger drags it vertically when the
+          // content overflows; taps still fall through to the click handler.
+          if (!state.dotsLayout?.canScroll) return;
+          activePointers.set(e.pointerId, point);
+          state.hasDragged = false;
+          state.isPanning = true;
+          state.panStartPos = point;
+          state.panLastPos = point;
+          return;
+        }
+
         activePointers.set(e.pointerId, point);
         state.hasDragged = false;
 
@@ -4210,7 +4276,10 @@ const state = {
 
         activePointers.set(e.pointerId, point);
 
+        if (state.viewMode === "dots" && activePointers.size > 1) return;
+
         if (activePointers.size >= 2 && pinchStart) {
+          if (state.viewMode === "dots") return;
           const [a, b] = Array.from(activePointers.values());
           const mid = pointerMidpoint(a, b);
           const nextZoom = Math.min(
@@ -4237,6 +4306,10 @@ const state = {
           state.panOffset.x += dx;
           state.panOffset.y += dy;
           state.panLastPos = point;
+          if (state.viewMode === "dots") {
+            state.panOffset.x -= dx;
+            clampDotsScroll();
+          }
         } else if (state.draggingNodeId) {
           if (Math.hypot(point.x - state.panStartPos.x, point.y - state.panStartPos.y) <= 3) return;
           state.hasDragged = true;
@@ -4265,7 +4338,10 @@ const state = {
 
       canvas.addEventListener("wheel", (e) => {
         e.preventDefault();
-        if (state.viewMode === "dots") return;
+        if (state.viewMode === "dots") {
+          scrollDots(e.deltaY);
+          return;
+        }
         state.userInteracted = true;
         const rect = canvas.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
