@@ -469,6 +469,109 @@
     max-width: 280px;
   }
 
+  /* Library toolbar */
+  .library-toolbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    max-width: 1600px;
+    margin: 0 auto 10px;
+    padding: 8px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 11px;
+    background: rgba(7, 18, 13, 0.9);
+  }
+
+  .library-search,
+  .library-sort {
+    min-height: 38px;
+    padding: 7px 11px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    background: rgba(10, 30, 22, 0.95);
+    color: var(--text-main);
+    font: inherit;
+    font-size: var(--text-sm, 0.87rem);
+  }
+
+  .library-search {
+    flex: 1 1 220px;
+    min-width: 0;
+  }
+
+  .library-search:focus,
+  .library-sort:focus {
+    outline: 2px solid rgba(44, 255, 179, 0.45);
+    outline-offset: 1px;
+  }
+
+  .library-toolbar .btn {
+    flex: 0 0 auto;
+    padding: 8px 12px;
+  }
+
+  .library-selection-count {
+    font-size: var(--text-xs, 0.82rem);
+    color: var(--text-muted);
+  }
+
+  /* Collapsible deck sections */
+  .mindmap-grid-subject-head {
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .mindmap-grid-subject-head:hover {
+    background: linear-gradient(90deg, rgba(255, 107, 107, 0.17), rgba(255, 107, 107, 0.03) 55%, transparent);
+  }
+
+  .mindmap-grid-deck-caret {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
+
+  .mindmap-grid-subject.collapsed .mindmap-grid-group {
+    display: none;
+  }
+
+  /* Multi-select */
+  .mindmap-grid-check {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 2;
+    width: 20px;
+    height: 20px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 6px;
+    background: rgba(7, 18, 13, 0.9);
+    color: #07120d;
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+
+  .mindmap-grid-view.selecting .mindmap-grid-check {
+    display: flex;
+  }
+
+  .mindmap-grid-view.selecting .mindmap-grid-card {
+    padding-left: 36px;
+  }
+
+  .mindmap-grid-card.multi-selected {
+    border-color: rgba(44, 255, 179, 0.75);
+    box-shadow: 0 0 0 2px rgba(44, 255, 179, 0.35);
+  }
+
+  .mindmap-grid-card.multi-selected .mindmap-grid-check {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
   /* Grid view */
   .mindmap-grid-view {
     position: absolute;
@@ -1794,6 +1897,21 @@
         </div>
         <span class="grid-legend-note">R = recall · A = accuracy · — = no data · hover a card for exact values</span>
       </div>
+      <div class="library-toolbar" id="libraryToolbar">
+        <input id="librarySearch" class="library-search" type="search" placeholder="Search cards, decks, tags…" aria-label="Search cards" autocomplete="off">
+        <select id="librarySort" class="library-sort" aria-label="Sort cards">
+          <option value="deck">Deck order</option>
+          <option value="title">Title A–Z</option>
+          <option value="priority-desc">Priority high–low</option>
+          <option value="priority-asc">Priority low–high</option>
+          <option value="recall-asc">Lowest recall</option>
+          <option value="accuracy-asc">Lowest accuracy</option>
+          <option value="updated-desc">Recently updated</option>
+        </select>
+        <button type="button" id="librarySelectToggle" class="btn" aria-pressed="false">Select</button>
+        <button type="button" id="libraryAddSelectedBtn" class="btn primary" disabled>Add selected to heap</button>
+        <span id="librarySelectionCount" class="library-selection-count" aria-live="polite"></span>
+      </div>
       <div class="library-heap-bar" id="libraryHeapBar">
         <div class="library-heap-bar-main">
           <label class="library-heap-label" for="libraryHeapSelect">Heap</label>
@@ -1801,7 +1919,6 @@
             <option value="">No heap selected</option>
           </select>
           <button type="button" id="newHeapBtn" class="btn">+ New Heap</button>
-          <button type="button" id="studyHeapBtn" class="btn primary" disabled>Study Heap</button>
           <button type="button" id="toggleHeapSidebarBtn" class="btn" aria-expanded="false">Heap (0)</button>
         </div>
         <div id="libraryHeapStatus" class="library-heap-status">Pick a heap, then add cards from the library.</div>

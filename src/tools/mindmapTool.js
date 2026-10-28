@@ -64,6 +64,11 @@ const state = {
     scopeNodeIds: new Set(),
     nodeVisibility: new Map(),
     cards: [],
+    librarySearch: "",
+    librarySort: "deck",
+    librarySelectMode: false,
+    selectedCardIds: new Set(),
+    collapsedDecks: new Set(),
     // Named, ordered card-ID lists. Heap content lives in the cards store;
     // these records are metadata only.
     heaps: [],
@@ -109,10 +114,13 @@ const state = {
   const connectNodesBtn = document.getElementById("connectNodesBtn");
   const newNodeDropdown = document.getElementById("newNodeDropdown");
   const libraryHeapBar = document.getElementById("libraryHeapBar");
+  const librarySearchInput = document.getElementById("librarySearch");
+  const librarySortSelect = document.getElementById("librarySort");
+  const librarySelectToggle = document.getElementById("librarySelectToggle");
+  const libraryAddSelectedBtn = document.getElementById("libraryAddSelectedBtn");
   const libraryHeapSelect = document.getElementById("libraryHeapSelect");
   const libraryHeapStatus = document.getElementById("libraryHeapStatus");
   const newHeapBtn = document.getElementById("newHeapBtn");
-  const studyHeapBtn = document.getElementById("studyHeapBtn");
   const toggleHeapSidebarBtn = document.getElementById("toggleHeapSidebarBtn");
   const libraryHeapSidebarName = document.getElementById("libraryHeapSidebarName");
   const libraryHeapSidebarMeta = document.getElementById("libraryHeapSidebarMeta");
@@ -1201,7 +1209,8 @@ const state = {
       deck,
       deckPath,
       order: Number.isFinite(Number(card?.order)) ? Number(card.order) : 0,
-      createdAt: Number(card?.createdAt) || 0
+      createdAt: Number(card?.createdAt) || 0,
+      updatedAt: Number(card?.updatedAt) || 0
     };
   }
 
@@ -1404,12 +1413,52 @@ const state = {
       .sort((a, b) => a.deck.localeCompare(b.deck, undefined, { sensitivity: "base" }));
   }
 
+  function matchesLibrarySearch(card, term) {
+    if (!term) return true;
+    const haystack = [
+      card.title,
+      card.preview,
+      card.deck,
+      ...(card.deckPath || []),
+      ...(card.tags || [])
+    ].join(" ").toLowerCase();
+    return haystack.includes(term);
+  }
+
+  function compareNullableAsc(a, b) {
+    const av = a === null || a === undefined ? Infinity : a;
+    const bv = b === null || b === undefined ? Infinity : b;
+    return av - bv;
+  }
+
+  function sortLibraryCards(cards) {
+    const sorted = [...cards];
+    switch (state.librarySort) {
+      case "priority-desc":
+        return sorted.sort((a, b) => (b.priority || 0) - (a.priority || 0) || a.title.localeCompare(b.title));
+      case "priority-asc":
+        return sorted.sort((a, b) => (a.priority || 99) - (b.priority || 99) || a.title.localeCompare(b.title));
+      case "recall-asc":
+        return sorted.sort((a, b) => compareNullableAsc(a.recall?.score, b.recall?.score) || a.title.localeCompare(b.title));
+      case "accuracy-asc":
+        return sorted.sort((a, b) => compareNullableAsc(a.accuracy, b.accuracy) || a.title.localeCompare(b.title));
+      case "updated-desc":
+        return sorted.sort((a, b) => b.updatedAt - a.updatedAt || a.title.localeCompare(b.title));
+      case "title":
+        return sorted.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }));
+      default:
+        return sorted.sort(compareCardBrowseOrder);
+    }
+  }
+
   function buildGridData() {
+    const term = state.librarySearch.trim().toLowerCase();
     return buildCardSections().map((section) => {
       // Deck sections are the primary grouping. When a deck carries a deeper
       // deckPath, preserve that hierarchy as sub-groups instead of flattening it.
+      const cards = sortLibraryCards(section.cards.filter((card) => matchesLibrarySearch(card, term)));
       const groupMap = new Map();
-      section.cards.forEach((card) => {
+      cards.forEach((card) => {
         const subPath = card.deckPath.slice(1).join(" › ");
         const groupName = subPath || "Cards";
         if (!groupMap.has(groupName)) groupMap.set(groupName, []);
@@ -1428,16 +1477,59 @@ const state = {
         deck: section.deck,
         groups,
         showGroupHeads: groups.length > 1 || (groups[0] && groups[0].name !== "Cards"),
-        count: section.count
+        count: cards.length
       };
-    });
+    }).filter((section) => section.groups.length > 0);
   }
 
   function syncGridSelection() {
     if (!gridContainer) return;
     gridContainer.querySelectorAll(".mindmap-grid-card").forEach((card) => {
       card.classList.toggle("selected", card.dataset.nodeId === state.selectedNodeId);
+      card.classList.toggle("multi-selected", state.selectedCardIds.has(card.dataset.nodeId));
     });
+    updateLibrarySelectionUI();
+  }
+
+  function updateLibrarySelectionUI() {
+    const selectedCount = state.selectedCardIds.size;
+    const countLabel = document.getElementById("librarySelectionCount");
+    const addButton = document.getElementById("libraryAddSelectedBtn");
+    if (countLabel) {
+      countLabel.textContent = selectedCount
+        ? `${selectedCount} selected`
+        : (state.librarySelectMode ? "Tap cards to select" : "");
+    }
+    if (addButton) {
+      addButton.disabled = selectedCount === 0;
+      addButton.textContent = selectedCount ? `Add ${selectedCount} to heap` : "Add selected to heap";
+    }
+    const toggleButton = document.getElementById("librarySelectToggle");
+    if (toggleButton) {
+      toggleButton.textContent = state.librarySelectMode ? "Done" : "Select";
+      toggleButton.setAttribute("aria-pressed", String(state.librarySelectMode));
+    }
+  }
+
+  function toggleLibraryCardSelection(cardId) {
+    if (!cardId) return;
+    if (state.selectedCardIds.has(cardId)) state.selectedCardIds.delete(cardId);
+    else state.selectedCardIds.add(cardId);
+    syncGridSelection();
+  }
+
+  async function addSelectedCardsToHeap() {
+    if (state.selectedCardIds.size === 0) return;
+    const heap = await ensureActiveHeap();
+    if (!heap) return;
+    const current = Array.isArray(heap.cardIds) ? heap.cardIds : [];
+    const additions = [...state.selectedCardIds].filter((id) => !current.includes(id));
+    if (additions.length) {
+      await saveHeapCardIds(heap, [...current, ...additions]);
+    }
+    state.selectedCardIds.clear();
+    state.librarySelectMode = false;
+    renderGrid();
   }
 
   function getActiveHeap() {
@@ -1615,7 +1707,6 @@ const state = {
       }
     }
 
-    if (studyHeapBtn) studyHeapBtn.disabled = availableCards.length === 0;
     if (toggleHeapSidebarBtn) {
       toggleHeapSidebarBtn.textContent = `Heap (${availableCards.length})`;
     }
@@ -1809,11 +1900,16 @@ const state = {
     renderHeapControls();
     const decks = buildGridData();
     updateStats();
+    gridView?.classList.toggle("selecting", state.librarySelectMode);
+    updateLibrarySelectionUI();
 
     if (!decks.length) {
-      const message = state.focusSubject
-        ? `No cards in ${state.focusSubject} yet. Add cards in Memory or Quick Add to fill this deck.`
-        : "No cards yet. Add cards in Memory or Quick Add to fill the grid.";
+      const term = state.librarySearch.trim();
+      const message = term
+        ? `No cards match “${term}”. Try a different search.`
+        : state.focusSubject
+          ? `No cards in ${state.focusSubject} yet. Add cards in Memory or Quick Add to fill this deck.`
+          : "No cards yet. Add cards in Memory or Quick Add to fill the grid.";
       gridContainer.innerHTML = `
         <div class="mindmap-grid-empty">
           <div class="mindmap-grid-empty-icon" aria-hidden="true">🃏</div>
@@ -1854,6 +1950,7 @@ const state = {
           const delay = Math.min(cardIndex * 16, 360);
           cardIndex += 1;
           const isSelected = state.selectedNodeId === card.id;
+          const isMultiSelected = state.selectedCardIds.has(card.id);
           const titleAttr = [
             card.deck,
             card.priority ? `Priority ${card.priority}` : "No priority data",
@@ -1867,7 +1964,8 @@ const state = {
           ].filter(Boolean).join(" · ");
 
           return `
-            <div class="mindmap-grid-card${isSelected ? " selected" : ""}${inHeap ? " in-heap" : ""}" role="button" tabindex="0" data-node-id="${escapeHtml(card.id)}" style="--importance-color: ${importanceColor}; animation-delay: ${delay}ms" title="${escapeHtml(titleAttr)}">
+            <div class="mindmap-grid-card${isSelected ? " selected" : ""}${isMultiSelected ? " multi-selected" : ""}${inHeap ? " in-heap" : ""}" role="button" tabindex="0" data-node-id="${escapeHtml(card.id)}"${state.librarySelectMode ? ` aria-pressed="${isMultiSelected}"` : ""} style="--importance-color: ${importanceColor}; animation-delay: ${delay}ms" title="${escapeHtml(titleAttr)}">
+              <span class="mindmap-grid-check" aria-hidden="true">\u2713</span>
               <button type="button" class="mindmap-grid-heap-btn${inHeap ? " in-heap" : ""}" data-heap-card-id="${escapeHtml(card.id)}" aria-pressed="${inHeap}" title="${inHeap ? "Remove from heap" : "Add to heap"}">${inHeap ? "\u2713 In Heap" : "+ Heap"}</button>
               <span class="mindmap-grid-card-top">
                 <span class="mindmap-grid-card-icon" aria-hidden="true">${card.icon}</span>
@@ -1899,10 +1997,12 @@ const state = {
         ? ` · ${section.groups.length} group${section.groups.length === 1 ? "" : "s"}`
         : "";
 
+      const isCollapsed = state.collapsedDecks.has(section.deck);
       return `
-        <section class="mindmap-grid-subject" style="animation-delay: ${Math.min(sectionIndex * 40, 200)}ms">
-          <header class="mindmap-grid-subject-head">
+        <section class="mindmap-grid-subject${isCollapsed ? " collapsed" : ""}" style="animation-delay: ${Math.min(sectionIndex * 40, 200)}ms">
+          <header class="mindmap-grid-subject-head" data-deck-toggle="${escapeHtml(section.deck)}" role="button" tabindex="0" aria-expanded="${!isCollapsed}">
             <span class="mindmap-grid-subject-dot" aria-hidden="true"></span>
+            <span class="mindmap-grid-deck-caret" aria-hidden="true">${isCollapsed ? "\u25b8" : "\u25be"}</span>
             <h3>${escapeHtml(section.deck)}</h3>
             <span class="mindmap-grid-subject-meta">${section.count} card${section.count === 1 ? "" : "s"}${groupMeta}</span>
           </header>
@@ -2648,6 +2748,10 @@ const state = {
     const changed = previousMode !== mode;
     state.viewMode = mode;
     updateContextualActions();
+    if (mode !== "grid") {
+      state.librarySelectMode = false;
+      state.selectedCardIds.clear();
+    }
 
     if (viewToggle) {
       viewToggle.querySelectorAll(".view-toggle-btn").forEach((button) => {
@@ -4351,10 +4455,34 @@ const state = {
     }
     relayoutGraphBtn?.addEventListener("click", relayoutGraph);
 
+    librarySearchInput?.addEventListener("input", () => {
+      state.librarySearch = librarySearchInput.value;
+      state.selectedCardIds.clear();
+      renderGrid();
+    });
+    librarySortSelect?.addEventListener("change", () => {
+      state.librarySort = librarySortSelect.value || "deck";
+      renderGrid();
+    });
+    librarySelectToggle?.addEventListener("click", () => {
+      state.librarySelectMode = !state.librarySelectMode;
+      if (!state.librarySelectMode) state.selectedCardIds.clear();
+      renderGrid();
+    });
+    libraryAddSelectedBtn?.addEventListener("click", addSelectedCardsToHeap);
+
     if (gridContainer) {
       gridContainer.addEventListener("click", async (e) => {
         if (performance.now() < ignoreCanvasClicksUntil) return;
         const target = e.target instanceof Element ? e.target : null;
+        const deckToggle = target?.closest("[data-deck-toggle]");
+        if (deckToggle) {
+          const deck = deckToggle.dataset.deckToggle;
+          if (state.collapsedDecks.has(deck)) state.collapsedDecks.delete(deck);
+          else state.collapsedDecks.add(deck);
+          renderGrid();
+          return;
+        }
         const heapBtn = target?.closest("[data-heap-card-id]");
         if (heapBtn) {
           e.preventDefault();
@@ -4364,6 +4492,10 @@ const state = {
         }
         const card = target?.closest(".mindmap-grid-card");
         if (!card?.dataset?.nodeId) return;
+        if (state.librarySelectMode) {
+          toggleLibraryCardSelection(card.dataset.nodeId);
+          return;
+        }
         openNodeSidebar(card.dataset.nodeId);
         if (window.__neuronetCanvas?.triggerRadialPulse) {
           window.__neuronetCanvas.triggerRadialPulse(e.clientX, e.clientY, 1.0);
@@ -4373,10 +4505,23 @@ const state = {
       gridContainer.addEventListener("keydown", (e) => {
         if (e.key !== "Enter" && e.key !== " ") return;
         const target = e.target instanceof Element ? e.target : null;
+        const deckToggle = target?.closest("[data-deck-toggle]");
+        if (deckToggle) {
+          e.preventDefault();
+          const deck = deckToggle.dataset.deckToggle;
+          if (state.collapsedDecks.has(deck)) state.collapsedDecks.delete(deck);
+          else state.collapsedDecks.add(deck);
+          renderGrid();
+          return;
+        }
         if (target?.closest("[data-heap-card-id]")) return;
         const card = target?.closest(".mindmap-grid-card");
         if (!card?.dataset?.nodeId) return;
         e.preventDefault();
+        if (state.librarySelectMode) {
+          toggleLibraryCardSelection(card.dataset.nodeId);
+          return;
+        }
         openNodeSidebar(card.dataset.nodeId);
       });
     }
@@ -4391,10 +4536,6 @@ const state = {
 
     if (newHeapBtn) {
       newHeapBtn.addEventListener("click", () => createHeap());
-    }
-
-    if (studyHeapBtn) {
-      studyHeapBtn.addEventListener("click", studyActiveHeap);
     }
 
     if (heapSidebarStudyBtn) {
