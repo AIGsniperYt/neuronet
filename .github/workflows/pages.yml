@@ -70,7 +70,9 @@ jobs:
       - name: Snapshot commit
         if: github.event_name == 'workflow_dispatch'
         id: snapshot
-        run: echo "sha=$(git -C snapshot rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "sha=$(git -C snapshot rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "date=$(git -C snapshot log -1 --format=%cI)" >> "$GITHUB_OUTPUT"
 
       - name: Build showcase
         id: build
@@ -82,6 +84,7 @@ jobs:
           DESCRIPTION: ${{ inputs.description }}
           REF: ${{ inputs.ref || 'main' }}
           COMMIT: ${{ steps.snapshot.outputs.sha || github.sha }}
+          COMMITTED_AT: ${{ steps.snapshot.outputs.date }}
         run: node workflow-src/scripts/build-showcase.mjs
 
       - name: Commit showcase branch

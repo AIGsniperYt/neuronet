@@ -5,7 +5,10 @@ at the site root; old builds live under `/showcase/<version>/`.
 
 - Latest app: <https://aigsniperyt.github.io/neuronet/>
 - Gallery: <https://aigsniperyt.github.io/neuronet/showcase/>
-- Snapshots: `/showcase/v9/`, `/showcase/v8/`, `/showcase/v5/`, ...
+- Snapshots: `/showcase/v0/` through `/showcase/v9/`
+
+The gallery is ordered by the snapshot commit date, not by version number. The
+numbers are not chronological: v6 and v7 landed before v2.
 
 ## How multiple versions fit on one site
 
@@ -14,9 +17,16 @@ GitHub Pages serves one static site. The deploy job puts two things in it:
 ```text
 /                       latest app from main
 /showcase/              gallery (index.html + versions.json)
-/showcase/v9/           frozen copy of v9
-/showcase/v8/           frozen copy of v8
+/showcase/v0/           frozen copy of v0
+/showcase/v1/           frozen copy of v1
+/showcase/v6/           frozen copy of v6
+/showcase/v7/           frozen copy of v7
+/showcase/v2/           frozen copy of v2
+/showcase/v3/           frozen copy of v3
+/showcase/v4/           frozen copy of v4
 /showcase/v5/           frozen copy of v5
+/showcase/v8/           frozen copy of v8
+/showcase/v9/           frozen copy of v9
 ```
 
 Each snapshot is a complete copy of the app at that ref, not an iframe or a
@@ -35,7 +45,7 @@ name:
 - Latest app: `neuronet-v9`
 - v9 snapshot: `neuronet-showcase-v9`
 - v8 snapshot: `neuronet-showcase-v8`
-- v5 snapshot: `neuronet-showcase-v5`
+- v0 snapshot: `neuronet-showcase-v0`
 
 Nothing is shared between them. Importing, deleting, or studying in one version
 does not touch another version or the latest app.
@@ -67,7 +77,8 @@ For a manual snapshot run:
    - copy `demo-data.json` if the snapshot does not already have one,
    - generate `showcase-seed.js` and add it to the snapshot's `index.html`,
    - write `showcase-meta.json`,
-   - update `versions.json` and regenerate the gallery.
+   - update `versions.json`, record the snapshot commit date, and regenerate
+     the gallery in chronological order.
 6. Commit the result to `showcase`.
 7. Assemble the Pages artifact: latest app at the root, `showcase/` copied to
    `/showcase/`.
@@ -120,6 +131,11 @@ Use the GitHub website; no local checkout is required.
 | `label` | Card title in the gallery | `v10 — card-first` |
 | `description` | One-line card description | `Cards, heaps, and the new graph.` |
 
+The workflow reads the snapshot commit date automatically. That date is stored
+as `committedAt` in `versions.json` and used to sort the gallery. Labels,
+descriptions, and feature bullets for known versions live in `VERSION_META` in
+`scripts/build-showcase.mjs`; workflow inputs override the label and description.
+
 6. Run it and wait for the Pages deployment to finish. Propagation usually
    takes 30–90 seconds, but Pages can cache for up to about 10 minutes.
 
@@ -158,9 +174,8 @@ SHOWCASE_DIR=/tmp/neuronet-showcase \
 SNAPSHOT_DIR=/tmp/neuronet-v8 \
 VERSION=v8 \
 REF=v8 \
-COMMIT="$(git -C /tmp/neuronet-v8 rev-parse --short HEAD)" \
-LABEL="Pre-card-first UI" \
-DESCRIPTION="The last build before cards became the study unit." \
+COMMIT="$(git -C /tmp/neuronet-v8 rev-parse HEAD)" \
+COMMITTED_AT="$(git -C /tmp/neuronet-v8 log -1 --format=%cI)" \
 node scripts/build-showcase.mjs
 ```
 
@@ -181,7 +196,8 @@ logs `[showcase] demo seed skipped: ...` if seeding could not run.
 
 ## Files
 
-- `scripts/build-showcase.mjs` — copy, patch, seed, gallery, `versions.json`.
+- `scripts/build-showcase.mjs` — copy, patch, seed, gallery, `versions.json`,
+  and the per-version labels/features in `VERSION_META`.
 - `scripts/showcase-seed.template.js` — browser-side seed script template.
 - `.github/workflows/pages.yml` — deploy and manual snapshot workflow.
 - `demo-data.json` — canonical demo dataset.
