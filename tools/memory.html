@@ -3553,8 +3553,34 @@
     .deck-sidebar,
     .deck-main-area { width: 100%; min-width: 0; }
     .deck-sidebar { max-height: 28dvh; }
-    #memoryStats { top: 0; left: 0; bottom: 0; width: 100%; max-width: 100%; border-left: 0; }
     .builder-sticky-actions { flex-wrap: wrap; gap: 8px; padding-inline: 8px; }
     .builder-sticky-actions > div { display: flex; flex-wrap: wrap; gap: 8px; }
+  }
+
+  /* A coarse-pointer tablet (iPad) matches the touch rules above even when it
+     has plenty of width. The stats panel is a side drawer there, not a phone
+     sheet, so keep it at the desktop width and anchor it to the right instead
+     of covering the whole study area. */
+  @media (min-width: 701px) and (pointer: coarse) and (hover: none) {
+    #memoryStats {
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: auto;
+      width: min(360px, 46vw);
+      max-width: 420px;
+      border-left: 1px solid var(--glass-border);
+    }
+  }
+
+  @media (max-width: 700px) {
+    #memoryStats {
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 100%;
+      max-width: 100%;
+      border-left: 0;
+    }
   }
 </style>
