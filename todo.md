@@ -238,3 +238,53 @@ P0 correctness first, then layout, then visual engine. One task per commit. The 
 - **Dots overflow:** a true fit/scroll solution needs a design decision (scale vs scroll vs paginate). I will implement a safe fallback for now and flag the design choice.
 - **Testing:** I am not building a new test framework. I will use `node --check` and the existing `tests/run.mjs` where relevant.
 - **Existing uncommitted files** (`.github/workflows/pages.yml`, `scripts/build-showcase.mjs`, `SNAPSHOTS.md`, `scripts/showcase-seed.template.js`) are unrelated and will stay out of Mindmap commits.
+
+---
+
+# Implementation log (Mindmap cleanup pass)
+
+One task per commit, oldest first. Commits stay local; nothing was pushed.
+
+## Done
+
+1. **Block cards from Connect Nodes.** Cards can no longer enter connection mode or `breakLink()`, because the old generic path would have copied a card into the `nodes` store. The connect banner also resolves its title correctly.
+2. **Escape connection titles/IDs.** The connection list no longer injects raw node text into `innerHTML`.
+3. **Preserve positions; explicit Re-layout.** A database refresh keeps every existing knowledge-node position. Only genuinely new nodes are seeded. `Re-layout` clears pins and the camera, then replays the explosion.
+4. **Pointer and touch gestures.** One pointer drags a node (with a correct grab offset) or pans; two pointers pinch-zoom; pointer capture plus `pointerup`/`pointercancel` prevents stuck gestures; a dragged node stays pinned; `touch-action: none` and selection/callout suppression are on the canvas.
+5. **Dots for large decks.** Wheel and one-finger vertical drag scroll an overflowing Dots chart, with a scroll hint, clamped bounds, and larger invisible hit targets for touch.
+6. **Real metadata.** References resolve to titles, `quoteRefs`/`links`/`manualLinks`/source/cue IDs are shown, `lastGrade` is included, and arrays/objects are printed in full instead of `[n items]`.
+7. **One tabbed inspector.** `Details / Connections / Heap` in a single panel, one panel open at a time, heap integrated, no second sidebar or `heap-open` layout hack.
+8. **Contextual toolbar.** `Connect Nodes`, `Re-layout`, and `New Node` only appear in Graph view; entering another view cancels connection mode.
+9. **Heap reorder.** Pointer drag handle, optimistic local order, debounced save, suppressed self-triggered DB refresh, stable heap select ordering, and no full-grid rerender per reorder.
+10. **Library tools.** Search, sort, collapsible deck sections, multi-select, and “Add selected to heap”.
+11. **Graph tools.** Node search, type filter, legend, and a Fit button. Filtered nodes stop being hit targets, and Fit frames only matching nodes.
+12. **Accessibility/polish.** Canvas role/label/keyboard pan-zoom, tab roving focus, focus restoration on inspector close, reduced-motion handling, thin visible scrollbars, focus outlines.
+13. **DPR rendering.** Canvas backing store scales up to 2x while all layout/hit-test math stays in CSS pixels.
+14. **Performance cleanup.** Removed the no-op profiler and dead `QuadTree`; edge de-dupe is now a Set; subject/tag lookups are maps; hierarchy level is memoised; `getAllItems()`/`findItemById()` are cached; stats/empty-state DOM writes no longer run every frame.
+
+Verified with `node --check src/tools/mindmapTool.js` and the existing `node tests/run.mjs` (88 assertions passing). This is not a substitute for a real iPad pass.
+
+## Deliberately not done
+
+- Card-to-card links (separate model debate).
+- Authored tree/star layout and saved layout snapshots.
+- Terminology rename (`subject`/`deck`/`library`/`heap`).
+- A proper create-node form; creation still uses the existing prompt flow and should move to the owning tool.
+- Splitting `mindmapTool.js` / `mindmap.html` into modules and a CSS file.
+- A new test framework or new automated tests.
+
+## Doubts and handoff notes
+
+- **Positions are still session-only.** Refreshing keeps an arrangement; reloading the tool does not. Persisting belongs in `meta` or a separate layout store, not in the renderer.
+- **Pins are permanent until Re-layout.** Dragging a node now deliberately locks it. There is no per-node “unpin” control yet.
+- **DPR invariant.** All canvas geometry must use `viewWidth()` / `viewHeight()` (CSS pixels) from now on. `canvas.width` / `canvas.height` are the scaled backing store.
+- **Pinch edge case.** After a two-finger pinch, lifting one finger leaves the remaining finger inert until it is pressed again. This is intentional to avoid an accidental drag, but it needs an iPad check.
+- **Filter vs physics.** Search/type filters change visibility and hit-testing, but hidden nodes still take part in force simulation. That keeps the arrangement stable; it may feel odd if a large hidden cluster keeps pushing visible nodes.
+- **Heap save failure.** Reorders are optimistic. On a failed write the UI alerts but does not roll back to the persisted order yet.
+- **Heap inspector freshness.** Switching or deleting the active heap while the Heap tab is open can leave the panel showing the previous heap until it is reopened.
+- **Toolbar discoverability.** “Study Heap” now lives only in the Heap tab, so the bar is less crowded but the action is one step deeper.
+- **Desktop focus change.** Opening a card inspector moves focus to the inspector. Escape closes it and restores focus to the card. Worth checking that this does not feel abrupt with a mouse.
+- **CSS is still two style blocks.** The second block is now layout/responsive/inspector polish rather than a competing sidebar override. It was safer to keep it during the refactor; splitting it is a separate cleanup.
+- **Grid markup.** A card is still a `div role="button"` containing a real “+ Heap” button. It works, but it is not ideal ARIA nesting.
+- **Contrast and touch target audit.** Some 0.82rem muted labels and small icon buttons were not individually re-measured.
+- **No manual device test.** Pointer, pinch, DPR, and iOS scroll containment need verification on the actual target iPad before this is called finished.
