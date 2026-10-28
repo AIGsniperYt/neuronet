@@ -1235,6 +1235,17 @@
     color: var(--text-muted);
   }
 
+  .library-heap-empty p {
+    margin: 0 0 12px;
+  }
+
+  .library-heap-empty-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+  }
+
   .library-heap-item {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
@@ -1844,11 +1855,17 @@
     font-weight: 600;
     cursor: pointer;
     white-space: nowrap;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
 
   .inspector-tab:hover {
     color: var(--text-main);
     background: rgba(255, 255, 255, 0.05);
+  }
+
+  .inspector-tab:active {
+    background: rgba(44, 255, 179, 0.18);
   }
 
   .inspector-tab.active {
@@ -2209,6 +2226,7 @@
       </section>
 
       <section class="inspector-panel" id="inspectorPanelConnections" data-inspector-panel="connections" role="tabpanel" aria-labelledby="inspectorTabConnections" hidden>
+        <div id="connectionsEmpty" class="inspector-empty" hidden></div>
         <div id="connectionsContainer" class="connections-list">
           <div class="connections-header" id="connectionsHeader">
             <span>Connections (<span id="connectionCount">0</span>)</span>

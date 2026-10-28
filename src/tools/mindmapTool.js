@@ -1804,10 +1804,15 @@ const state = {
     } else if (nextTab === "connections" && !hasSelection) {
       const container = document.getElementById("connectionsContainer");
       const items = document.getElementById("connectionsItems");
+      const empty = document.getElementById("connectionsEmpty");
       const count = document.getElementById("connectionCount");
       const tabCount = document.getElementById("connectionTabCount");
       if (container) container.hidden = true;
       if (items) items.innerHTML = "";
+      if (empty) {
+        empty.hidden = false;
+        empty.textContent = "Select a node or card to see its connections.";
+      }
       if (count) count.textContent = "0";
       if (tabCount) tabCount.textContent = "0";
       updateInspectorHeader();
@@ -1866,9 +1871,20 @@ const state = {
 
     if (libraryHeapItems) {
       libraryHeapItems.innerHTML = !heap
-        ? `<div class="library-heap-empty">No heap selected.</div>`
+        ? `<div class="library-heap-empty">
+             <p>No heap selected. Create one to collect cards in study order.</p>
+             <div class="library-heap-empty-actions">
+               <button type="button" class="btn primary" data-heap-empty-action="new">New heap</button>
+               <button type="button" class="btn" data-heap-empty-action="browse">Browse Library</button>
+             </div>
+           </div>`
         : availableCards.length === 0
-          ? `<div class="library-heap-empty">This heap is empty. Hover a card and use <strong>+ Heap</strong> to add it.</div>`
+          ? `<div class="library-heap-empty">
+               <p>This heap is empty. Add cards with <strong>+ Heap</strong> in the Library.</p>
+               <div class="library-heap-empty-actions">
+                 <button type="button" class="btn" data-heap-empty-action="browse">Browse Library</button>
+               </div>
+             </div>`
           : availableCards.map((card, index) => `
               <div class="library-heap-item" data-heap-item-id="${escapeHtml(card.id)}">
                 <span class="heap-drag-handle" data-heap-drag-handle title="Drag to reorder" aria-hidden="true">\u2630</span>
@@ -3107,13 +3123,20 @@ const state = {
       metaContent.textContent = formatMetadataHumanReadable(selectedItem);
     }
 
-    // Render Connections. Cards are not part of the knowledge graph, so hide
-    // the section entirely instead of leaving a stale previous selection.
+    // Render Connections. Cards are not part of the knowledge graph, so there
+    // is no connection list to show; explain that instead of leaving a blank
+    // panel that looks broken on a touch device.
     const connectionsContainer = document.getElementById("connectionsContainer");
+    const connectionsEmpty = document.getElementById("connectionsEmpty");
     const connectionsItems = document.getElementById("connectionsItems");
     const connectionCount = document.getElementById("connectionCount");
     const connectionTabCount = document.getElementById("connectionTabCount");
     const graphNode = state.graph.nodes.get(selectedItem.id);
+    const setConnectionsEmpty = (message) => {
+      if (!connectionsEmpty) return;
+      connectionsEmpty.hidden = !message;
+      connectionsEmpty.textContent = message || "";
+    };
 
     if (connectionsContainer) connectionsContainer.hidden = !graphNode;
 
@@ -3122,11 +3145,17 @@ const state = {
         connectionCount.textContent = "0";
         if (connectionTabCount) connectionTabCount.textContent = "0";
         connectionsItems.innerHTML = "";
+        setConnectionsEmpty(isCard
+          ? "Cards do not have graph connections yet. Open the source, quote, or analysis they belong to, or connect knowledge nodes in Graph view."
+          : "This item has no graph connections yet. Use Connect Nodes in Graph view to link it.");
       } else {
         const neighbors = Array.from(graphNode.connections);
         connectionCount.textContent = neighbors.length;
         if (connectionTabCount) connectionTabCount.textContent = String(neighbors.length);
         connectionsItems.innerHTML = "";
+        setConnectionsEmpty(neighbors.length === 0
+          ? "No connections yet. Select Connect Nodes in Graph view, then tap this node and a target node to link them."
+          : "");
 
         neighbors.forEach(neighborId => {
           const neighbor = findItemById(neighborId);
@@ -5036,6 +5065,16 @@ const state = {
     if (libraryHeapItems) {
       libraryHeapItems.addEventListener("click", async (e) => {
         const target = e.target instanceof Element ? e.target : null;
+        const emptyAction = target?.closest("[data-heap-empty-action]")?.dataset.heapEmptyAction;
+        if (emptyAction === "new") {
+          await createHeap();
+          return;
+        }
+        if (emptyAction === "browse") {
+          closeSidebar();
+          setViewMode("grid");
+          return;
+        }
         const actionBtn = target?.closest("[data-heap-action]");
         if (!actionBtn || actionBtn.disabled) return;
         const cardId = actionBtn.dataset.heapCardId;
