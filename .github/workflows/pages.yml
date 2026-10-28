@@ -1,18 +1,36 @@
-name: Deploy frontend to GitHub Pages
+name: Deploy NeuroNet showcase
 
 on:
   push:
     branches: [main]
+    tags: ["demo-*"]
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag, or commit to snapshot (e.g. main, v8, demo-v10)"
+        required: true
+        default: "main"
+      version:
+        description: "Folder name for the snapshot (e.g. v9). Leave blank to auto-detect."
+        required: false
+        default: ""
+      label:
+        description: "Display label for the gallery card"
+        required: false
+        default: ""
+      description:
+        description: "Short description for the gallery card"
+        required: false
+        default: ""
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -21,16 +39,76 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout latest app
         uses: actions/checkout@v4
+        with:
+          ref: main
+          path: dist
+          fetch-depth: 1
 
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
+      - name: Checkout workflow scripts
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: workflow-src
+          fetch-depth: 1
+
+      - name: Checkout showcase branch
+        uses: actions/checkout@v4
+        with:
+          ref: showcase
+          path: showcase
+          fetch-depth: 1
+
+      - name: Checkout snapshot
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+          path: snapshot
+          fetch-depth: 1
+
+      - name: Snapshot commit
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+        id: snapshot
+        run: echo "sha=$(git -C snapshot rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Build showcase
+        id: build
+        env:
+          SNAPSHOT_DIR: snapshot
+          SHOWCASE_DIR: showcase
+          VERSION: ${{ inputs.version }}
+          LABEL: ${{ inputs.label }}
+          DESCRIPTION: ${{ inputs.description }}
+          REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref_name }}
+          COMMIT: ${{ steps.snapshot.outputs.sha || github.sha }}
+        run: node workflow-src/scripts/build-showcase.mjs
+
+      - name: Commit showcase branch
+        working-directory: showcase
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No showcase changes"
+            exit 0
+          fi
+          git commit -m "showcase: update ${{ steps.build.outputs.version || 'gallery' }}"
+          git push origin HEAD:showcase
+
+      - name: Assemble site
+        run: |
+          rm -rf dist/.git dist/.github dist/scripts dist/tests dist/docs dist/todo.md dist/node_modules
+          rm -rf showcase/.git
+          cp -R showcase dist/showcase
+          touch dist/.nojekyll
 
       - name: Upload site
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: dist
 
       - name: Deploy to Pages
         id: deployment
