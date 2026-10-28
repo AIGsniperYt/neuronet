@@ -155,6 +155,143 @@ const state = {
   let headerResizeObserver = null;
   let inspectorReturnFocus = null;
 
+  // Persist the user's arrangement locally. The key is scoped to the signed-in
+  // account (or the local database when signed out) so two people sharing a
+  // browser do not inherit each other's camera and node positions.
+  const LAYOUT_STORAGE_PREFIX = "nn-mindmap-layout-v1";
+  let layoutSaveTimer = 0;
+  let layoutDirty = false;
+  let positionsStable = false;
+
+  function layoutStorageKey() {
+    const owner = window.currentUser?.id || window.currentUser?.email || "local";
+    return `${LAYOUT_STORAGE_PREFIX}:${owner}`;
+  }
+
+  function readPersistedLayout() {
+    try {
+      const raw = localStorage.getItem(layoutStorageKey());
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function applyPersistedLayout(saved) {
+    if (!saved) return false;
+
+    if (saved.positions && typeof saved.positions === "object") {
+      Object.entries(saved.positions).forEach(([id, point]) => {
+        const x = Array.isArray(point) ? Number(point[0]) : Number(point?.x);
+        const y = Array.isArray(point) ? Number(point[1]) : Number(point?.y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+        state.nodePositions.set(id, { x, y });
+      });
+      if (state.nodePositions.size > 0) {
+        positionsStable = true;
+        // A restored arrangement is deliberate. Pin those nodes so the force
+        // simulation cannot slowly drift the saved layout away from the user's
+        // chosen positions. Re-layout clears the pins and explodes afresh.
+        state.nodePositions.forEach((_, id) => state.lockedNodes.add(id));
+      }
+    }
+
+    const camera = saved.camera;
+    if (camera && Number.isFinite(Number(camera.zoom))) {
+      state.zoom = Math.min(3, Math.max(0.25, Number(camera.zoom)));
+      state.panOffset = {
+        x: Number(camera.x) || 0,
+        y: Number(camera.y) || 0
+      };
+      // A restored camera is an explicit view choice. Do not let auto-fit
+      // immediately override it on load.
+      state.userInteracted = true;
+    }
+
+    const hasViewContext = contextView === "grid" || Boolean(contextHeapId);
+    if (!hasViewContext && ["graph", "dots", "grid"].includes(saved.viewMode)) {
+      state.viewMode = saved.viewMode;
+    }
+
+    const validFilters = ["all", "subject", "layer", "source", "quote", "analysis", "cue", "tag", "card"];
+    if (validFilters.includes(saved.graphTypeFilter)) {
+      state.graphTypeFilter = saved.graphTypeFilter;
+      if (graphTypeFilter) graphTypeFilter.value = saved.graphTypeFilter;
+    }
+
+    if (!contextSubject && typeof saved.focusSubject === "string" && saved.focusSubject.trim()) {
+      state.focusSubject = saved.focusSubject.trim();
+    }
+
+    return true;
+  }
+
+  function serializeLayout() {
+    const positions = {};
+    state.nodePositions.forEach((point, id) => {
+      if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
+      positions[id] = [Math.round(point.x * 10) / 10, Math.round(point.y * 10) / 10];
+    });
+
+    return {
+      version: 1,
+      // Only persist an arrangement once it has settled (or the user has
+      // arranged it), never the first frames of an explosion.
+      positions: positionsStable ? positions : null,
+      camera: state.userInteracted
+        ? { zoom: Math.round(state.zoom * 1000) / 1000, x: state.panOffset.x, y: state.panOffset.y }
+        : null,
+      viewMode: state.viewMode,
+      graphTypeFilter: state.graphTypeFilter,
+      focusSubject: state.focusSubject || null
+    };
+  }
+
+  function saveLayoutNow() {
+    if (layoutSaveTimer) {
+      clearTimeout(layoutSaveTimer);
+      layoutSaveTimer = 0;
+    }
+    if (state.nodePositions.size === 0) return;
+    try {
+      localStorage.setItem(layoutStorageKey(), JSON.stringify(serializeLayout()));
+      layoutDirty = false;
+    } catch (_) {
+      // Private mode / quota failures must never break the graph.
+    }
+  }
+
+  function scheduleLayoutSave(delay = 700) {
+    layoutDirty = true;
+    if (layoutSaveTimer) return;
+    layoutSaveTimer = setTimeout(() => {
+      layoutSaveTimer = 0;
+      saveLayoutNow();
+    }, delay);
+  }
+
+  let layoutSettleTimer = 0;
+  function markLayoutUnstable(delay = 3500) {
+    positionsStable = false;
+    if (layoutSettleTimer) clearTimeout(layoutSettleTimer);
+    layoutSettleTimer = setTimeout(() => {
+      layoutSettleTimer = 0;
+      positionsStable = true;
+      scheduleLayoutSave(200);
+    }, delay);
+  }
+
+  function markLayoutStable() {
+    if (layoutSettleTimer) {
+      clearTimeout(layoutSettleTimer);
+      layoutSettleTimer = 0;
+    }
+    positionsStable = true;
+    scheduleLayoutSave(300);
+  }
+
   const config = {
     nodeRadius: 8,
     nodeHoverRadius: 12,
@@ -1200,17 +1337,23 @@ const state = {
       seen.add(card.id);
       let scene = state.cardScene.get(card.id);
       if (!scene) {
+        // A persisted (or otherwise pre-seeded) position is a plain point in
+        // nodePositions. Hydrate the scene from it before replacing the entry,
+        // otherwise restoring a layout would discard every card position.
+        const savedPoint = state.nodePositions.get(card.id);
+        const hasSavedPoint = Boolean(savedPoint &&
+          Number.isFinite(savedPoint.x) && Number.isFinite(savedPoint.y));
         scene = {
           isCardScene: true,
           id: card.id,
           card,
           item: null,
-          x: NaN,
-          y: NaN,
-          homeX: 0,
-          homeY: 0,
-          homeValid: false,
-          seeded: false,
+          x: hasSavedPoint ? savedPoint.x : NaN,
+          y: hasSavedPoint ? savedPoint.y : NaN,
+          homeX: hasSavedPoint ? savedPoint.x : 0,
+          homeY: hasSavedPoint ? savedPoint.y : 0,
+          homeValid: hasSavedPoint,
+          seeded: hasSavedPoint,
           anchorIds: [],
           dotSection: -1,
           dotGroup: 0,
@@ -1253,8 +1396,8 @@ const state = {
   // their session position; only the one-time home snapshot is used by the
   // Dots return trip.
   function seedCardScenePositions() {
-    const width = canvas?.width || canvas?.parentElement?.clientWidth || 800;
-    const height = canvas?.height || canvas?.parentElement?.clientHeight || 600;
+    const width = canvas?.parentElement?.clientWidth || viewWidth() || 800;
+    const height = canvas?.parentElement?.clientHeight || viewHeight() || 600;
     const fallback = { x: width / 2, y: height / 2 };
     let index = 0;
 
@@ -2790,6 +2933,7 @@ const state = {
       updateEmptyState();
     }
     updateStats();
+    scheduleLayoutSave();
   }
 
   function renderSidebar(selectedItem) {
@@ -3450,13 +3594,14 @@ const state = {
   function updatePositionsWithPhysics(forces) {
     const positions = state.nodePositions;
     const velocities = state.velocities;
+    let moved = false;
 
     // Custom damping and velocity limits for our dynamic fractal engine
     // Lower damping (more friction) to prevent bouncing, allowing a soft settling
     const damping = 0.78;
     const maxVelocity = 20;
-    const width = canvas?.width || canvas?.parentElement?.clientWidth || 800;
-    const height = canvas?.height || canvas?.parentElement?.clientHeight || 600;
+    const width = viewWidth();
+    const height = viewHeight();
     const centerX = width / 2;
     const centerY = height / 2;
 
@@ -3472,8 +3617,11 @@ const state = {
       // The focused subject is the visual anchor: it glides to the exact
       // centre and then stays there while its cluster settles around it.
       if (id === state.focusSubjectId) {
-        pos.x += (centerX - pos.x) * 0.14;
-        pos.y += (centerY - pos.y) * 0.14;
+        const dx = (centerX - pos.x) * 0.14;
+        const dy = (centerY - pos.y) * 0.14;
+        pos.x += dx;
+        pos.y += dy;
+        if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) moved = true;
         if (Math.abs(centerX - pos.x) < 0.1) pos.x = centerX;
         if (Math.abs(centerY - pos.y) < 0.1) pos.y = centerY;
         velocities.set(id, { x: 0, y: 0 });
@@ -3505,9 +3653,12 @@ const state = {
 
       pos.x += vel.x;
       pos.y += vel.y;
+      if (Math.abs(vel.x) > 0.01 || Math.abs(vel.y) > 0.01) moved = true;
 
       velocities.set(id, vel);
     });
+
+    if (moved) layoutDirty = true;
   }
 
   // Hierarchy level is immutable for a graph node and is read several times
@@ -3785,10 +3936,12 @@ const state = {
     }
     updateStats();
     updateEmptyState();
+    scheduleLayoutSave();
   }
 
   let frameCount = 0;
   let rafId = 0;
+  let lastLayoutSaveAt = 0;
   function tick() {
     const now = performance.now();
     if (state.viewMode === "graph" || state.viewMode === "dots") {
@@ -3812,6 +3965,10 @@ const state = {
         updateNodeVisibility();
         fitCameraToGraph();
         renderScene(now);
+        if (layoutDirty && !layoutSaveTimer && now - lastLayoutSaveAt > 3000) {
+          lastLayoutSaveAt = now;
+          saveLayoutNow();
+        }
       } else {
         renderScene(now);
       }
@@ -4550,12 +4707,14 @@ const state = {
         case "F":
           state.userInteracted = false;
           e.preventDefault();
+          scheduleLayoutSave(400);
           return;
         default:
           return;
       }
       e.preventDefault();
       state.userInteracted = true;
+      scheduleLayoutSave(400);
     });
 
     librarySearchInput?.addEventListener("input", () => {
@@ -4811,6 +4970,7 @@ const state = {
       };
 
       const finishGesture = (e, cancelled = false) => {
+        const wasDragging = Boolean(state.draggingNodeId);
         activePointers.delete(e.pointerId);
         if (activePointers.size < 2) pinchStart = null;
         if (activePointers.size === 0) {
@@ -4822,6 +4982,9 @@ const state = {
         }
         if (cancelled) state.hasDragged = true;
         releasePointer(e);
+        // A deliberate drag is a layout the user chose; persist it now.
+        if (wasDragging) markLayoutStable();
+        else scheduleLayoutSave(400);
       };
 
       canvas.addEventListener("pointerdown", (e) => {
@@ -4985,6 +5148,7 @@ const state = {
         state.panOffset.x = mouseX - viewWidth() / 2 - (worldX - viewWidth() / 2) * newZoom;
         state.panOffset.y = mouseY - viewHeight() / 2 - (worldY - viewHeight() / 2) * newZoom;
         state.zoom = newZoom;
+        scheduleLayoutSave(400);
       }, { passive: false });
     }
 
@@ -5189,6 +5353,12 @@ const state = {
 
   window.addEventListener("resize", handleResize);
   document.addEventListener("db-change", handleDBChange);
+  const handlePageHide = () => saveLayoutNow();
+  window.addEventListener("pagehide", handlePageHide);
+
+  // Restore before the first data refresh so buildGraph and the radial layout
+  // treat the saved points as the existing arrangement instead of re-seeding.
+  applyPersistedLayout(readPersistedLayout());
 
   await refreshData();
 
@@ -5196,6 +5366,7 @@ const state = {
   if (container) {
     initializePositions(container.clientWidth, container.clientHeight);
   }
+  if (!positionsStable) markLayoutUnstable(4500);
 
   syncHeaderHeight();
   if (typeof ResizeObserver === "function") {
@@ -5238,11 +5409,17 @@ const state = {
   window.__neuronetMindmapSetSubject = setSubjectHandler;
 
   window.__neuronetMindmapCleanup = () => {
+    saveLayoutNow();
     state.simulationRunning = false;
     if (rafId) cancelAnimationFrame(rafId);
+    if (layoutSettleTimer) {
+      clearTimeout(layoutSettleTimer);
+      layoutSettleTimer = 0;
+    }
     document.removeEventListener("db-change", handleDBChange);
     document.removeEventListener("keydown", handleSidebarEscape);
     window.removeEventListener("resize", handleResize);
+    window.removeEventListener("pagehide", handlePageHide);
     headerResizeObserver?.disconnect();
     headerResizeObserver = null;
     if (window.__neuronetMindmapSetSubject === setSubjectHandler) {
