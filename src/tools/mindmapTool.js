@@ -268,112 +268,6 @@ const state = {
       : 1 - Math.pow(-2 * t + 2, 3) / 2;
   }
 
-  // QuadTree implementation for efficient spatial indexing
-  class QuadTree {
-    constructor(boundary, capacity = 4) {
-      this.boundary = boundary;
-      this.capacity = capacity;
-      this.points = [];
-      this.divided = false;
-      this.northeast = null;
-      this.northwest = null;
-      this.southeast = null;
-      this.southwest = null;
-    }
-
-    insert(point) {
-      if (!this.contains(this.boundary, point)) return false;
-      if (this.points.length < this.capacity) {
-        this.points.push(point);
-        return true;
-      }
-      if (!this.divided) this.subdivide();
-      if (this.northeast.insert(point)) return true;
-      if (this.northwest.insert(point)) return true;
-      if (this.southeast.insert(point)) return true;
-      if (this.southwest.insert(point)) return true;
-      return false;
-    }
-
-    contains(boundary, point) {
-      return (
-        point.x >= boundary.x &&
-        point.x < boundary.x + boundary.w &&
-        point.y >= boundary.y &&
-        point.y < boundary.y + boundary.h
-      );
-    }
-
-    subdivide() {
-      const { x, y, w, h } = this.boundary;
-      const halfW = w / 2;
-      const halfH = h / 2;
-      const ne = { x: x + halfW, y: y, w: halfW, h: halfH };
-      this.northeast = new QuadTree(ne, this.capacity);
-      const nw = { x: x, y: y, w: halfW, h: halfH };
-      this.northwest = new QuadTree(nw, this.capacity);
-      const se = { x: x + halfW, y: y + halfH, w: halfW, h: halfH };
-      this.southeast = new QuadTree(se, this.capacity);
-      const sw = { x: x, y: y + halfH, w: halfW, h: halfH };
-      this.southwest = new QuadTree(sw, this.capacity);
-      this.divided = true;
-    }
-
-    query(range, found = []) {
-      if (!this.intersects(this.boundary, range)) return found;
-      for (const p of this.points) {
-        if (this.contains(range, p)) found.push(p);
-      }
-      if (this.divided) {
-        this.northeast.query(range, found);
-        this.northwest.query(range, found);
-        this.southeast.query(range, found);
-        this.southwest.query(range, found);
-      }
-      return found;
-    }
-
-    intersects(boundary, range) {
-      return !(
-        range.x > boundary.x + boundary.w ||
-        range.x + range.w < boundary.x ||
-        range.y > boundary.y + boundary.h ||
-        range.y + range.h < boundary.y
-      );
-    }
-  }
-
-  // Profiler functions
-  const perf = { enabled: true, lastLog: 0 };
-
-  function profileStart(label) {
-    if (!perf.enabled) return;
-    performance.mark(label + "-start");
-  }
-
-  function profileEnd(label) {
-    if (!perf.enabled) return;
-    performance.mark(label + "-end");
-    performance.measure(label, label + "-start", label + "-end");
-  }
-
-  function logPerf() {
-    if (!perf.enabled) return;
-    const now = performance.now();
-    if (now - perf.lastLog < 1000) return;
-    const entries = performance.getEntriesByType("measure");
-    const grouped = {};
-    entries.forEach(e => {
-      if (!grouped[e.name]) grouped[e.name] = [];
-      grouped[e.name].push(e.duration);
-    });
-    Object.entries(grouped).forEach(([name, arr]) => {
-      const avg = arr.reduce((a, b) => a + b, 0) / arr.length;
-    });
-    performance.clearMeasures();
-    perf.lastLog = now;
-  }
-
   function makeLayerId(subject, l1 = "", l2 = "", l3 = "") {
     return `layer|${String(subject || "").trim()}|${String(l1 || "").trim()}|${String(l2 || "").trim()}|${String(l3 || "").trim()}`;
   }
@@ -2747,9 +2641,6 @@ const state = {
         );
       }
     }
-
-    updateStats();
-    updateEmptyState();
   }
 
   function updateEmptyState() {
@@ -2760,11 +2651,12 @@ const state = {
       return;
     }
 
-    const visibleItems = getAllItems().filter(
-      (item) => (state.nodeVisibility.get(item.id) ?? 0) > 0.05
-    );
+    const visibleItems = getAllItems().filter((item) => {
+      const node = state.graph.nodes.get(item.id);
+      return isNodeInScope(item.id) && nodeMatchesGraphFilter(node);
+    });
     const hasVisibleCards = [...state.cardScene.values()]
-      .some((scene) => isCardInScope(scene.card));
+      .some((scene) => isCardInScope(scene.card) && nodeMatchesGraphFilter(state.graph.nodes.get(scene.id)));
 
     if (visibleItems.length > 0 || hasVisibleCards) {
       emptyState.style.display = "none";
@@ -2892,6 +2784,7 @@ const state = {
       if (!state.sceneTransition) state.userInteracted = false;
       updateEmptyState();
     }
+    updateStats();
   }
 
   function renderSidebar(selectedItem) {
@@ -3098,6 +2991,27 @@ const state = {
     const cues = items.filter(n => n.type === "cue");
     const pastpapers = items.filter(n => n.type === "pastpaper");
 
+    // Subject and tag lookups used to scan the whole list once per node. Both
+    // are keyed maps now, so graph construction stays close to linear.
+    const subjectByName = new Map();
+    subjectNodes.forEach((subject) => {
+      const key = normalizeSubjectName(subject.subject || subject.title);
+      if (key && !subjectByName.has(key)) subjectByName.set(key, subject);
+    });
+    const findSubject = (name) => subjectByName.get(normalizeSubjectName(name)) || null;
+    const tagByTitle = new Map();
+    (state.tags || []).forEach((tag) => {
+      const key = String(tag.title || "").trim().toLowerCase();
+      if (key && !tagByTitle.has(key)) tagByTitle.set(key, tag);
+    });
+    const quoteIds = new Set(quotes.map((quote) => quote.id));
+    // Analyses whose link is recorded on the quote side. Precomputed once so
+    // the per-analysis check is not a scan of every quote.
+    const analysesWithQuoteParent = new Set();
+    quotes.forEach((quote) => {
+      (quote.meta?.analysisNodeIds || []).forEach((id) => analysesWithQuoteParent.add(id));
+    });
+
     items.forEach(item => {
       graph.nodes.set(item.id, {
         id: item.id,
@@ -3120,18 +3034,22 @@ const state = {
       });
     });
 
+    // Edge identity is a Set lookup instead of scanning every existing edge
+    // with a sort+join on each insertion.
+    const edgeKeys = new Set();
     const addEdge = (from, to, type, strength = 1) => {
       if (!from || !to || from === to) return;
       if (!graph.nodes.has(from) || !graph.nodes.has(to)) return;
-      const key = [from, to].sort().join("-");
-      if (graph.edges.some(e => [e.from, e.to].sort().join("-") === key)) return;
+      const key = from < to ? `${from}\u0000${to}` : `${to}\u0000${from}`;
+      if (edgeKeys.has(key)) return;
+      edgeKeys.add(key);
       graph.edges.push({ from, to, type, strength });
       graph.nodes.get(from)?.connections.add(to);
       graph.nodes.get(to)?.connections.add(from);
     };
 
     layers.forEach((layer) => {
-      const subjectNode = subjectNodes.find((s) => s.subject === layer.subject);
+      const subjectNode = findSubject(layer.subject);
       if (!subjectNode) return;
       const parentId = layer?.meta?.parentLayerId || subjectNode.id;
       addEdge(parentId, layer.id, "layer-chain", 3.2);
@@ -3139,7 +3057,7 @@ const state = {
 
     sources.forEach(source => {
       if (!source.subject) return;
-      const subjectNode = subjectNodes.find(s => s.subject === source.subject);
+      const subjectNode = findSubject(source.subject);
       if (!subjectNode) return;
 
       const { l1, l2, l3 } = getSourceLayerParts(source);
@@ -3161,7 +3079,7 @@ const state = {
 
     pastpapers.forEach(paper => {
       if (!paper.subject) return;
-      const subjectNode = subjectNodes.find(s => s.subject === paper.subject);
+      const subjectNode = findSubject(paper.subject);
       if (!subjectNode) return;
       addEdge(subjectNode.id, paper.id, "subject-pastpaper", 2.6);
     });
@@ -3172,7 +3090,7 @@ const state = {
       }
       // Only connect quote to subject directly if it has NO source (orphan prevention for flashcard-builder quotes)
       if (quote.subject && !quote.link?.sourceId) {
-        const subjectNode = subjectNodes.find(s => s.subject === quote.subject);
+        const subjectNode = findSubject(quote.subject);
         if (subjectNode) addEdge(subjectNode.id, quote.id, "subject-quote", 2.3);
       }
     });
@@ -3181,12 +3099,12 @@ const state = {
       // Check if analysis has any quote parent (not orphaned)
       const hasQuoteParent =
         (analysis.quoteRefs || []).some(ref => ref.quoteId) ||
-        (analysis.meta?.manualLinks || []).some(id => quotes.some(q => q.id === id)) ||
-        quotes.some(q => q.meta?.analysisNodeIds?.includes(analysis.id));
+        (analysis.meta?.manualLinks || []).some(id => quoteIds.has(id)) ||
+        analysesWithQuoteParent.has(analysis.id);
 
       // Only connect orphaned analyses (no quote parents) to subject node
       if (!hasQuoteParent && analysis.subject) {
-        const subjectNode = subjectNodes.find(s => s.subject === analysis.subject);
+        const subjectNode = findSubject(analysis.subject);
         if (subjectNode) {
           addEdge(subjectNode.id, analysis.id, "subject-analysis", 2.2);
         }
@@ -3208,7 +3126,7 @@ const state = {
     items.forEach(item => {
       const itemTags = item.meta?.tags || [];
       itemTags.forEach(tagName => {
-        const tag = (state.tags || []).find(t => t.title.toLowerCase() === tagName.toLowerCase());
+        const tag = tagByTitle.get(String(tagName || "").trim().toLowerCase());
         if (tag) {
           addEdge(item.id, tag.id, "tag-link", 1.2);
         }
@@ -3275,7 +3193,6 @@ const state = {
   }
 
   function computeForces() {
-    profileStart("physics");
     const forces = new Map();
     const positions = state.nodePositions;
     const graph = state.graph;
@@ -3522,7 +3439,6 @@ const state = {
       });
     });
 
-    profileEnd("physics");
     return forces;
   }
 
@@ -3589,7 +3505,18 @@ const state = {
     });
   }
 
+  // Hierarchy level is immutable for a graph node and is read several times
+  // per physics tick. Graph nodes are rebuilt on every data refresh, so a
+  // WeakMap invalidates itself when the graph changes.
+  const hierarchyLevelCache = new WeakMap();
   function getHierarchyLevel(node) {
+    if (hierarchyLevelCache.has(node)) return hierarchyLevelCache.get(node);
+    const level = computeHierarchyLevel(node);
+    hierarchyLevelCache.set(node, level);
+    return level;
+  }
+
+  function computeHierarchyLevel(node) {
     const rawNode = node.data || node;
     if (rawNode.type === "subject") return 0;
     if (rawNode.type === "layer 1") return 1;
@@ -3718,23 +3645,53 @@ const state = {
     }
   }
 
+  // The flattened knowledge list is rebuilt on every frame by the renderer and
+  // by many lookups. The source arrays are only replaced by refreshData, so
+  // reference equality is a cheap and safe cache key.
+  let itemsCache = null;
+  let itemsCacheSources = [];
   function getAllItems() {
-    return [
+    const sources = [state.nodes, state.quotes, state.cues, state.tags, state.layerNodes];
+    if (itemsCache && sources.every((source, index) => source === itemsCacheSources[index])) {
+      return itemsCache;
+    }
+    itemsCache = [
       ...(state.nodes || []),
       ...(state.quotes || []),
       ...(state.cues || []),
       ...(state.tags || []),
       ...(state.layerNodes || [])
     ];
+    itemsCacheSources = sources;
+    return itemsCache;
   }
 
+  let itemIndexCache = null;
+  let itemIndexItems = null;
+  let cardIndexCache = null;
+  let cardIndexCards = null;
   function findItemById(id) {
-    const item = getAllItems().find((entry) => entry.id === id);
+    const items = getAllItems();
+    if (itemIndexItems !== items) {
+      itemIndexCache = new Map();
+      items.forEach((entry) => {
+        if (!itemIndexCache.has(entry.id)) itemIndexCache.set(entry.id, entry);
+      });
+      itemIndexItems = items;
+    }
+    const item = itemIndexCache.get(id);
     if (item) return item;
 
     // Grid cards are card-first now, so the sidebar must be able to resolve a
     // card id that never appears in the knowledge graph.
-    const card = (state.cards || []).find((entry) => entry.id === id);
+    if (cardIndexCards !== state.cards) {
+      cardIndexCards = state.cards;
+      cardIndexCache = new Map();
+      (state.cards || []).forEach((entry) => {
+        if (!cardIndexCache.has(entry.id)) cardIndexCache.set(entry.id, entry);
+      });
+    }
+    const card = cardIndexCache.get(id);
     if (!card) return undefined;
     return { ...card, type: "card", subject: card.deck || "" };
   }
@@ -3821,6 +3778,8 @@ const state = {
     } else if (state.viewMode === "dots") {
       buildDotsLayout({ applyTargets: !state.sceneTransition });
     }
+    updateStats();
+    updateEmptyState();
   }
 
   let frameCount = 0;
@@ -3851,7 +3810,6 @@ const state = {
       } else {
         renderScene(now);
       }
-      logPerf();
     }
     rafId = requestAnimationFrame(tick);
   }
@@ -4357,6 +4315,9 @@ const state = {
     } else if (state.viewMode === "grid") {
       renderGrid();
     }
+
+    updateStats();
+    updateEmptyState();
   }
 
   async function createNewNode(type) {
