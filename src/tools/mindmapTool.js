@@ -50,6 +50,7 @@ const state = {
     simulationRunning: true,
     viewMode: contextView === "grid" || contextHeapId ? "grid" : "graph",
     sidebarView: "content",
+    inspectorTab: "details",
     selectedNodeId: null,
     layerNodes: [],
     userInteracted: false,
@@ -111,11 +112,9 @@ const state = {
   const newHeapBtn = document.getElementById("newHeapBtn");
   const studyHeapBtn = document.getElementById("studyHeapBtn");
   const toggleHeapSidebarBtn = document.getElementById("toggleHeapSidebarBtn");
-  const libraryHeapSidebar = document.getElementById("libraryHeapSidebar");
   const libraryHeapSidebarName = document.getElementById("libraryHeapSidebarName");
   const libraryHeapSidebarMeta = document.getElementById("libraryHeapSidebarMeta");
   const libraryHeapItems = document.getElementById("libraryHeapItems");
-  const closeHeapSidebarBtn = document.getElementById("closeHeapSidebarBtn");
   const heapSidebarStudyBtn = document.getElementById("heapSidebarStudyBtn");
   const deleteHeapBtn = document.getElementById("deleteHeapBtn");
   const emptyState = document.getElementById("emptyState");
@@ -1450,25 +1449,90 @@ const state = {
     return (heap.cardIds || []).map((id) => cardsById.get(id)).filter(Boolean);
   }
 
-  function positionHeapSidebar() {
-    if (!libraryHeapSidebar || !libraryHeapBar || !blueprintArea) return;
-    const areaRect = blueprintArea.getBoundingClientRect();
-    const barRect = libraryHeapBar.getBoundingClientRect();
-    // Keep the heap panel below the toolbar so Study Heap stays clickable
-    // even while the panel is open.
-    const top = Math.max(14, Math.round(barRect.bottom - areaRect.top + 10));
-    libraryHeapSidebar.style.top = `${top}px`;
+  function updateInspectorHeader() {
+    const item = state.selectedNodeId ? findItemById(state.selectedNodeId) : null;
+    if (item) {
+      if (sidebarTitle) sidebarTitle.textContent = getNodeDisplayTitle(item);
+      if (sidebarType) {
+        sidebarType.innerHTML = `<span>${getNodeTypeIcon(item.type)}</span> ${item.type.charAt(0).toUpperCase() + item.type.slice(1)}`;
+      }
+      return;
+    }
+    const heap = getActiveHeap();
+    if (state.inspectorTab === "heap") {
+      if (sidebarTitle) sidebarTitle.textContent = "Study heap";
+      if (sidebarType) sidebarType.textContent = heap?.name || "No heap selected";
+      return;
+    }
+    if (sidebarTitle) sidebarTitle.textContent = state.inspectorTab === "connections" ? "Connections" : "Details";
+    if (sidebarType) sidebarType.textContent = "Select a node or card";
+  }
+
+  function setInspectorTab(tab) {
+    const nextTab = ["details", "connections", "heap"].includes(tab) ? tab : "details";
+    state.inspectorTab = nextTab;
+
+    nodeSidebar?.querySelectorAll("[data-inspector-tab]").forEach((button) => {
+      const active = button.dataset.inspectorTab === nextTab;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-selected", String(active));
+    });
+    nodeSidebar?.querySelectorAll("[data-inspector-panel]").forEach((panel) => {
+      panel.hidden = panel.dataset.inspectorPanel !== nextTab;
+    });
+
+    const hasSelection = Boolean(state.selectedNodeId && findItemById(state.selectedNodeId));
+    if (nextTab === "details") {
+      const empty = document.getElementById("inspectorDetailsEmpty");
+      const content = nodeSidebar?.querySelector(".sidebar-content");
+      const actions = nodeSidebar?.querySelector(".sidebar-actions");
+      if (empty) empty.hidden = hasSelection;
+      if (content) content.hidden = !hasSelection;
+      if (actions) actions.hidden = !hasSelection;
+      updateInspectorHeader();
+    } else if (nextTab === "heap") {
+      state.heapSidebarOpen = true;
+      renderHeapSidebar();
+      updateInspectorHeader();
+    } else if (nextTab === "connections" && !hasSelection) {
+      const container = document.getElementById("connectionsContainer");
+      const items = document.getElementById("connectionsItems");
+      const count = document.getElementById("connectionCount");
+      const tabCount = document.getElementById("connectionTabCount");
+      if (container) container.hidden = true;
+      if (items) items.innerHTML = "";
+      if (count) count.textContent = "0";
+      if (tabCount) tabCount.textContent = "0";
+      updateInspectorHeader();
+    }
+
+    if (toggleHeapSidebarBtn) {
+      toggleHeapSidebarBtn.setAttribute(
+        "aria-expanded",
+        String(state.heapSidebarOpen && nextTab === "heap" && Boolean(getActiveHeap()))
+      );
+    }
+  }
+
+  function openInspector(tab = "details") {
+    if (nodeSidebar) {
+      nodeSidebar.classList.add("open");
+      nodeSidebar.setAttribute("aria-hidden", "false");
+    }
+    nodeSidebarBackdrop?.classList.add("visible");
+    setInspectorTab(tab);
   }
 
   function updateHeapSidebarVisibility() {
     const heap = getActiveHeap();
-    const visible = state.viewMode === "grid" && Boolean(heap) && state.heapSidebarOpen;
-    if (libraryHeapSidebar) libraryHeapSidebar.hidden = !visible;
-    if (gridView) gridView.classList.toggle("heap-open", visible);
+    const wantsHeapPanel = Boolean(heap) && state.heapSidebarOpen;
     if (toggleHeapSidebarBtn) {
-      toggleHeapSidebarBtn.setAttribute("aria-expanded", String(visible));
+      toggleHeapSidebarBtn.setAttribute("aria-expanded", String(wantsHeapPanel && state.inspectorTab === "heap"));
+      toggleHeapSidebarBtn.textContent = `Heap (${getHeapCards(heap).length})`;
     }
-    if (visible) positionHeapSidebar();
+    if (!wantsHeapPanel && !state.selectedNodeId && state.inspectorTab === "heap" && nodeSidebar?.classList.contains("open")) {
+      closeSidebar();
+    }
   }
 
   function renderHeapSidebar() {
@@ -1561,6 +1625,7 @@ const state = {
       state.heapSidebarOpen = true;
       renderHeapControls();
       renderGrid();
+      openInspector("heap");
       return heap;
     } catch (error) {
       console.error("Failed to create heap:", error);
@@ -2627,6 +2692,7 @@ const state = {
     const connectionsContainer = document.getElementById("connectionsContainer");
     const connectionsItems = document.getElementById("connectionsItems");
     const connectionCount = document.getElementById("connectionCount");
+    const connectionTabCount = document.getElementById("connectionTabCount");
     const graphNode = state.graph.nodes.get(selectedItem.id);
 
     if (connectionsContainer) connectionsContainer.hidden = !graphNode;
@@ -2634,10 +2700,12 @@ const state = {
     if (connectionsItems && connectionCount) {
       if (!graphNode) {
         connectionCount.textContent = "0";
+        if (connectionTabCount) connectionTabCount.textContent = "0";
         connectionsItems.innerHTML = "";
       } else {
         const neighbors = Array.from(graphNode.connections);
         connectionCount.textContent = neighbors.length;
+        if (connectionTabCount) connectionTabCount.textContent = String(neighbors.length);
         connectionsItems.innerHTML = "";
 
         neighbors.forEach(neighborId => {
@@ -3804,12 +3872,7 @@ const state = {
 
     renderSidebar(selectedItem);
     syncGridSelection();
-
-    if (nodeSidebar) {
-      nodeSidebar.classList.add("open");
-      nodeSidebar.setAttribute("aria-hidden", "false");
-    }
-    nodeSidebarBackdrop?.classList.add("visible");
+    openInspector("details");
   }
 
   function closeSidebar() {
@@ -3820,6 +3883,9 @@ const state = {
     nodeSidebarBackdrop?.classList.remove("visible");
     state.selectedNodeId = null;
     state.sidebarView = "content";
+    state.inspectorTab = "details";
+    state.heapSidebarOpen = false;
+    if (toggleHeapSidebarBtn) toggleHeapSidebarBtn.setAttribute("aria-expanded", "false");
     syncGridSelection();
   }
 
@@ -4180,6 +4246,9 @@ const state = {
 
   function setupEventListeners() {
     document.addEventListener("keydown", handleSidebarEscape);
+    nodeSidebar?.querySelectorAll("[data-inspector-tab]").forEach((button) => {
+      button.addEventListener("click", () => setInspectorTab(button.dataset.inspectorTab));
+    });
     if (viewToggle) {
       viewToggle.querySelectorAll(".view-toggle-btn").forEach((button) => {
         button.addEventListener("click", () => setViewMode(button.dataset.view));
@@ -4220,7 +4289,6 @@ const state = {
     if (libraryHeapSelect) {
       libraryHeapSelect.addEventListener("change", () => {
         state.activeHeapId = libraryHeapSelect.value || null;
-        state.heapSidebarOpen = Boolean(state.activeHeapId);
         renderHeapControls();
         renderGrid();
       });
@@ -4240,19 +4308,17 @@ const state = {
 
     if (toggleHeapSidebarBtn) {
       toggleHeapSidebarBtn.addEventListener("click", () => {
-        if (!getActiveHeap()) {
+        const heap = getActiveHeap();
+        if (!heap) {
           dialog.alert("Create or select a heap first.");
           return;
         }
-        state.heapSidebarOpen = !state.heapSidebarOpen;
-        updateHeapSidebarVisibility();
-      });
-    }
-
-    if (closeHeapSidebarBtn) {
-      closeHeapSidebarBtn.addEventListener("click", () => {
-        state.heapSidebarOpen = false;
-        updateHeapSidebarVisibility();
+        if (nodeSidebar?.classList.contains("open") && state.inspectorTab === "heap") {
+          closeSidebar();
+          return;
+        }
+        state.heapSidebarOpen = true;
+        openInspector("heap");
       });
     }
 
@@ -4683,7 +4749,6 @@ const state = {
     if (!container) return;
 
     syncHeaderHeight();
-    positionHeapSidebar();
 
     if (state.viewMode === "dots") {
       buildDotsLayout({ applyTargets: !state.sceneTransition });
@@ -4723,6 +4788,7 @@ const state = {
   nodeSidebar?.setAttribute("aria-hidden", "true");
   nodeSidebarBackdrop?.classList.remove("visible");
   state.selectedNodeId = null;
+  setInspectorTab("details");
 
   // Suppress the opening tap's delayed synthetic click on the canvas.
   ignoreCanvasClicksUntil = performance.now() + 450;
@@ -4732,6 +4798,12 @@ const state = {
   // Graph↔Dots transition.
   if (state.viewMode !== "graph") {
     setViewMode(state.viewMode);
+  }
+
+  // Opening from a heap context lands in the Library with the unified
+  // inspector already showing that heap.
+  if (state.heapSidebarOpen && getActiveHeap()) {
+    openInspector("heap");
   }
 
   setupEventListeners();

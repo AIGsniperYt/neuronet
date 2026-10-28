@@ -961,26 +961,6 @@
     color: #fbbf24;
   }
 
-  .library-heap-sidebar {
-    position: absolute;
-    top: 14px;
-    right: 14px;
-    bottom: 14px;
-    z-index: 26;
-    display: flex;
-    flex-direction: column;
-    width: min(320px, calc(100% - 28px));
-    border: 1px solid rgba(34, 211, 238, 0.24);
-    border-radius: 14px;
-    background: rgba(7, 18, 13, 0.97);
-    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
-    overflow: hidden;
-  }
-
-  .library-heap-sidebar[hidden] {
-    display: none;
-  }
-
   .library-heap-sidebar-head {
     display: flex;
     align-items: flex-start;
@@ -1095,12 +1075,6 @@
 
   .library-heap-sidebar-actions .btn {
     flex: 1;
-  }
-
-  @media (min-width: 1001px) {
-    .mindmap-grid-view.heap-open {
-      padding-right: 350px;
-    }
   }
 
   /* Header Actions */
@@ -1521,6 +1495,93 @@
   .node-sidebar { grid-column: 2; grid-row: 1 / span 2; }
   .node-sidebar-backdrop { display: none; }
 
+  /* One inspector, three tabs. The old second sidebar is gone. */
+  .inspector-tabs {
+    display: flex;
+    gap: 4px;
+    flex: 0 0 auto;
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    overflow-x: auto;
+  }
+
+  .inspector-tab {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 6px 8px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: var(--text-sm, 0.87rem);
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .inspector-tab:hover {
+    color: var(--text-main);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .inspector-tab.active {
+    color: var(--text-main);
+    background: rgba(44, 255, 179, 0.12);
+    border-color: rgba(44, 255, 179, 0.3);
+  }
+
+  .inspector-tab-count {
+    min-width: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.1);
+    font-size: var(--text-xs, 0.78rem);
+    line-height: 18px;
+  }
+
+  .inspector-panel {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .inspector-panel[hidden] {
+    display: none;
+  }
+
+  .inspector-empty {
+    padding: 24px 18px;
+    color: var(--text-muted);
+    font-size: var(--text-sm, 0.9rem);
+    line-height: 1.5;
+  }
+
+  .inspector-panel .connections-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding-bottom: 12px;
+  }
+
+  .library-heap-sidebar-head,
+  .library-heap-sidebar-meta,
+  .library-heap-sidebar-actions {
+    flex-shrink: 0;
+  }
+
+  @media (pointer: coarse) {
+    .inspector-tab {
+      min-height: 44px;
+    }
+  }
+
   .sidebar-close {
     width: 44px;
     height: 44px;
@@ -1703,24 +1764,7 @@
       <div id="mindmapGrid" class="mindmap-grid"></div>
     </div>
 
-    <aside id="libraryHeapSidebar" class="library-heap-sidebar" aria-label="Current heap" hidden>
-      <header class="library-heap-sidebar-head">
-        <div>
-          <span class="library-heap-kicker">Current heap</span>
-          <strong id="libraryHeapSidebarName">No heap selected</strong>
-        </div>
-        <button type="button" id="closeHeapSidebarBtn" class="sidebar-close" aria-label="Close heap sidebar">&times;</button>
-      </header>
-      <div id="libraryHeapSidebarMeta" class="library-heap-sidebar-meta"></div>
-      <div id="libraryHeapItems" class="library-heap-items"></div>
-      <footer class="library-heap-sidebar-actions">
-        <button type="button" id="heapSidebarStudyBtn" class="btn primary" disabled>Study Heap</button>
-        <button type="button" id="deleteHeapBtn" class="btn danger" disabled>Delete Heap</button>
-      </footer>
-    </aside>
-
-    <div id="mindmapDotsLegend" class="mindmap-dots-legend" aria-label="Dots signal legend" hidden>
-      <div class="grid-legend-group">
+    <div id="mindmapDotsLegend" class="mindmap-dots-legend" aria-label="Dots signal legend" hidden>      <div class="grid-legend-group">
         <span class="grid-legend-title">Dot</span>
         <span class="dots-split-sample" aria-hidden="true">
           <span class="dots-split-left"></span>
@@ -1767,25 +1811,53 @@
         <button id="sidebarClose" class="sidebar-close" type="button" aria-label="Close details">&times;</button>
       </div>
 
-      <div id="connectionsContainer" class="connections-list">
-        <div class="connections-header" id="connectionsHeader">
-          <span>Connections (<span id="connectionCount">0</span>)</span>
-          <span id="connectionsToggle" aria-hidden="true"></span>
+      <div class="inspector-tabs" role="tablist" aria-label="Inspector sections">
+        <button type="button" class="inspector-tab active" role="tab" data-inspector-tab="details" aria-selected="true">Details</button>
+        <button type="button" class="inspector-tab" role="tab" data-inspector-tab="connections" aria-selected="false">Connections <span id="connectionTabCount" class="inspector-tab-count">0</span></button>
+        <button type="button" class="inspector-tab" role="tab" data-inspector-tab="heap" aria-selected="false">Heap</button>
+      </div>
+
+      <section class="inspector-panel" data-inspector-panel="details" role="tabpanel">
+        <div id="inspectorDetailsEmpty" class="inspector-empty" hidden>
+          <p>Select a node or card to see its details.</p>
         </div>
-        <div id="connectionsItems" class="connections-items"></div>
-      </div>
+        <div class="sidebar-content">
+          <div class="content-label" id="sidebarContentLabel">Content</div>
+          <div id="fullContent" class="content-text"></div>
+          <div id="metaContent" class="content-text is-plain" style="display: none;"></div>
+        </div>
 
-      <div class="sidebar-content">
-        <div class="content-label" id="sidebarContentLabel">Content</div>
-        <div id="fullContent" class="content-text"></div>
-        <div id="metaContent" class="content-text is-plain" style="display: none;"></div>
-      </div>
+        <div class="sidebar-actions">
+          <button id="toggleMetadataBtn" class="btn">Metadata</button>
+          <button id="editNodeBtn" class="btn primary">Edit</button>
+          <button id="deleteNodeBtn" class="btn danger">Delete</button>
+        </div>
+      </section>
 
-      <div class="sidebar-actions">
-        <button id="toggleMetadataBtn" class="btn">Metadata</button>
-        <button id="editNodeBtn" class="btn primary">Edit</button>
-        <button id="deleteNodeBtn" class="btn danger">Delete</button>
-      </div>
+      <section class="inspector-panel" data-inspector-panel="connections" role="tabpanel" hidden>
+        <div id="connectionsContainer" class="connections-list">
+          <div class="connections-header" id="connectionsHeader">
+            <span>Connections (<span id="connectionCount">0</span>)</span>
+            <span id="connectionsToggle" aria-hidden="true"></span>
+          </div>
+          <div id="connectionsItems" class="connections-items"></div>
+        </div>
+      </section>
+
+      <section class="inspector-panel" data-inspector-panel="heap" role="tabpanel" hidden>
+        <header class="library-heap-sidebar-head">
+          <div>
+            <span class="library-heap-kicker">Current heap</span>
+            <strong id="libraryHeapSidebarName">No heap selected</strong>
+          </div>
+        </header>
+        <div id="libraryHeapSidebarMeta" class="library-heap-sidebar-meta"></div>
+        <div id="libraryHeapItems" class="library-heap-items"></div>
+        <footer class="library-heap-sidebar-actions">
+          <button type="button" id="heapSidebarStudyBtn" class="btn primary" disabled>Study Heap</button>
+          <button type="button" id="deleteHeapBtn" class="btn danger" disabled>Delete Heap</button>
+        </footer>
+      </section>
     </div>
   </div>
 </div>
