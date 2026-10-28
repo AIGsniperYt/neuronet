@@ -288,3 +288,26 @@ Verified with `node --check src/tools/mindmapTool.js` and the existing `node tes
 - **Grid markup.** A card is still a `div role="button"` containing a real “+ Heap” button. It works, but it is not ideal ARIA nesting.
 - **Contrast and touch target audit.** Some 0.82rem muted labels and small icon buttons were not individually re-measured.
 - **No manual device test.** Pointer, pinch, DPR, and iOS scroll containment need verification on the actual target iPad before this is called finished.
+
+## Post-pass verification (same day)
+
+- `node --check` on `src/main.js` and `src/tools/mindmapTool.js`.
+- `node tests/run.mjs`: 88 assertions passed.
+- Headless Chromium smoke test at 1280×900, DPR 2, with `demo-data.json` imported:
+  - app loads, Mindmap opens, 137 graph nodes / 9 subjects report correctly;
+  - canvas backing store is 2028×1564 for a 1014×782 CSS canvas (DPR 2 applied);
+  - graph search + type filter + Fit do not throw;
+  - Library renders cards and deck sections;
+  - card click opens the inspector on Details, focus lands on the inspector, Escape closes it and returns focus to the card;
+  - Heap tab opens, creating a heap opens it directly, adding three cards quickly keeps all three, reorder changes the order, multi-select adds two more, delete heap clears it;
+  - Graph → Dots hides graph actions and shows the Dots legend;
+  - leaving Mindmap for Analysis and returning re-mounts cleanly with DPR still correct.
+- The only console error was a missing `favicon.ico`, unrelated to the tool.
+
+### Fix found by the smoke test
+
+Rapid `+ Heap` taps all read the same pre-await heap state and overwrote one another, so three taps added only one card. `toggleCardInActiveHeap()` and `addSelectedCardsToHeap()` now re-read `getActiveHeap()` after `ensureActiveHeap()` resolves. Re-test: three taps add three cards.
+
+### Shell cleanup
+
+`loadTool()` in `src/main.js` only ran Analysis's teardown. It now runs the matching `__neuronetAnalysisCleanup` / `__neuronetMemoryCleanup` / `__neuronetMindmapCleanup` hook before replacing the tool DOM, so the Mindmap animation loop and document/window listeners do not survive a tool switch.
