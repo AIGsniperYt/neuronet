@@ -29,6 +29,12 @@ export async function initMindmapTool(deps, context = {}) {
   } = deps;
 
   const { subject: contextSubject, heapId: contextHeapId, view: contextView } = context;
+  // The shell always passes a `subject` key when a tool is opened from the
+  // launchpad or sidebar, including an explicit null for "All subjects".
+  // That explicit scope must beat the last subject saved by this tool,
+  // otherwise clicking the NeuroNet home button and reopening the mindmap
+  // silently restores the old single-subject focus while the shell says All.
+  const hasSubjectContext = Object.prototype.hasOwnProperty.call(context, "subject");
 
   if (typeof window.__neuronetMindmapCleanup === "function") {
     window.__neuronetMindmapCleanup();
@@ -219,7 +225,7 @@ const state = {
       state.graphTypeFilter = saved.graphTypeFilter;
     }
 
-    if (!contextSubject && typeof saved.focusSubject === "string" && saved.focusSubject.trim()) {
+    if (!hasSubjectContext && typeof saved.focusSubject === "string" && saved.focusSubject.trim()) {
       state.focusSubject = saved.focusSubject.trim();
     }
 
