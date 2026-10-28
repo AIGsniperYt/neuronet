@@ -186,3 +186,55 @@ Fix direction: one pointer-event gesture layer (single pointer = pan or node dra
 - Card-to-card / connectable card links: separate debate (tags may already cover it).
 - Terminology cleanup (`subject` vs `deck` vs `library` vs `heap`): discuss separately.
 - Star/tree authored layout: build after the position model is stable.
+
+---
+
+# Response to the review
+
+## On the graph resetting
+
+I stand by canonical position storage, but not by "never animate". The distinction is between **incidental** resets and **intentional** ones.
+
+- Incidental reset: you add a tag, reorder a heap, delete a quote, and the graph silently re-explodes. That is the bug. It destroys any arrangement the user made and makes the map feel like it has no memory.
+- Intentional reset: the user presses **Re-layout** and watches the graph re-explode. That is a feature and it is worth keeping exactly because it is satisfying.
+
+So the plan is:
+
+1. Position is stored per node and survives ordinary data changes. New nodes get seeded near their parent; existing nodes do not move.
+2. `Re-layout` remains an explicit control that replays the current radial explosion. It is the "cool reset" on demand.
+3. Later, if large graphs become the norm, add optional named layout snapshots. That gives a user a known arrangement to return to without taking the reset away.
+
+If the reset stays automatic, no authored tree/star mode can work, because any authored arrangement is wiped by the next database write. Canonical storage is therefore a prerequisite, not a nice-to-have.
+
+## On Mindmap's identity
+
+Agreed: Mindmap is a **navigation/admin lens** over the database. It is not a processing tool, and it is not the owner of card authoring. That means:
+
+- the canvas stays the primary surface;
+- card browsing can live here so long as it is clearly a view, not a second product;
+- creating knowledge records from Mindmap should eventually route to the owning tool or use one proper form, not chained prompts.
+
+## On connectable cards
+
+Agreed that this is a separate debate and that tags may already cover most of it. I have not implemented card links. I have only stopped cards from entering `Connect Nodes`, because the current code would copy a card into the `nodes` store. The broader question (manual card-to-card edges vs tag clusters vs an indexer/reference system) is left open for discussion.
+
+## On the single inspector
+
+Yes. The two sidebars were the mistake. The implementation now moves to one inspector with `Details / Connections / Heap` tabs and one open panel maximum.
+
+## On terminology
+
+`priority` is the user-facing term. The deeper `subject`/`deck`/`library`/`heap` discussion is deferred, so the code keeps its existing internal field names to avoid a risky rename in the middle of the cleanup.
+
+## On ordering and process
+
+P0 correctness first, then layout, then visual engine. One task per commit. The audit is above; this response is here so it can be read without the chat.
+
+## Risks and doubts (to revisit)
+
+- **Inspector refactor risk:** `mindmap.html` has two competing `<style>` blocks. The unified inspector touches DOM, CSS and JS together. I will remove the override block rather than stack a third one.
+- **Pointer events risk:** replacing mouse handlers with pointer handlers is the highest-risk change for desktop regressions. I will keep click semantics and only route drag/pan/zoom through pointers.
+- **Position persistence risk:** positions are currently in-memory only. Persisting them changes the data model. I will first preserve in-memory positions across refresh, then decide whether persistence belongs in `meta` or a separate layout store.
+- **Dots overflow:** a true fit/scroll solution needs a design decision (scale vs scroll vs paginate). I will implement a safe fallback for now and flag the design choice.
+- **Testing:** I am not building a new test framework. I will use `node --check` and the existing `tests/run.mjs` where relevant.
+- **Existing uncommitted files** (`.github/workflows/pages.yml`, `scripts/build-showcase.mjs`, `SNAPSHOTS.md`, `scripts/showcase-seed.template.js`) are unrelated and will stay out of Mindmap commits.
