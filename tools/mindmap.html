@@ -158,6 +158,124 @@
     -webkit-touch-callout: none;
   }
 
+  /* Graph search / filter chrome */
+  .graph-toolbar {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 16;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    max-width: calc(100% - 20px);
+    padding: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    background: rgba(7, 18, 13, 0.9);
+    backdrop-filter: blur(10px);
+  }
+
+  .graph-search,
+  .graph-type-filter {
+    min-height: 36px;
+    padding: 6px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 7px;
+    background: rgba(10, 30, 22, 0.96);
+    color: var(--text-main);
+    font: inherit;
+    font-size: var(--text-sm, 0.87rem);
+  }
+
+  .graph-search {
+    width: 180px;
+    max-width: 46vw;
+  }
+
+  .graph-type-filter {
+    max-width: 44vw;
+  }
+
+  .graph-search:focus,
+  .graph-type-filter:focus {
+    outline: 2px solid rgba(44, 255, 179, 0.45);
+    outline-offset: 1px;
+  }
+
+  .graph-toolbar .btn {
+    flex: 0 0 auto;
+    padding: 7px 12px;
+  }
+
+  .graph-legend {
+    position: absolute;
+    left: 12px;
+    bottom: 12px;
+    z-index: 16;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    max-width: calc(100% - 24px);
+    padding: 6px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 9px;
+    background: rgba(7, 18, 13, 0.82);
+    pointer-events: none;
+  }
+
+  .graph-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: var(--text-xs, 0.78rem);
+    color: rgba(230, 255, 245, 0.66);
+  }
+
+  .graph-legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 2px solid currentColor;
+    background: transparent;
+  }
+
+  .graph-legend-item[data-legend-type="subject"] { color: #ff6b6b; }
+  .graph-legend-item[data-legend-type="layer"] { color: #b992fc; }
+  .graph-legend-item[data-legend-type="source"] { color: #4da6ff; }
+  .graph-legend-item[data-legend-type="quote"] { color: #ff9b39; }
+  .graph-legend-item[data-legend-type="analysis"] { color: #2cffb3; }
+  .graph-legend-item[data-legend-type="cue"] { color: #ff79c6; }
+  .graph-legend-item[data-legend-type="tag"] { color: #f1fa8c; }
+  .graph-legend-item[data-legend-type="card"] { color: #22d3ee; }
+
+  .graph-toolbar[hidden],
+  .graph-legend[hidden] {
+    display: none !important;
+  }
+
+  @media (max-width: 700px), (pointer: coarse) and (hover: none) {
+    .graph-toolbar {
+      right: 8px;
+      left: 8px;
+      top: 8px;
+    }
+    .graph-search {
+      flex: 1 1 130px;
+      width: auto;
+      max-width: none;
+    }
+    .graph-type-filter {
+      flex: 1 1 110px;
+      max-width: none;
+    }
+    .graph-legend {
+      display: none;
+    }
+  }
+
+
   .node-point.source {
     border-color: #4da6ff;
   }
@@ -1873,6 +1991,33 @@
   <div class="blueprint-area" id="blueprintArea">
     <div id="connectingOverlay" class="connecting-overlay">Select target node to connect...</div>
     <canvas id="mindmapCanvas"></canvas>
+
+    <div id="graphToolbar" class="graph-toolbar">
+      <input id="graphSearch" class="graph-search" type="search" placeholder="Find a node…" aria-label="Find a node" autocomplete="off">
+      <select id="graphTypeFilter" class="graph-type-filter" aria-label="Filter nodes by type">
+        <option value="all">All types</option>
+        <option value="subject">Subjects</option>
+        <option value="layer">Layers</option>
+        <option value="source">Sources</option>
+        <option value="quote">Quotes</option>
+        <option value="analysis">Analyses</option>
+        <option value="cue">Cues</option>
+        <option value="tag">Tags</option>
+        <option value="card">Cards</option>
+      </select>
+      <button type="button" id="graphFitBtn" class="btn">Fit</button>
+    </div>
+
+    <div id="graphLegend" class="graph-legend" aria-label="Graph node legend">
+      <span class="graph-legend-item" data-legend-type="subject"><i class="graph-legend-dot"></i>Subject</span>
+      <span class="graph-legend-item" data-legend-type="layer"><i class="graph-legend-dot"></i>Layer</span>
+      <span class="graph-legend-item" data-legend-type="source"><i class="graph-legend-dot"></i>Source</span>
+      <span class="graph-legend-item" data-legend-type="quote"><i class="graph-legend-dot"></i>Quote</span>
+      <span class="graph-legend-item" data-legend-type="analysis"><i class="graph-legend-dot"></i>Analysis</span>
+      <span class="graph-legend-item" data-legend-type="cue"><i class="graph-legend-dot"></i>Cue</span>
+      <span class="graph-legend-item" data-legend-type="tag"><i class="graph-legend-dot"></i>Tag</span>
+      <span class="graph-legend-item" data-legend-type="card"><i class="graph-legend-dot"></i>Card</span>
+    </div>
 
     <div id="mindmapGridView" class="mindmap-grid-view" hidden>
       <div class="mindmap-grid-legend" aria-label="Cards signal legend">

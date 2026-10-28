@@ -69,6 +69,8 @@ const state = {
     librarySelectMode: false,
     selectedCardIds: new Set(),
     collapsedDecks: new Set(),
+    graphSearch: "",
+    graphTypeFilter: "all",
     // Named, ordered card-ID lists. Heap content lives in the cards store;
     // these records are metadata only.
     heaps: [],
@@ -105,6 +107,11 @@ const state = {
 
   const canvas = document.getElementById("mindmapCanvas");
   const ctx = canvas?.getContext("2d");
+  const graphToolbar = document.getElementById("graphToolbar");
+  const graphSearchInput = document.getElementById("graphSearch");
+  const graphTypeFilter = document.getElementById("graphTypeFilter");
+  const graphFitBtn = document.getElementById("graphFitBtn");
+  const graphLegend = document.getElementById("graphLegend");
   const blueprintArea = document.getElementById("blueprintArea");
   const gridView = document.getElementById("mindmapGridView");
   const gridContainer = document.getElementById("mindmapGrid");
@@ -421,6 +428,30 @@ const state = {
 
   function isNodeInScope(id) {
     return !state.focusSubject || state.scopeNodeIds.has(id);
+  }
+
+  function nodeMatchesGraphFilter(node) {
+    if (!node) return false;
+    const filter = state.graphTypeFilter;
+    if (filter !== "all") {
+      if (filter === "layer") {
+        if (!String(node.type || "").startsWith("layer")) return false;
+      } else if (node.type !== filter) {
+        return false;
+      }
+    }
+    const term = state.graphSearch.trim().toLowerCase();
+    if (!term) return true;
+    const data = node.data || {};
+    const haystack = [
+      getNodeDisplayTitle(data),
+      getNodePreview(data),
+      data.subject,
+      data.deck,
+      ...(data.tags || []),
+      ...(data.meta?.tags || [])
+    ].join(" ").toLowerCase();
+    return haystack.includes(term);
   }
 
   function isCardInScope(card) {
@@ -2728,15 +2759,21 @@ const state = {
     emptyState.style.display = "flex";
     const copy = emptyState.querySelector("p");
     if (copy) {
-      copy.textContent = state.focusSubject
-        ? `No nodes in ${state.focusSubject} yet. Add a source, quote, or analysis to grow this subject.`
-        : "No nodes yet. Add sources, quotes, and analyses to see your knowledge network.";
+      const filtering = state.graphSearch.trim() || state.graphTypeFilter !== "all";
+      copy.textContent = filtering
+        ? "No nodes match the current search or filter. Clear it to see the graph again."
+        : state.focusSubject
+          ? `No nodes in ${state.focusSubject} yet. Add a source, quote, or analysis to grow this subject.`
+          : "No nodes yet. Add sources, quotes, and analyses to see your knowledge network.";
     }
   }
 
   function updateContextualActions() {
     const isGraph = state.viewMode === "graph";
     [connectNodesBtn, relayoutGraphBtn, newNodeDropdown].forEach((element) => {
+      if (element) element.hidden = !isGraph;
+    });
+    [graphToolbar, graphLegend].forEach((element) => {
       if (element) element.hidden = !isGraph;
     });
     if (!isGraph) newNodeDropdown?.classList.remove("open");
@@ -3698,7 +3735,7 @@ const state = {
 
   function updateNodeVisibility() {
     state.graph.nodes.forEach((node, id) => {
-      const target = isNodeInScope(id) ? 1 : 0;
+      const target = isNodeInScope(id) && nodeMatchesGraphFilter(node) ? 1 : 0;
       const current = state.nodeVisibility.get(id) ?? 0;
       let next = current + (target - current) * 0.16;
       if (Math.abs(target - next) < 0.01) next = target;
@@ -4038,6 +4075,8 @@ const state = {
     let cardHit = null;
     state.cardScene.forEach((scene) => {
       if (cardHit || !isCardInScope(scene.card)) return;
+      // A filtered-out card is invisible; it must not keep a click target.
+      if ((state.nodeVisibility.get(scene.id) ?? 0) < 0.35) return;
       const dx = inv.x - scene.x;
       const dy = inv.y - scene.y;
       if (dx * dx + dy * dy <= clickRadius * clickRadius) cardHit = { id: scene.id };
@@ -4470,6 +4509,18 @@ const state = {
       renderGrid();
     });
     libraryAddSelectedBtn?.addEventListener("click", addSelectedCardsToHeap);
+
+    graphSearchInput?.addEventListener("input", () => {
+      state.graphSearch = graphSearchInput.value;
+      updateEmptyState();
+    });
+    graphTypeFilter?.addEventListener("change", () => {
+      state.graphTypeFilter = graphTypeFilter.value || "all";
+      updateEmptyState();
+    });
+    graphFitBtn?.addEventListener("click", () => {
+      state.userInteracted = false;
+    });
 
     if (gridContainer) {
       gridContainer.addEventListener("click", async (e) => {
