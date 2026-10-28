@@ -81,17 +81,38 @@
   }
 
   .stat-pill {
-    display: flex;
+    --pill-rgb: 44, 255, 179;
+    display: inline-flex;
     align-items: baseline;
     gap: 6px;
+    flex: 0 0 auto;
     padding: 6px 11px;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(var(--pill-rgb), 0.24);
     border-radius: 999px;
+    color: inherit;
+    font: inherit;
     font-size: var(--text-sm, 0.87rem);
+    transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  button.stat-pill {
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .stat-dot {
+    width: 8px;
+    height: 8px;
+    flex: 0 0 auto;
+    align-self: center;
+    border-radius: 50%;
+    background: rgb(var(--pill-rgb));
+    box-shadow: 0 0 7px rgba(var(--pill-rgb), 0.45);
   }
 
   .stat-pill strong {
+    color: rgb(var(--pill-rgb));
     font-size: var(--text-md, 1.03rem);
     line-height: 1;
     font-variant-numeric: tabular-nums;
@@ -100,29 +121,55 @@
   .stat-pill .stat-label {
     color: var(--text-muted);
     font-size: var(--text-xs, 0.82rem);
+    white-space: nowrap;
   }
 
-  /* Color-coded stat pills */
-  .stat-pill.stat-subjects strong { color: #ff6b6b; }
-  .stat-pill.stat-subjects { border-color: rgba(255, 107, 107, 0.2); }
+  button.stat-pill:hover {
+    background: rgba(var(--pill-rgb), 0.1);
+    border-color: rgba(var(--pill-rgb), 0.42);
+  }
 
-  .stat-pill.stat-sources strong { color: #4da6ff; }
-  .stat-pill.stat-sources { border-color: rgba(77, 166, 255, 0.2); }
+  button.stat-pill:focus-visible {
+    outline: 2px solid rgba(var(--pill-rgb), 0.7);
+    outline-offset: 2px;
+  }
 
-  .stat-pill.stat-quotes strong { color: #ff9b39; }
-  .stat-pill.stat-quotes { border-color: rgba(255, 155, 57, 0.2); }
+  button.stat-pill:active {
+    transform: translateY(1px);
+  }
 
-  .stat-pill.stat-analyses strong { color: #2cffb3; }
-  .stat-pill.stat-analyses { border-color: rgba(44, 255, 179, 0.2); }
+  button.stat-pill.active {
+    background: rgba(var(--pill-rgb), 0.17);
+    border-color: rgba(var(--pill-rgb), 0.72);
+    box-shadow: inset 0 0 0 1px rgba(var(--pill-rgb), 0.28);
+  }
 
-  .stat-pill.stat-cues strong { color: #ff79c6; }
-  .stat-pill.stat-cues { border-color: rgba(255, 121, 198, 0.2); }
+  button.stat-pill.active .stat-label {
+    color: var(--text-main);
+  }
 
-  .stat-pill.stat-tags strong { color: #f1fa8c; }
-  .stat-pill.stat-tags { border-color: rgba(241, 250, 140, 0.2); }
+  button.stat-pill[disabled] {
+    cursor: default;
+    opacity: 0.5;
+  }
 
-  .stat-pill.stat-links strong { color: #b388ff; }
-  .stat-pill.stat-links { border-color: rgba(179, 136, 255, 0.2); }
+  button.stat-pill[disabled]:hover {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(var(--pill-rgb), 0.24);
+  }
+
+  /* The pills double as the graph legend: each dot uses the node colour. */
+  .stat-pill.stat-total { --pill-rgb: 220, 255, 244; }
+  .stat-pill.stat-subjects { --pill-rgb: 255, 107, 107; }
+  .stat-pill.stat-layers { --pill-rgb: 185, 146, 252; }
+  .stat-pill.stat-sources { --pill-rgb: 77, 166, 255; }
+  .stat-pill.stat-quotes { --pill-rgb: 255, 155, 57; }
+  .stat-pill.stat-analyses { --pill-rgb: 44, 255, 179; }
+  .stat-pill.stat-pastpapers { --pill-rgb: 255, 209, 102; }
+  .stat-pill.stat-cues { --pill-rgb: 255, 121, 198; }
+  .stat-pill.stat-tags { --pill-rgb: 241, 250, 140; }
+  .stat-pill.stat-cards { --pill-rgb: 34, 211, 238; }
+  .stat-pill.stat-links { --pill-rgb: 179, 136, 255; }
 
   .blueprint-area {
     position: relative;
@@ -176,8 +223,9 @@
     backdrop-filter: blur(10px);
   }
 
-  .graph-search,
-  .graph-type-filter {
+  .graph-search {
+    width: 180px;
+    max-width: 46vw;
     min-height: 36px;
     padding: 6px 10px;
     border: 1px solid rgba(255, 255, 255, 0.12);
@@ -188,17 +236,7 @@
     font-size: var(--text-sm, 0.87rem);
   }
 
-  .graph-search {
-    width: 180px;
-    max-width: 46vw;
-  }
-
-  .graph-type-filter {
-    max-width: 44vw;
-  }
-
-  .graph-search:focus,
-  .graph-type-filter:focus {
+  .graph-search:focus {
     outline: 2px solid rgba(44, 255, 179, 0.45);
     outline-offset: 1px;
   }
@@ -208,50 +246,7 @@
     padding: 7px 12px;
   }
 
-  .graph-legend {
-    position: absolute;
-    left: 12px;
-    bottom: 12px;
-    z-index: 16;
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 4px 12px;
-    max-width: calc(100% - 24px);
-    padding: 6px 10px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 9px;
-    background: rgba(7, 18, 13, 0.82);
-    pointer-events: none;
-  }
-
-  .graph-legend-item {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    font-size: var(--text-xs, 0.78rem);
-    color: rgba(230, 255, 245, 0.66);
-  }
-
-  .graph-legend-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    border: 2px solid currentColor;
-    background: transparent;
-  }
-
-  .graph-legend-item[data-legend-type="subject"] { color: #ff6b6b; }
-  .graph-legend-item[data-legend-type="layer"] { color: #b992fc; }
-  .graph-legend-item[data-legend-type="source"] { color: #4da6ff; }
-  .graph-legend-item[data-legend-type="quote"] { color: #ff9b39; }
-  .graph-legend-item[data-legend-type="analysis"] { color: #2cffb3; }
-  .graph-legend-item[data-legend-type="cue"] { color: #ff79c6; }
-  .graph-legend-item[data-legend-type="tag"] { color: #f1fa8c; }
-  .graph-legend-item[data-legend-type="card"] { color: #22d3ee; }
-
-  .graph-toolbar[hidden],
-  .graph-legend[hidden] {
+  .graph-toolbar[hidden] {
     display: none !important;
   }
 
@@ -265,13 +260,6 @@
       flex: 1 1 130px;
       width: auto;
       max-width: none;
-    }
-    .graph-type-filter {
-      flex: 1 1 110px;
-      max-width: none;
-    }
-    .graph-legend {
-      display: none;
     }
   }
 
@@ -2009,36 +1997,59 @@
       </div>
     </div>
 
-    <div class="stats-bar">
-      <div class="stat-pill">
+    <div class="stats-bar" role="group" aria-label="Graph stats and type filters">
+      <button type="button" class="stat-pill stat-total" data-graph-type="all" aria-pressed="true" title="Show every node type">
+        <i class="stat-dot" aria-hidden="true"></i>
         <strong id="totalNodes">0</strong>
         <span class="stat-label">Total</span>
-      </div>
-      <div class="stat-pill stat-subjects">
+      </button>
+      <button type="button" class="stat-pill stat-subjects" data-graph-type="subject" aria-pressed="false" title="Filter the graph to subjects">
+        <i class="stat-dot" aria-hidden="true"></i>
         <strong id="totalSubjects">0</strong>
         <span class="stat-label">Subjects</span>
-      </div>
-      <div class="stat-pill stat-sources">
+      </button>
+      <button type="button" class="stat-pill stat-layers" data-graph-type="layer" aria-pressed="false" title="Filter the graph to layers">
+        <i class="stat-dot" aria-hidden="true"></i>
+        <strong id="totalLayers">0</strong>
+        <span class="stat-label">Layers</span>
+      </button>
+      <button type="button" class="stat-pill stat-sources" data-graph-type="source" aria-pressed="false" title="Filter the graph to sources">
+        <i class="stat-dot" aria-hidden="true"></i>
         <strong id="totalSources">0</strong>
         <span class="stat-label">Sources</span>
-      </div>
-      <div class="stat-pill stat-quotes">
+      </button>
+      <button type="button" class="stat-pill stat-quotes" data-graph-type="quote" aria-pressed="false" title="Filter the graph to quotes">
+        <i class="stat-dot" aria-hidden="true"></i>
         <strong id="totalQuotes">0</strong>
         <span class="stat-label">Quotes</span>
-      </div>
-      <div class="stat-pill stat-analyses">
+      </button>
+      <button type="button" class="stat-pill stat-analyses" data-graph-type="analysis" aria-pressed="false" title="Filter the graph to analyses">
+        <i class="stat-dot" aria-hidden="true"></i>
         <strong id="totalAnalyses">0</strong>
         <span class="stat-label">Analyses</span>
-      </div>
-      <div class="stat-pill stat-cues">
+      </button>
+      <button type="button" class="stat-pill stat-pastpapers" data-graph-type="pastpaper" aria-pressed="false" title="Filter the graph to past papers">
+        <i class="stat-dot" aria-hidden="true"></i>
+        <strong id="totalPastPapers">0</strong>
+        <span class="stat-label">Past Papers</span>
+      </button>
+      <button type="button" class="stat-pill stat-cues" data-graph-type="cue" aria-pressed="false" title="Filter the graph to cues">
+        <i class="stat-dot" aria-hidden="true"></i>
         <strong id="totalCues">0</strong>
         <span class="stat-label">Cues</span>
-      </div>
-      <div class="stat-pill stat-tags">
+      </button>
+      <button type="button" class="stat-pill stat-tags" data-graph-type="tag" aria-pressed="false" title="Filter the graph to tags">
+        <i class="stat-dot" aria-hidden="true"></i>
         <strong id="totalTags">0</strong>
         <span class="stat-label">Tags</span>
-      </div>
-      <div class="stat-pill stat-links">
+      </button>
+      <button type="button" class="stat-pill stat-cards" data-graph-type="card" aria-pressed="false" title="Filter the graph to cards">
+        <i class="stat-dot" aria-hidden="true"></i>
+        <strong id="totalCards">0</strong>
+        <span class="stat-label">Cards</span>
+      </button>
+      <div class="stat-pill stat-links" title="Edges currently drawn in the graph">
+        <i class="stat-dot" aria-hidden="true"></i>
         <strong id="totalConnections">0</strong>
         <span class="stat-label">Links</span>
       </div>
@@ -2051,29 +2062,7 @@
 
     <div id="graphToolbar" class="graph-toolbar">
       <input id="graphSearch" class="graph-search" type="search" placeholder="Find a node…" aria-label="Find a node" autocomplete="off">
-      <select id="graphTypeFilter" class="graph-type-filter" aria-label="Filter nodes by type">
-        <option value="all">All types</option>
-        <option value="subject">Subjects</option>
-        <option value="layer">Layers</option>
-        <option value="source">Sources</option>
-        <option value="quote">Quotes</option>
-        <option value="analysis">Analyses</option>
-        <option value="cue">Cues</option>
-        <option value="tag">Tags</option>
-        <option value="card">Cards</option>
-      </select>
       <button type="button" id="graphFitBtn" class="btn">Fit</button>
-    </div>
-
-    <div id="graphLegend" class="graph-legend" aria-label="Graph node legend">
-      <span class="graph-legend-item" data-legend-type="subject"><i class="graph-legend-dot"></i>Subject</span>
-      <span class="graph-legend-item" data-legend-type="layer"><i class="graph-legend-dot"></i>Layer</span>
-      <span class="graph-legend-item" data-legend-type="source"><i class="graph-legend-dot"></i>Source</span>
-      <span class="graph-legend-item" data-legend-type="quote"><i class="graph-legend-dot"></i>Quote</span>
-      <span class="graph-legend-item" data-legend-type="analysis"><i class="graph-legend-dot"></i>Analysis</span>
-      <span class="graph-legend-item" data-legend-type="cue"><i class="graph-legend-dot"></i>Cue</span>
-      <span class="graph-legend-item" data-legend-type="tag"><i class="graph-legend-dot"></i>Tag</span>
-      <span class="graph-legend-item" data-legend-type="card"><i class="graph-legend-dot"></i>Card</span>
     </div>
 
     <div id="mindmapGridView" class="mindmap-grid-view" hidden>

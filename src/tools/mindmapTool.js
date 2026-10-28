@@ -109,9 +109,7 @@ const state = {
   const ctx = canvas?.getContext("2d");
   const graphToolbar = document.getElementById("graphToolbar");
   const graphSearchInput = document.getElementById("graphSearch");
-  const graphTypeFilter = document.getElementById("graphTypeFilter");
   const graphFitBtn = document.getElementById("graphFitBtn");
-  const graphLegend = document.getElementById("graphLegend");
   const blueprintArea = document.getElementById("blueprintArea");
   const gridView = document.getElementById("mindmapGridView");
   const gridContainer = document.getElementById("mindmapGrid");
@@ -215,10 +213,9 @@ const state = {
       state.viewMode = saved.viewMode;
     }
 
-    const validFilters = ["all", "subject", "layer", "source", "quote", "analysis", "cue", "tag", "card"];
+    const validFilters = ["all", "subject", "layer", "source", "quote", "analysis", "pastpaper", "cue", "tag", "card"];
     if (validFilters.includes(saved.graphTypeFilter)) {
       state.graphTypeFilter = saved.graphTypeFilter;
-      if (graphTypeFilter) graphTypeFilter.value = saved.graphTypeFilter;
     }
 
     if (!contextSubject && typeof saved.focusSubject === "string" && saved.focusSubject.trim()) {
@@ -484,6 +481,41 @@ const state = {
       ...(data.meta?.tags || [])
     ].join(" ").toLowerCase();
     return haystack.includes(term);
+  }
+
+  const GRAPH_FILTER_TYPES = new Set([
+    "all", "subject", "layer", "source", "quote", "analysis", "pastpaper", "cue", "tag", "card"
+  ]);
+
+  function graphFilterPills() {
+    return Array.from(document.querySelectorAll(".stat-pill[data-graph-type]"));
+  }
+
+  function syncGraphFilterUI() {
+    const active = state.graphTypeFilter || "all";
+    const enabled = state.viewMode === "graph";
+    graphFilterPills().forEach((pill) => {
+      const isActive = pill.dataset.graphType === active;
+      pill.classList.toggle("active", isActive);
+      pill.setAttribute("aria-pressed", String(isActive));
+      // The type filter only affects the knowledge graph. In Library/Dots the
+      // pills remain plain stats so tapping them cannot hide anything.
+      pill.disabled = !enabled;
+    });
+  }
+
+  function setGraphTypeFilter(next) {
+    const requested = GRAPH_FILTER_TYPES.has(next) ? next : "all";
+    // Tapping the active type again clears the filter, which makes the pills a
+    // single, obvious control instead of needing a separate "all" reset.
+    state.graphTypeFilter = requested !== "all" && state.graphTypeFilter === requested
+      ? "all"
+      : requested;
+    // Reframe on the next tick so the remaining nodes are actually visible.
+    state.userInteracted = false;
+    syncGraphFilterUI();
+    updateEmptyState();
+    scheduleLayoutSave(400);
   }
 
   function isCardInScope(card) {
@@ -2828,7 +2860,7 @@ const state = {
     [connectNodesBtn, relayoutGraphBtn, newNodeDropdown].forEach((element) => {
       if (element) element.hidden = !isGraph;
     });
-    [graphToolbar, graphLegend].forEach((element) => {
+    [graphToolbar].forEach((element) => {
       if (element) element.hidden = !isGraph;
     });
     if (!isGraph) newNodeDropdown?.classList.remove("open");
@@ -4346,11 +4378,14 @@ const state = {
   function updateStats() {
     const totalNodes = document.getElementById("totalNodes");
     const totalSubjects = document.getElementById("totalSubjects");
+    const totalLayers = document.getElementById("totalLayers");
     const totalSources = document.getElementById("totalSources");
     const totalQuotes = document.getElementById("totalQuotes");
     const totalAnalyses = document.getElementById("totalAnalyses");
+    const totalPastPapers = document.getElementById("totalPastPapers");
     const totalCues = document.getElementById("totalCues");
     const totalTags = document.getElementById("totalTags");
+    const totalCards = document.getElementById("totalCards");
     const totalConnections = document.getElementById("totalConnections");
 
     const nodeItems = (state.nodes || []).filter((item) => isNodeInScope(item.id));
@@ -4371,7 +4406,9 @@ const state = {
     if (totalNodes) {
       totalNodes.textContent = cardMode
         ? scopedCards.length
-        : nodeItems.length + quoteItems.length + cueItems.length + tagItems.length;
+        : nodeItems.length + quoteItems.length + cueItems.length + tagItems.length
+          + (state.layerNodes || []).filter((item) => isNodeInScope(item.id)).length
+          + scopedCards.length;
       setLabel(totalNodes, cardMode ? "Cards" : "Total");
     }
     if (totalSubjects) {
@@ -4379,6 +4416,14 @@ const state = {
         ? new Set(scopedCards.map((card) => String(card.deck || "").trim() || "Unsorted")).size
         : nodeItems.filter(i => i.type === "subject").length;
       setLabel(totalSubjects, cardMode ? "Decks" : "Subjects");
+    }
+
+    if (totalLayers) {
+      const layerCount = cardMode
+        ? 0
+        : (state.layerNodes || []).filter((item) => isNodeInScope(item.id)).length;
+      totalLayers.textContent = layerCount;
+      setPillVisible(totalLayers, !cardMode && layerCount > 0);
     }
 
     if (totalSources) {
@@ -4393,6 +4438,11 @@ const state = {
       totalAnalyses.textContent = nodeItems.filter(i => i.type === "analysis").length;
       setPillVisible(totalAnalyses, !cardMode);
     }
+    if (totalPastPapers) {
+      const paperCount = nodeItems.filter(i => i.type === "pastpaper").length;
+      totalPastPapers.textContent = paperCount;
+      setPillVisible(totalPastPapers, !cardMode && paperCount > 0);
+    }
     if (totalCues) {
       const cueCount = cueItems.length;
       totalCues.textContent = cueCount;
@@ -4403,6 +4453,10 @@ const state = {
       totalTags.textContent = tagCount;
       setPillVisible(totalTags, !cardMode && tagCount > 0);
     }
+    if (totalCards) {
+      totalCards.textContent = scopedCards.length;
+      setPillVisible(totalCards, !cardMode && scopedCards.length > 0);
+    }
 
     const connections = state.graph.edges.filter((edge) =>
       isNodeInScope(edge.from) && isNodeInScope(edge.to)
@@ -4411,6 +4465,8 @@ const state = {
       totalConnections.textContent = connections.length;
       setPillVisible(totalConnections, !cardMode);
     }
+
+    syncGraphFilterUI();
   }
 
   async function refreshData() {
@@ -4737,9 +4793,8 @@ const state = {
       state.graphSearch = graphSearchInput.value;
       updateEmptyState();
     });
-    graphTypeFilter?.addEventListener("change", () => {
-      state.graphTypeFilter = graphTypeFilter.value || "all";
-      updateEmptyState();
+    graphFilterPills().forEach((pill) => {
+      pill.addEventListener("click", () => setGraphTypeFilter(pill.dataset.graphType));
     });
     graphFitBtn?.addEventListener("click", () => {
       state.userInteracted = false;
@@ -5402,6 +5457,7 @@ const state = {
     openInspector("heap");
   }
 
+  syncGraphFilterUI();
   setupEventListeners();
   tick();
 
