@@ -113,6 +113,10 @@ body {
   color: var(--text-main);
   background: radial-gradient(1200px 600px at 50% -10%, #143b2b, var(--bg-1));
   overflow: hidden;
+  /* Keep pinch-zoom available, but stop iPadOS/Safari from treating a fast
+     double tap on a button as "zoom this page". Double-tapping Re-layout or
+     any other control should run the control twice, not zoom the app. */
+  touch-action: manipulation;
 }
 /* Hide all scrollbars */
 ::-webkit-scrollbar,
