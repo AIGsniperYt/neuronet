@@ -722,7 +722,33 @@ const state = {
       if (value === undefined || value === null || value === "") return;
       lines.push(`${label}: ${value}`);
     };
+    const resolveRef = (id) => {
+      if (!id) return "";
+      const item = findItemById(id);
+      if (!item) return `${id} (not found)`;
+      return `${getNodeDisplayTitle(item)} \u2014 ${id}`;
+    };
+    const pushRef = (label, id) => {
+      if (!id) return;
+      push(label, resolveRef(id));
+    };
+    const formatMetaValue = (value) => {
+      if (value === null || value === undefined) return "";
+      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        return String(value);
+      }
+      if (Array.isArray(value)) {
+        if (value.length === 0) return "[]";
+        if (value.every((entry) => typeof entry === "string" || typeof entry === "number" || typeof entry === "boolean")) {
+          return value.join(", ");
+        }
+        return JSON.stringify(value);
+      }
+      if (typeof value === "object") return JSON.stringify(value);
+      return String(value);
+    };
 
+    lines.push("[identity]");
     push("id", node.id);
     push("type", node.type);
     if (node.type !== "card") push("subject", node.subject);
@@ -732,28 +758,95 @@ const state = {
     if (createdAt) push("createdAt", createdAt);
     if (updatedAt) push("updatedAt", updatedAt);
 
-    if (node.type === "card") {
-      push("deck", node.deck);
-      if (Array.isArray(node.deckPath) && node.deckPath.length) {
-        push("deckPath", node.deckPath.join(" > "));
-      }
-      push("priority", node.priority);
-      push("order", node.order);
-      push("origin", node.origin);
-      if (Array.isArray(node.tags) && node.tags.length) push("tags", node.tags.join(", "));
-    }
-
-    if (node.type === "quote") {
-      if (node.link?.sourceId) push("link.sourceId", node.link.sourceId);
-      if (node.section) push("section", node.section);
-    }
-
-    if (node.type === "analysis") {
-      push("quoteRefs.count", Array.isArray(node.quoteRefs) ? node.quoteRefs.length : 0);
-    }
-
     const meta = node.meta || {};
-    const memoryKeys = ["S", "D", "U", "interval", "nextReview", "lastReview", "reviewCount", "expectedTime", "avgTime", "timeVariance", "consistency", "confidence", "easeFactor", "honestyFlag", "clusterId", "lastGrade"];
+    const tags = Array.isArray(node.tags)
+      ? node.tags
+      : (Array.isArray(meta.tags) ? meta.tags : []);
+    const organization = [];
+    if (node.type === "card") {
+      if (node.deck) organization.push(`deck: ${node.deck}`);
+      if (Array.isArray(node.deckPath) && node.deckPath.length) {
+        organization.push(`deckPath: ${node.deckPath.join(" > ")}`);
+      }
+      if (node.order !== undefined) organization.push(`order: ${node.order}`);
+      if (node.origin) organization.push(`origin: ${node.origin}`);
+    }
+    if (node.section) organization.push(`section: ${node.section}`);
+    if (tags.length) organization.push(`tags: ${tags.join(", ")}`);
+    if (organization.length) {
+      lines.push("");
+      lines.push("[organization]");
+      organization.forEach((line) => lines.push(line));
+    }
+
+    const signals = [];
+    if (node.type === "card") {
+      if (node.priority !== undefined && node.priority !== null) signals.push(`priority: ${node.priority}`);
+      if (node.recall?.score !== undefined && node.recall?.score !== null) {
+        signals.push(`recall: ${Math.round(node.recall.score * 100)}%${node.recall.source ? ` (${node.recall.source})` : ""}`);
+      }
+      if (node.accuracy !== undefined && node.accuracy !== null) {
+        signals.push(`accuracy: ${Math.round(node.accuracy * 100)}%`);
+      }
+    }
+    const lastGrade = node.lastGrade ?? meta.lastGrade;
+    if (lastGrade !== undefined && lastGrade !== null) signals.push(`lastGrade: ${lastGrade}`);
+    if (signals.length) {
+      lines.push("");
+      lines.push("[signals]");
+      signals.forEach((line) => lines.push(line));
+    }
+
+    // References are first-class data. Resolve them to titles so the panel
+    // explains what a record points at instead of hiding a count.
+    const references = [];
+    const pushRefLine = (label, id) => {
+      if (!id) return;
+      references.push(`${label}: ${resolveRef(id)}`);
+    };
+    if (node.type === "quote") {
+      pushRefLine("link.sourceId", node.link?.sourceId);
+    }
+    if (node.type === "cue") {
+      pushRefLine("quoteId", node.quoteId);
+      pushRefLine("analysisId", node.analysisId);
+    }
+    if (node.type === "analysis" && Array.isArray(node.quoteRefs)) {
+      node.quoteRefs.forEach((ref, index) => {
+        if (!ref) return;
+        const id = typeof ref === "string" ? ref : ref.quoteId;
+        const detail = [];
+        if (ref?.section) detail.push(`section: ${ref.section}`);
+        if (ref?.priority !== undefined) detail.push(`priority: ${ref.priority}`);
+        pushRefLine(
+          `quoteRefs[${index}]${detail.length ? ` (${detail.join(", ")})` : ""}`,
+          id
+        );
+      });
+    }
+    if (Array.isArray(node.links)) {
+      node.links.forEach((link, index) => {
+        const id = typeof link === "string"
+          ? link
+          : (link?.nodeId || link?.targetId || link?.id || link?.quoteId);
+        if (id) pushRefLine(`links[${index}]`, id);
+        else references.push(`links[${index}]: ${formatMetaValue(link)}`);
+      });
+    }
+    if (Array.isArray(meta.manualLinks)) {
+      meta.manualLinks.forEach((id, index) => pushRefLine(`manualLinks[${index}]`, id));
+    }
+    if (references.length) {
+      lines.push("");
+      lines.push("[references]");
+      references.forEach((line) => lines.push(line));
+    }
+
+    const memoryKeys = [
+      "S", "D", "U", "interval", "nextReview", "lastReview", "reviewCount",
+      "expectedTime", "avgTime", "timeVariance", "consistency", "confidence",
+      "easeFactor", "honestyFlag", "clusterId", "lastGrade"
+    ];
     const metaHasAny = memoryKeys.some((k) => meta[k] !== undefined && meta[k] !== null);
     if (metaHasAny) {
       lines.push("");
@@ -780,20 +873,28 @@ const state = {
       if (meta.clusterId) push("clusterId", meta.clusterId);
     }
 
-    const otherMetaKeys = Object.keys(meta || {}).filter((k) => !memoryKeys.includes(k)).sort();
-    if (otherMetaKeys.length > 0) {
+    // Everything not already shown above, including arrays and nested objects,
+    // is printed in full. A diagnostic panel should never reduce data to
+    // "[n items]" or "{...}".
+    const shownMetaKeys = new Set([
+      ...memoryKeys,
+      "tags",
+      "manualLinks",
+      "priority",
+      "subject"
+    ]);
+    const otherMetaKeys = Object.keys(meta).filter((k) => !shownMetaKeys.has(k)).sort();
+    if (otherMetaKeys.length > 0 || Object.keys(meta).length === 0) {
       lines.push("");
       lines.push("[meta]");
-      otherMetaKeys.forEach((k) => {
-        const v = meta[k];
-        if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
-          push(k, v);
-        } else if (Array.isArray(v)) {
-          push(k, `[${v.length} items]`);
-        } else if (v && typeof v === "object") {
-          push(k, "{...}");
-        }
-      });
+      if (otherMetaKeys.length === 0) {
+        lines.push("(empty)");
+      } else {
+        otherMetaKeys.forEach((k) => {
+          const value = formatMetaValue(meta[k]);
+          if (value !== "") push(k, value);
+        });
+      }
     }
 
     return lines.join("\n");
