@@ -298,15 +298,6 @@ const state = {
     }, delay);
   }
 
-  function markLayoutStable() {
-    if (layoutSettleTimer) {
-      clearTimeout(layoutSettleTimer);
-      layoutSettleTimer = 0;
-    }
-    positionsStable = true;
-    scheduleLayoutSave(300);
-  }
-
   const config = {
     nodeRadius: 8,
     nodeHoverRadius: 12,
@@ -5218,9 +5209,11 @@ const state = {
         }
         if (cancelled) state.hasDragged = true;
         releasePointer(e);
-        // A deliberate drag is a layout the user chose; persist it now.
-        if (wasDragging) markLayoutStable();
-        else scheduleLayoutSave(400);
+        // A deliberate drag is a layout the user chose; persist it now once the
+        // map has settled. During the opening explosion, let the settle timer
+        // capture the final arrangement instead of freezing a half-formed one.
+        if (wasDragging && positionsStable) scheduleLayoutSave(200);
+        else if (!wasDragging) scheduleLayoutSave(400);
       };
 
       canvas.addEventListener("pointerdown", (e) => {
