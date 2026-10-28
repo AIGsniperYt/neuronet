@@ -12,8 +12,10 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const cwd = process.cwd();
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const snapshotDir = process.env.SNAPSHOT_DIR
   ? path.resolve(cwd, process.env.SNAPSHOT_DIR)
   : "";
@@ -31,6 +33,7 @@ const SKIP_NAMES = new Set([
   "docs",
   "todo.md",
   "README.md",
+  "SNAPSHOTS.md",
   "LICENSE.md",
   "package.json",
   "package-lock.json"
@@ -180,6 +183,57 @@ function patchApp(dest, version) {
   return changes;
 }
 
+function detectDemoStores(dest) {
+  const source = read(path.join(dest, "src/db.js")) || read(path.join(dest, "db.js"));
+  if (!source) return [];
+
+  return ["nodes", "quotes", "cues", "tags", "cards", "heaps"].filter((name) =>
+    new RegExp(`createObjectStore\\(\\s*["']${name}["']`).test(source)
+  );
+}
+
+function ensureDemoData(dest) {
+  const own = path.join(dest, "demo-data.json");
+  if (fs.existsSync(own)) return "snapshot";
+
+  // Old branches predate the demo dataset. Reuse the current canonical file;
+  // its nodes and quotes are backwards-compatible, and newer stores are
+  // filtered out by the seed script.
+  const canonical = path.resolve(scriptDir, "..", "demo-data.json");
+  if (!fs.existsSync(canonical)) return "";
+  fs.copyFileSync(canonical, own);
+  return "main";
+}
+
+function writeSeedScript(dest, version, stores) {
+  if (!stores.length) return false;
+
+  const template = read(path.join(scriptDir, "showcase-seed.template.js"));
+  if (!template) return false;
+
+  const script = template
+    .replaceAll("__DB_NAME__", `neuronet-showcase-${version}`)
+    .replaceAll("__VERSION__", version)
+    .replaceAll("__TARGET_STORES__", JSON.stringify(stores));
+
+  write(path.join(dest, "showcase-seed.js"), script);
+  return true;
+}
+
+function injectSeedScript(dest) {
+  const file = path.join(dest, "index.html");
+  const html = read(file);
+  if (!html || html.includes("showcase-seed.js")) return false;
+
+  const tag = '  <script src="showcase-seed.js"></script>\n';
+  const marker = /<\/body>/i;
+  const output = marker.test(html)
+    ? html.replace(marker, `${tag}</body>`)
+    : `${html}\n${tag}`;
+  write(file, output);
+  return true;
+}
+
 function loadVersions() {
   const file = path.join(showcaseDir, "versions.json");
   try {
@@ -245,7 +299,7 @@ function renderGallery(versions) {
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>NeuroNet — Version Showcase</title>
+<title>NeuroNet — version by version</title>
 <style>
   :root {
     --bg: #07130f;
@@ -434,11 +488,11 @@ function renderGallery(versions) {
 </head>
 <body>
   <main class="page">
-    <span class="eyebrow">NeuroNet · Version archive</span>
-    <h1>Watch the <span>knowledge system</span> evolve.</h1>
+    <span class="eyebrow">NeuroNet · old builds</span>
+    <h1>NeuroNet, <span>version by version</span>.</h1>
     <p class="lede">
-      Working snapshots of NeuroNet, kept side by side. Open any version to try
-      it exactly as it was, or jump into the latest build.
+      Old builds, still working. Open any version and have a look, or jump into
+      the latest.
     </p>
 
     <a class="latest" href="../">
@@ -461,8 +515,8 @@ function renderGallery(versions) {
         <li>Optionally set the version folder, label, and description, then run it.</li>
       </ol>
       <div class="note">
-        Every snapshot gets its own browser database. Importing demo data into
-        one version will not touch the latest app or any other snapshot.
+        Every snapshot starts with the demo dataset and its own browser
+        database. Anything you change stays in that browser and that version.
       </div>
     </section>
 
@@ -482,6 +536,9 @@ function main() {
     const dest = path.join(showcaseDir, version);
     copyApp(dest);
     const changes = patchApp(dest, version);
+    const demoData = ensureDemoData(dest);
+    const demoStores = detectDemoStores(dest);
+    const seeded = writeSeedScript(dest, version, demoStores) && injectSeedScript(dest);
 
     const entry = {
       version,
@@ -508,6 +565,11 @@ function main() {
     console.log(
       `Added ${version} from ${ref || "snapshot"}` +
         (changes.length ? ` (patched ${changes.join(", ")})` : " (no patches needed)")
+    );
+    console.log(
+      seeded
+        ? `Demo seed enabled from ${demoData === "snapshot" ? "the snapshot" : "main"} (${demoStores.join(", ")})`
+        : "Demo seed disabled (no demo data or database schema found)"
     );
   } else {
     console.log("No snapshot supplied; regenerating gallery only.");

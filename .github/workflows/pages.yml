@@ -99,7 +99,7 @@ jobs:
 
       - name: Assemble site
         run: |
-          rm -rf dist/.git dist/.github dist/scripts dist/tests dist/docs dist/todo.md dist/node_modules
+          rm -rf dist/.git dist/.github dist/scripts dist/tests dist/docs dist/todo.md dist/SNAPSHOTS.md dist/node_modules
           rm -rf showcase/.git
           cp -R showcase dist/showcase
           touch dist/.nojekyll
