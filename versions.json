@@ -1,1 +1,11 @@
-[]
+[
+  {
+    "version": "v9",
+    "label": "Card-first + Heaps",
+    "description": "Cards became the study unit, with heaps for manual study and a unified graph.",
+    "ref": "main",
+    "commit": "9eb05f6ff83c2ff3f01a8be654a85eeb3f804594",
+    "addedAt": "2026-10-28T15:06:04.173Z",
+    "path": "v9/"
+  }
+]

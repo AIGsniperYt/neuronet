@@ -1,0 +1,1642 @@
+<style>
+.analysis-shell {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 8px;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  padding: 12px;
+  min-height: 0;
+}
+
+/* Hide scrollbars globally */
+::-webkit-scrollbar,
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-thumb {
+  display: none;
+}
+
+html, body, * {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.analysis-shell .panel {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(160deg, rgba(14, 34, 26, 0.88), rgba(9, 26, 19, 0.82));
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: 0 22px 38px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(var(--glass-blur));
+  transition: all 0.3s ease;
+}
+
+.panel h2,
+.panel h3 {
+  margin: 0;
+}
+
+.kicker {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: var(--text-xs, 0.82rem);
+  font-weight: 600;
+  color: rgba(44, 255, 179, 0.82);
+  margin-bottom: 8px;
+}
+
+.analysis-launch {
+  display: grid;
+  gap: 16px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  align-content: start;
+}
+
+.launch-top {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 14px;
+}
+
+.subject-toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.subject-create-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.subject-create-row .inline-input {
+  flex: 0 1 360px;
+}
+
+.inline-input,
+.inline-select,
+.inline-textarea,
+.source-editor {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(5, 18, 13, 0.85);
+  color: #e6fff5;
+  padding: 9px 12px;
+  font: inherit;
+  font-size: var(--text-base, 0.92rem);
+}
+
+.inline-textarea {
+  resize: vertical;
+}
+
+.source-editor {
+  min-height: 220px;
+  line-height: 1.6;
+  padding: 10px 12px;
+}
+
+.source-editor:focus,
+.inline-input:focus,
+.inline-select:focus,
+.inline-textarea:focus {
+  outline: none;
+  border-color: rgba(44, 255, 179, 0.45);
+  box-shadow: 0 0 0 3px rgba(44, 255, 179, 0.08);
+}
+
+.btn {
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: #e6fff5;
+  padding: 9px 16px;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-base, 0.92rem);
+  transition: all 0.2s ease;
+  min-width: 60px;
+  text-align: center;
+}
+
+.btn:hover {
+  border-color: rgba(44, 255, 179, 0.45);
+  background: rgba(44, 255, 179, 0.08);
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+}
+
+.btn.primary {
+  background: linear-gradient(130deg, rgba(44, 255, 179, 0.24), rgba(44, 255, 179, 0.11));
+  border-color: rgba(44, 255, 179, 0.45);
+}
+
+.btn.primary:hover {
+  background: linear-gradient(130deg, rgba(44, 255, 179, 0.32), rgba(44, 255, 179, 0.18));
+  box-shadow: 0 0 12px rgba(44, 255, 179, 0.2);
+}
+
+.stats-row,
+.subject-list,
+.source-list,
+.analysis-list {
+  display: grid;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.stats-row {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.stat-card,
+.subject-card,
+.item-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 12px;
+}
+
+.stat-card strong {
+  display: block;
+  font-size: 1.5rem;
+}
+
+.subject-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.subject-name {
+  font-size: var(--text-md, 1.03rem);
+  font-weight: 600;
+}
+
+.subject-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.subject-open {
+  cursor: pointer;
+}
+
+.analysis-study {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 12px;
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.analysis-study .study-head {
+  padding: 14px 18px;
+  background: linear-gradient(145deg, rgba(18, 48, 35, 0.94), rgba(9, 27, 20, 0.9));
+}
+
+.study-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.study-top > div:first-child {
+  min-width: 0;
+}
+
+.study-top h2 {
+  font-size: clamp(1.15rem, 2vw, 1.45rem);
+  letter-spacing: -0.025em;
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.layer-dropdown-group {
+  display: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.button-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.header-controls .inline-select,
+.header-controls .btn {
+  min-height: 34px;
+}
+
+.layer-select {
+  min-width: 80px;
+}
+
+.source-select {
+  min-width: 120px;
+}
+
+.source-navigator-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-width: min(260px, 32vw);
+  max-width: 320px;
+  min-height: 36px;
+  padding: 7px 11px;
+  border: 1px solid rgba(145, 255, 213, 0.22);
+  border-radius: 9px;
+  background: rgba(5, 18, 13, 0.72);
+  color: #e6fff5;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.source-navigator-trigger i {
+  flex: 0 0 auto;
+  color: #4cff9a;
+}
+
+.source-navigator-trigger:hover,
+.source-navigator-trigger:focus-visible {
+  border-color: rgba(44, 255, 179, 0.55);
+  background: rgba(44, 255, 179, 0.08);
+}
+
+.source-navigator-trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.source-library-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  gap: 14px;
+  padding: clamp(16px, 2.2vw, 26px);
+  overflow: hidden;
+}
+
+.source-library-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.source-library-head h1 {
+  margin: 0;
+  color: #e6fff5;
+  font-size: clamp(1.35rem, 2.2vw, 1.85rem);
+  line-height: 1.08;
+}
+
+.source-library-subtitle {
+  max-width: 620px;
+  margin: 8px 0 0;
+  color: rgba(230, 255, 245, 0.7);
+  font-size: var(--text-base, 0.92rem);
+  line-height: 1.55;
+}
+
+.source-library-head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.source-library-view > .source-navigator-toolbar { margin: 0; max-width: 920px; }
+.source-library-view > .source-navigator-list { flex: 1; min-height: 180px; max-width: 1040px; }
+.source-library-count { color: rgba(230, 255, 245, 0.62); font-size: var(--text-sm, 0.87rem); white-space: nowrap; }
+
+.source-navigator-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.source-navigator-modal[hidden] { display: none; }
+.source-navigator-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.58); backdrop-filter: blur(4px); }
+.source-navigator-dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(760px, 100%);
+  max-height: min(720px, calc(100dvh - 48px));
+  padding: 20px;
+  border: 1px solid rgba(145, 255, 213, 0.18);
+  border-radius: 16px;
+  background: linear-gradient(145deg, rgba(15, 42, 30, 0.98), rgba(7, 22, 16, 0.98));
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+}
+
+.source-navigator-head,
+.source-navigator-toolbar,
+.source-navigator-recent,
+.source-navigator-item,
+.source-navigator-item-main,
+.source-navigator-item-actions {
+  display: flex;
+  align-items: center;
+}
+
+.source-navigator-head { justify-content: space-between; gap: 16px; }
+.source-navigator-head h2 { margin: 0; }
+.source-navigator-toolbar { gap: 10px; margin: 16px 0 12px; }
+.source-search-wrap { flex: 1; min-width: 0; }
+.source-search-wrap .inline-input { min-height: 40px; }
+.source-navigator-recent {
+  display: block;
+  margin: 0 0 18px;
+  padding: 0 0 16px;
+  border-bottom: 1px solid rgba(145, 255, 213, 0.12);
+}
+.source-navigator-recent:empty { display: none; }
+.source-navigator-recent-label { margin-bottom: 8px; color: rgba(230, 255, 245, 0.62); font-size: var(--text-xs, 0.82rem); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; }
+.source-navigator-recent-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+.source-navigator-recent-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid rgba(145, 255, 213, 0.1);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.025);
+  color: #e6fff5;
+}
+.source-navigator-recent-open {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.source-navigator-recent-item:focus-within,
+.source-navigator-recent-item:hover {
+  border-color: rgba(44, 255, 179, 0.35);
+  background: rgba(44, 255, 179, 0.07);
+  transform: translateY(-1px);
+}
+.source-navigator-recent-remove { display: grid; flex: 0 0 auto; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: rgba(230, 255, 245, 0.42); cursor: pointer; }
+.source-navigator-recent-remove:hover, .source-navigator-recent-remove:focus-visible { background: rgba(255, 130, 130, 0.12); color: #ff9a9a; }
+.source-navigator-recent-remove svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+.source-navigator-file-icon { display: grid; flex: 0 0 auto; place-items: center; width: 28px; height: 28px; border-radius: 7px; background: rgba(44, 255, 179, 0.1); color: #8dffc2; }
+.source-navigator-file-icon svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.source-navigator-recent-copy { display: grid; min-width: 0; gap: 2px; }
+.source-navigator-recent-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-md, 1.03rem); }
+.source-navigator-recent-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(230, 255, 245, 0.62); font-size: var(--text-xs, 0.82rem); }
+.source-navigator-list { min-height: 0; overflow-y: auto; padding-right: 3px; }
+.source-navigator-list::before { content: "All sources"; display: block; margin: 0 0 9px; color: rgba(230, 255, 245, 0.62); font-size: var(--text-xs, 0.82rem); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+.source-navigator-group + .source-navigator-group { margin-top: 14px; }
+.source-navigator-group-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  margin: 0 0 6px;
+  padding: 8px 10px;
+  border: 1px solid rgba(145, 255, 213, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+  color: rgba(230, 255, 245, 0.72);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-xs, 0.82rem);
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+.source-navigator-group-title::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid #4cff9a;
+  border-bottom: 1.5px solid #4cff9a;
+  transform: rotate(-45deg);
+  transition: transform 180ms ease, border-color 180ms ease;
+}
+.source-navigator-group.is-open > .source-navigator-group-title::before {
+  transform: rotate(45deg);
+}
+.source-navigator-group-count { color: rgba(230, 255, 245, 0.45); font-variant-numeric: tabular-nums; }
+.source-navigator-group .source-navigator-group { margin: 6px 0 0 14px; padding-left: 10px; border-left: 1px solid rgba(145, 255, 213, 0.12); }
+.source-navigator-level-0 > .source-navigator-group-title { font-size: var(--text-sm, 0.87rem); }
+.source-navigator-group.is-open > .source-navigator-group-title {
+  border-color: rgba(44, 255, 179, 0.28);
+  background: rgba(44, 255, 179, 0.07);
+}
+.source-navigator-group-content {
+  display: grid;
+  grid-template-rows: 0fr;
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(-5px);
+  transition: grid-template-rows 220ms cubic-bezier(0.2, 0.8, 0.2, 1), max-height 220ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 160ms ease, transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.source-navigator-group-content > * { min-height: 0; }
+.source-navigator-group.is-open > .source-navigator-group-content {
+  grid-template-rows: 1fr;
+  max-height: 2400px;
+  opacity: 1;
+  transform: translateY(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .source-navigator-group-content,
+  .source-navigator-group-title::before { transition: none; }
+}
+.source-navigator-item { width: 100%; gap: 10px; padding: 10px; border: 1px solid transparent; border-radius: 10px; background: rgba(255,255,255,0.035); color: #e6fff5; text-align: left; }
+.source-navigator-item + .source-navigator-item { margin-top: 6px; }
+.source-navigator-item:hover, .source-navigator-item:focus-within { border-color: rgba(44,255,179,0.3); background: rgba(44,255,179,0.08); }
+.source-navigator-item-main {
+  min-width: 0;
+  flex: 1;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #e6fff5;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.source-navigator-item-copy { min-width: 0; }
+.source-navigator-item-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: var(--text-md, 1.03rem); }
+.source-navigator-item-path { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 3px; color: rgba(230,255,245,0.64); font-size: var(--text-sm, 0.87rem); }
+.source-navigator-item-actions { gap: 4px; }
+.source-navigator-item-actions .icon-btn { margin: 0; width: 30px; height: 30px; }
+.source-navigator-item-actions .icon-btn svg { display: block; width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.source-navigator-item-actions .danger:hover { color: #ff9a9a; border-color: rgba(255,120,120,0.45); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+@media (max-width: 700px) {
+  .source-navigator-trigger { min-width: 0; max-width: 100%; flex: 1 1 180px; }
+  .source-navigator-modal { padding: 12px; }
+  .source-navigator-dialog { max-height: calc(100dvh - 24px); padding: 16px; }
+  .source-navigator-toolbar { align-items: stretch; flex-direction: column; }
+  .source-navigator-toolbar .btn { width: 100%; }
+  .source-navigator-item { align-items: flex-start; }
+  .source-navigator-item-actions { flex-wrap: wrap; justify-content: flex-end; }
+  .source-library-view { padding: 18px 14px; gap: 14px; overflow-y: auto; }
+  .source-library-head-actions { width: 100%; }
+  .source-library-head-actions .btn { flex: 1; }
+  .source-library-view > .source-navigator-list { min-height: 320px; }
+}
+
+.study-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 12px;
+  position: relative;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  transition: grid-template-columns 0.3s ease, gap 0.3s ease;
+}
+
+.study-grid.editor-expanded {
+  grid-template-columns: 1fr 0fr;
+  gap: 0;
+  overflow: hidden;
+}
+
+.study-grid.editor-expanded .side-panel {
+  overflow: hidden;
+}
+
+.editor-expanded .side-panel > .panel,
+.editor-expanded .side-panel {
+  padding: 0 !important;
+  min-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.main-surface {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+.source-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  position: relative;
+  padding: 16px !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  overflow: hidden;
+  background: linear-gradient(145deg, rgba(15, 42, 30, 0.94), rgba(7, 22, 16, 0.94));
+  border-color: rgba(145, 255, 213, 0.1);
+}
+
+.study-column {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+/* .study-column is also used by the right-hand grid column. Keep the source
+ * column's deliberate vertical flex chain from being overwritten by that
+ * shared grid rule. */
+.study-column.main-surface {
+  display: flex;
+  flex-direction: column;
+  align-content: normal;
+}
+
+
+
+.save-source-edit-only,
+.cancel-source-edit-only {
+  display: none;
+}
+
+.save-source-edit-only.visible,
+.cancel-source-edit-only.visible {
+  display: inline-block;
+}
+
+.view-seg button.active {
+  background: rgba(44, 255, 179, 0.18);
+  border-color: rgba(44, 255, 179, 0.5);
+  color: #2cffb3;
+}
+
+#sourceEditor {
+  flex: 1 1 0;
+  min-height: 0;
+  height: auto;
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(5, 18, 13, 0.85);
+  border-radius: 8px;
+  box-shadow: none;
+  min-width: 0;
+}
+
+#sourceEditor.mdedit {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* Preserve the full-height chain when this injected tool is nested inside
+ * Neuronet's flex layout. Each intermediate must be allowed to shrink so the
+ * editor receives the remaining row instead of resolving to content height. */
+#studyView,
+#studyView > .study-grid,
+#studyView .main-surface,
+#studyView .source-panel,
+#studyView .reader-wrap,
+#editorWrapper,
+#sourceForm,
+#sourceEditor,
+#sourceEditor .mdedit,
+#sourceEditor .mdedit-cols,
+#sourceEditor .mdedit-pane,
+#sourceEditor .mdedit-scroll {
+  min-height: 0;
+}
+
+/* the editor is the field that replaces the reader surface: give the inner
+ * scroll a distinct page/input look (not the flat card bg) and let it grow to
+ * fill the pane, so it reads as the editing surface instead of a small well. */
+#sourceEditor .mdedit-scroll {
+  background: var(--md-bg, rgba(5, 18, 13, 0.85));
+  padding: 10px 12px 32px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+#sourceEditor .mdedit-scroll.raw {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+#sourceEditor .mdedit-scroll .md {
+  width: 100%;
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.62;
+}
+
+#sourceEditor .mdedit-scroll .md > p:first-child {
+  margin-top: 0;
+}
+
+#sourceEditor .mdedit-editor {
+  padding: 12px 14px 32px;
+  background: rgba(5, 18, 13, 0.72);
+}
+
+/* deliberate, non-jumpy focus: accent ring on the field, no browser outline
+ * that would expose the small interior area. */
+#sourceEditor:focus-within {
+  border-color: rgba(44, 255, 179, 0.45);
+  box-shadow: 0 0 0 3px rgba(44, 255, 179, 0.08);
+  outline: none;
+}
+#sourceEditor .mdedit-scroll:focus,
+#sourceEditor .mdedit-scroll .md:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.source-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.reader-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  gap: 6px;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+.source-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.source-view.hidden {
+  display: none !important;
+}
+
+.reader-surface {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  max-height: 100%;
+}
+
+.floating-card {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  width: min(380px, 100%);
+  max-height: calc(100vh - 80px);
+  overflow: auto;
+  background: rgba(7, 20, 15, 0.96);
+  border: 1px solid rgba(44, 255, 179, 0.25);
+  box-shadow: 0 35px 60px rgba(0, 0, 0, 0.3), inset 0 0 1px rgba(44, 255, 179, 0.1);
+  z-index: 30;
+  backdrop-filter: blur(var(--glass-blur));
+  display: none;
+}
+
+.analysis-cleanup-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(2, 10, 7, 0.72);
+  backdrop-filter: blur(14px);
+}
+
+.analysis-cleanup-modal.open {
+  display: flex;
+}
+
+.analysis-cleanup-card {
+  width: min(560px, calc(100vw - 32px));
+  border-radius: 18px;
+  border: 1px solid rgba(44, 255, 179, 0.24);
+  background:
+    radial-gradient(circle at top right, rgba(44, 255, 179, 0.16), transparent 38%),
+    linear-gradient(165deg, rgba(10, 28, 21, 0.98), rgba(5, 18, 13, 0.96));
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.42), inset 0 0 0 1px rgba(44, 255, 179, 0.08);
+  padding: 20px;
+}
+
+.analysis-cleanup-copy {
+  display: grid;
+  gap: 12px;
+}
+
+.analysis-cleanup-title {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #f3fff8;
+}
+
+.analysis-cleanup-message {
+  margin: 0;
+  line-height: 1.55;
+  color: rgba(230, 255, 245, 0.82);
+}
+
+.analysis-cleanup-summary {
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 13px 15px;
+  color: rgba(230, 255, 245, 0.84);
+  font-size: var(--text-base, 0.92rem);
+  line-height: 1.55;
+}
+
+.analysis-cleanup-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.btn.danger {
+  border-color: rgba(255, 93, 93, 0.3);
+  background: rgba(255, 93, 93, 0.12);
+  color: #ffdede;
+}
+
+.btn.danger:hover {
+  background: rgba(255, 93, 93, 0.18);
+}
+
+.quote-action {
+  position: absolute;
+  display: none;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(44, 255, 179, 0.96);
+  color: #062016;
+  border: none;
+  font-weight: 700;
+  z-index: 4;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.quote-action:hover {
+  background: #2cffb3;
+  box-shadow: 0 12px 32px rgba(44, 255, 179, 0.3);
+  transform: translateY(-2px);
+}
+
+.highlight-quote {
+  display: inline;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  background: rgba(44, 255, 179, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(44, 255, 179, 0.22);
+  border-radius: 10px;
+  padding: 2px 6px 3px;
+  margin: 0 1px;
+  transition: background 0.25s ease, box-shadow 0.25s ease;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+.highlight-quote.active {
+  background: rgba(44, 255, 179, 0.35);
+  box-shadow: inset 0 0 0 2px rgba(44, 255, 179, 0.45), 0 0 12px rgba(44, 255, 179, 0.25);
+}
+
+.source-list {
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+}
+
+.analysis-list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: grid;
+  gap: 10px;
+}
+
+.side-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+  padding: 0 !important;
+}
+
+.analysis-shell .side-panel > .panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: 8px !important;
+  overflow: hidden;
+}
+
+.analysis-shell .side-panel > .panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 8px !important;
+  min-height: 0;
+}
+
+.reader-mode-label {
+  color: rgba(230, 255, 245, 0.8);
+  font-size: var(--text-md, 1.03rem);
+}
+
+.study-column {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  overflow: hidden;
+}
+
+.reader-surface {
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 14px;
+  background: rgba(7, 20, 15, 0.72);
+  flex: 1;
+  min-height: 200px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 24px;
+  font-family: var(--font-reading, "Literata", Georgia, "Times New Roman", serif);
+  font-size: var(--text-reading, 1.08rem);
+  line-height: var(--leading-reading, 1.7);
+  color: rgba(237, 255, 248, 0.92);
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+.reader-surface p {
+  margin: 0 0 0.45em 0;
+}
+
+.reader-surface p:last-child {
+  margin-bottom: 0;
+}
+
+.reader-surface h1,
+.reader-surface h2,
+.reader-surface h3,
+.reader-surface h4,
+.reader-surface h5,
+.reader-surface h6 {
+  font-weight: 700;
+  color: #e6fff5;
+  margin: 0.8em 0 0.3em;
+  line-height: 1.25;
+}
+
+.reader-surface h1 { font-size: 1.7em; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 0.2em; }
+.reader-surface h2 { font-size: 1.4em; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 0.2em; }
+.reader-surface h3 { font-size: 1.2em; }
+.reader-surface h4 { font-size: 1.05em; }
+
+.reader-surface ul,
+.reader-surface ol {
+  padding-left: 1.5em;
+  margin: 0.4em 0;
+}
+
+.reader-surface li {
+  margin: 0.15em 0;
+}
+
+.reader-surface blockquote {
+  border-left: 3px solid rgba(44, 255, 179, 0.45);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 0 8px 8px 0;
+  margin: 0.5em 0;
+  padding: 0.4em 0.9em;
+}
+
+.reader-surface pre {
+  background: rgba(5, 18, 13, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+
+.reader-surface::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.reader-meta {
+  color: rgba(230, 255, 245, 0.74);
+}
+
+.selection-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.empty-note {
+  text-align: center;
+  color: rgba(230, 255, 245, 0.65);
+  padding: 14px;
+}
+
+.form-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+}
+
+#editorWrapper,
+#sourceForm {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+#editorWrapper {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
+}
+
+#sourceForm {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  align-self: stretch;
+  overflow: hidden;
+}
+
+.source-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(160px, 0.8fr);
+  gap: 8px;
+  align-items: end;
+}
+
+.source-field-main,
+.source-field,
+.source-path {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.source-field-label {
+  font-size: var(--text-xs, 0.82rem);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(230, 255, 245, 0.62);
+}
+
+.source-field-main .inline-input {
+  min-height: 48px;
+  padding: 6px 2px;
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  border: 0;
+  border-bottom: 1px solid rgba(145, 255, 213, 0.18);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.source-field-main .inline-input:hover {
+  border-bottom-color: rgba(145, 255, 213, 0.34);
+}
+
+.source-field-main .inline-input:focus {
+  border-bottom-color: rgba(44, 255, 179, 0.78);
+  box-shadow: 0 2px 0 rgba(44, 255, 179, 0.16);
+}
+
+.source-field:not(.source-field-main) .inline-input {
+  min-height: 40px;
+  border-radius: 10px;
+  border-color: rgba(145, 255, 213, 0.1);
+  background: rgba(5, 18, 13, 0.5);
+  color: rgba(230, 255, 245, 0.86);
+}
+
+.source-field:not(.source-field-main) .inline-input:focus {
+  border-color: rgba(44, 255, 179, 0.5);
+  background: rgba(5, 18, 13, 0.72);
+}
+
+.source-organization {
+  min-width: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.source-organization summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 40px;
+  padding: 8px 11px;
+  color: rgba(230, 255, 245, 0.82);
+  font-size: var(--text-sm, 0.87rem);
+  font-weight: 650;
+  cursor: pointer;
+  list-style: none;
+}
+
+.source-organization summary::-webkit-details-marker { display: none; }
+.source-organization summary::after {
+  content: "＋";
+  color: rgba(44, 255, 179, 0.75);
+  font-size: var(--text-md, 1.03rem);
+  line-height: 1;
+}
+.source-organization[open] summary::after { content: "−"; }
+
+.source-organization-hint {
+  margin-left: auto;
+  color: rgba(230, 255, 245, 0.55);
+  font-size: var(--text-xs, 0.82rem);
+  font-weight: 500;
+}
+
+.source-organization .source-path {
+  padding: 0 10px 10px;
+}
+
+.source-path-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.source-path-row .inline-input {
+  flex: 1;
+}
+
+.source-path-sep {
+  color: rgba(230, 255, 245, 0.3);
+  padding: 0 2px;
+  font-size: var(--text-sm, 0.87rem);
+}
+
+.form-error {
+  color: #ff7a7a;
+  font-size: var(--text-sm, 0.87rem);
+  line-height: 1.4;
+}
+
+.inline-input.input-invalid {
+  border-color: #ff6b6b;
+  box-shadow: 0 0 0 2px rgba(255, 107, 107, 0.25);
+}
+
+.form-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  border-radius: 999px;
+  padding: 5px 10px;
+  background: rgba(44, 255, 179, 0.16);
+  border: 1px solid rgba(44, 255, 179, 0.26);
+  font-size: var(--text-sm, 0.87rem);
+}
+
+.analysis-item {
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 16px !important;
+  display: grid;
+  gap: 9px;
+}
+
+.analysis-item:hover {
+  background: rgba(44, 255, 179, 0.08) !important;
+  border-color: rgba(44, 255, 179, 0.25) !important;
+}
+
+.analysis-item.active {
+  background: rgba(44, 255, 179, 0.12) !important;
+  border-color: rgba(44, 255, 179, 0.35) !important;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.card-header .location {
+  flex: 1;
+}
+
+.card-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #e6fff5;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-md, 1.03rem);
+  transition: all 0.2s ease;
+}
+
+.icon-btn:hover {
+  border-color: rgba(44, 255, 179, 0.45);
+  background: rgba(44, 255, 179, 0.12);
+}
+
+.icon-btn.edit-btn {
+  color: #2cffb3;
+}
+
+.icon-btn.copy-btn {
+  color: #4da6ff;
+}
+
+.icon-btn.delete-btn {
+  color: #ff6b6b;
+}
+
+.analysis-item blockquote {
+  margin: 0;
+  border-left: 3px solid rgba(44, 255, 179, 0.45);
+  padding-left: 11px;
+  color: #ecfff7;
+  font-family: var(--font-reading, "Literata", Georgia, "Times New Roman", serif);
+  font-size: var(--text-md, 1.03rem);
+  line-height: 1.65;
+  word-wrap: break-word;
+}
+
+.analysis-item blockquote.analysis-quote-preview {
+  margin: 0 0 8px 0;
+}
+
+.analysis-item blockquote.analysis-quote-preview:last-of-type {
+  margin-bottom: 0;
+}
+
+button.analysis-quote-jump,
+.analysis-quote-static {
+  display: block;
+  width: 100%;
+  margin: 0 0 10px 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  color: inherit;
+  border-radius: 8px;
+}
+
+.analysis-quote-static {
+  cursor: default;
+}
+
+button.analysis-quote-jump:hover {
+  background: rgba(44, 255, 179, 0.06);
+}
+
+button.analysis-quote-jump:focus-visible {
+  outline: 1px solid rgba(44, 255, 179, 0.45);
+  outline-offset: 2px;
+}
+
+button.analysis-quote-jump .quote-ref-origin,
+.analysis-quote-static .quote-ref-origin {
+  pointer-events: none;
+}
+
+button.analysis-quote-jump.active-quote,
+.analysis-quote-static.active-quote {
+  background: rgba(44, 255, 179, 0.08);
+  border-left: 2px solid rgba(44, 255, 179, 0.5);
+  margin-left: -2px;
+}
+
+.quote-ref-origin {
+  text-align: right;
+  font-size: var(--text-xs, 0.82rem);
+  line-height: 1.4;
+  color: rgba(168, 188, 178, 0.68);
+  margin: 2px 0 10px 0;
+  padding-left: 10px;
+  letter-spacing: 0.01em;
+}
+
+.floating-card .quote-ref-form-row .quote-ref-origin {
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+
+.analysis-item p {
+  margin: 0;
+  font-family: var(--font-reading, "Literata", Georgia, "Times New Roman", serif);
+  font-size: var(--text-md, 1.03rem);
+  line-height: 1.6;
+  color: rgba(230, 255, 245, 0.88);
+}
+
+.analysis-item .location {
+  color: rgba(44, 255, 179, 0.82);
+  font-size: var(--text-base, 0.92rem);
+}
+
+[hidden] {
+  display: none !important;
+}
+
+@media (max-width: 980px) {
+  .stats-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .study-grid,
+  .launch-top {
+    grid-template-columns: 1fr;
+  }
+  .subject-create-row {
+    flex-wrap: wrap;
+  }
+  .subject-create-row .inline-input {
+    flex-basis: 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .stats-row { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .launch-top { grid-template-columns: 1fr; }
+  .subject-card { min-width: 0; }
+}
+
+@media (max-width: 700px) {
+  .analysis-shell {
+    height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .analysis-study {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .study-grid,
+  .study-grid.editor-expanded {
+    min-height: 0;
+    overflow: hidden;
+  }
+  .main-surface,
+  .source-panel {
+    min-height: 0;
+    overflow: hidden;
+  }
+  #sourceEditor {
+    flex: 1 1 0;
+    height: auto;
+    min-height: 0;
+  }
+  .reader-surface {
+    max-height: min(60dvh, 520px);
+  }
+  .floating-card {
+    position: fixed;
+    right: 12px;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    left: 12px;
+    width: auto;
+    max-height: calc(100dvh - 24px);
+  }
+}
+</style>
+
+<div class="analysis-shell" style="user-select: text !important; -webkit-user-select: text !important;">
+  <section id="analysisLaunchpad" class="analysis-launch" hidden>
+    <div class="panel launch-top">
+      <div>
+        <p class="kicker">Primary Engine</p>
+
+        <h2><span class="tool-reference" title="Analysis tool"><i class="fa-solid fa-pen-clip" aria-hidden="true"></i><code>Analysis</code></span> Workspace</h2>
+        <p>Choose a subject to enter focus mode, explore sources, and generate source-linked analysis nodes.</p>
+      </div>
+      <div class="subject-toolbar">
+        <button id="toggleSubjectEdit" class="btn" type="button">Edit Subjects</button>
+      </div>
+    </div>
+
+    <section class="panel" id="analysisStats"></section>
+
+    <section class="panel">
+      <div class="subject-toolbar subject-create-row" style="margin-bottom: 10px;">
+        <input id="newSubjectName" class="inline-input" type="text" placeholder="New subject name" maxlength="80" />
+        <button id="addSubjectBtn" class="btn primary" type="button">+ Add Subject</button>
+      </div>
+      <div id="subjectList" class="subject-list"></div>
+    </section>
+  </section>
+
+  <section id="sourceLibraryView" class="source-library-view" hidden>
+    <header class="source-library-head">
+      <div>
+        <p class="kicker">Source library</p>
+        <h1>Select a source to edit or <span class="tool-reference" title="Analysis tool"><i class="fa-solid fa-pen-clip" aria-hidden="true"></i><code>Analyse</code></span></h1>
+        <p class="source-library-subtitle">Open a source to write, organise, quote, and build linked analysis. New material can stay unfiled until you are ready.</p>
+      </div>
+      <div class="source-library-head-actions">
+        <button id="sourceLibrarySubjects" class="btn" type="button">Browse subjects</button>
+        <button id="sourceNavigatorNew" class="btn primary" type="button">+ New source</button>
+      </div>
+    </header>
+    <div class="source-navigator-toolbar">
+      <label class="source-search-wrap">
+        <span class="sr-only">Search sources</span>
+        <input id="sourceNavigatorSearch" class="inline-input" type="search" placeholder="Search titles, subjects, and folders" autocomplete="off" />
+      </label>
+      <span id="sourceLibraryCount" class="source-library-count"></span>
+    </div>
+    <div id="sourceNavigatorRecent" class="source-navigator-recent"></div>
+    <div id="sourceNavigatorList" class="source-navigator-list" role="listbox" aria-label="Sources"></div>
+    <p id="sourceNavigatorEmpty" class="empty-note" hidden>No matching sources.</p>
+  </section>
+
+  <section id="studyView" class="analysis-study" hidden>
+    <div class="panel study-head">
+      <div class="study-top">
+        <div>
+          <p class="kicker">Studying</p>
+          <h2 id="studySubjectTitle">Subject</h2>
+          <div id="currentHierarchy" class="reader-meta"></div>
+        </div>
+        <div class="header-controls">
+          <button id="sourceNavigatorBtn" class="source-navigator-trigger" type="button" aria-controls="sourceLibraryView">
+            <i class="fa-solid fa-folder-tree" aria-hidden="true"></i><span class="source-navigator-trigger-label">Source library</span>
+          </button>
+          <div class="layer-dropdown-group">
+            <select id="layer1Select" class="inline-select layer-select"></select>
+            <select id="layer2Select" class="inline-select layer-select" style="display: none;"></select>
+            <select id="layer3Select" class="inline-select layer-select" style="display: none;"></select>
+            <select id="sourceSelect" class="inline-select source-select" style="display: none;"></select>
+          </div>
+          <div class="button-group">
+            <button id="newSourceBtn" class="btn" type="button">+ New</button>
+            <button id="saveSourceBtn" class="btn primary save-source-edit-only" type="button">Save</button>
+            <button id="cancelEditSourceBtn" class="btn cancel-source-edit-only" type="button">Cancel</button>
+            <button id="deleteSourceBtn" class="btn" type="button" title="Delete this source">Delete</button>
+            <button id="toggleSourceModeBtn" class="btn" type="button">View Reader</button>
+            <button id="backToLaunchpad" class="btn" type="button">Back</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="study-grid">
+      <main class="study-column main-surface" style="user-select: text !important; -webkit-user-select: text !important;">
+        <section class="panel source-panel">
+          <div class="reader-wrap">
+            <div id="readerWrapper" class="source-view">
+              <div id="analysisReader" class="reader-surface"></div>
+              <button id="quoteSelectionBtn" class="quote-action" type="button">Quote selection</button>
+            </div>
+
+            <div id="editorWrapper" class="source-view hidden">
+              <form id="sourceForm" class="form-grid">
+                <input type="hidden" id="sourceId" />
+                <div class="source-fields">
+                  <label class="source-field-main">
+                    <span class="source-field-label">Title</span>
+                    <input id="sourceTitle" class="inline-input" type="text" placeholder="Source title (optional)" maxlength="120" />
+                  </label>
+                  <label class="source-field">
+                    <span class="source-field-label">Subject</span>
+                    <input id="sourceSubject" class="inline-input source-subject-input" type="text" list="sourceSubjectList" placeholder="Subject (optional — save unlinked)" maxlength="80" />
+                    <datalist id="sourceSubjectList"></datalist>
+                  </label>
+                </div>
+                <details class="source-organization">
+                  <summary>
+                    <span>Organization</span>
+                    <span class="source-organization-hint">Optional hierarchy</span>
+                  </summary>
+                  <label class="source-path">
+                    <span class="source-field-label">Hierarchy</span>
+                    <span class="source-path-row">
+                      <input id="sourceLevel1" class="inline-input" type="text" placeholder="Layer 1" maxlength="80" />
+                      <span class="source-path-sep" aria-hidden="true">/</span>
+                      <input id="sourceLevel2" class="inline-input" type="text" placeholder="Layer 2" maxlength="80" />
+                      <span class="source-path-sep" aria-hidden="true">/</span>
+                      <input id="sourceLevel3" class="inline-input" type="text" placeholder="Layer 3" maxlength="80" />
+                    </span>
+                  </label>
+                </details>
+                <div id="sourceEditor" class="source-editor"></div>
+              </form>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <aside class="study-column side-panel">
+        <section class="panel">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <p class="kicker" style="margin: 0;">Analysis Nodes</p>
+            <button id="addAnalysisNodeBtn" class="btn" type="button" style="padding: 5px 10px; font-size: var(--text-sm, 0.87rem);">+ Add</button>
+          </div>
+          <div id="analysisNodeList" class="analysis-list"></div>
+        </section>
+      </aside>
+
+      <div id="analysisFloatCard" class="floating-card panel">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <p class="kicker" id="analysisCardKicker">Create Analysis Node</p>
+          <button id="closeAnalysisCard" class="icon-btn" type="button" style="margin: 0;" title="Close">✕</button>
+        </div>
+        <form id="analysisForm" class="form-grid">
+          <input type="hidden" id="analysisNodeId" />
+
+          <!-- NEW: Quote section for analysis workflow (Path 2) -->
+          <div style="border-top: 1px solid rgba(44, 255, 179, 0.15); padding-top: 12px;">
+            <p class="kicker" style="margin: 0 0 8px 0; font-size: var(--text-xs, 0.82rem);">Quote References (NEW)</p>
+            <button id="addQuoteRefBtn" class="btn" type="button" style="width: 100%; margin-bottom: 12px;">+ Add Quote Reference</button>
+            <div id="quoteRefsList" style="display: flex; flex-direction: column; gap: 8px; max-height: 120px; overflow-y: auto;"></div>
+          </div>
+
+          <textarea id="analysisNotes" class="inline-textarea" rows="5" placeholder="Analysis commentary"></textarea>
+          <div style="display: flex; gap: 6px; align-items: flex-start;">
+            <input id="analysisTags" class="inline-input" type="text" placeholder="tags, separated, by commas" style="flex: 1;" />
+            <button type="button" id="tagSelectorToggle" class="btn" style="padding: 7px 11px; font-size: var(--text-sm, 0.87rem); white-space: nowrap;" title="Select existing tags">🏷 Tags</button>
+          </div>
+          <div id="tagSelectorContainer" style="display: none;"></div>
+          <div class="form-actions">
+            <button class="btn primary" id="analysisSubmitBtn" type="submit">Save Analysis Node</button>
+            <button id="resetAnalysisForm" class="btn" type="button">Clear</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Cue Node Card (same position/style as Analysis card, will be to left when both open) -->
+      <div id="cueFloatCard" class="floating-card panel" style="z-index: 30;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <p class="kicker" id="cueCardKicker">Create Cue Node</p>
+          <button id="closeCueCard" class="icon-btn" type="button" style="margin: 0;" title="Close">✕</button>
+        </div>
+        <form id="cueForm" class="form-grid">
+          <input type="hidden" id="cueNodeId" />
+          <input type="hidden" id="cueQuoteId" />
+          <input type="hidden" id="cueAnalysisId" />
+
+          <div style="border-top: 1px solid rgba(44, 255, 179, 0.15); padding-top: 12px; margin-bottom: 12px;">
+            <p class="kicker" style="margin: 0 0 8px 0; font-size: var(--text-xs, 0.82rem);">Linked Quote</p>
+            <div id="cueQuotePreview" style="background: rgba(44, 255, 179, 0.08); padding: 9px 10px; border-radius: 6px; font-size: var(--text-base, 0.92rem); font-style: italic; line-height: 1.45;"></div>
+          </div>
+
+          <textarea id="cueText" class="inline-textarea" rows="4" placeholder="Enter your memory cue (a question or prompt to help recall this quote)"></textarea>
+          <div class="form-actions">
+            <button class="btn primary" id="cueSubmitBtn" type="submit">Save Cue</button>
+            <button id="deleteCueBtn" class="btn" type="button" style="display: none;">Delete</button>
+            <button id="resetCueForm" class="btn" type="button">Cancel</button>
+          </div>
+        </form>
+      </div>
+
+<div id="analysisCleanupModal" class="analysis-cleanup-modal" aria-hidden="true">
+        <div class="analysis-cleanup-card panel" role="dialog" aria-modal="true" aria-labelledby="analysisCleanupTitle">
+          <div style="display: flex; justify-content: space-between; align-items: start; gap: 12px; margin-bottom: 12px;">
+            <div class="analysis-cleanup-copy">
+              <p class="kicker" style="margin: 0;">Analysis Cleanup</p>
+              <h3 id="analysisCleanupTitle" class="analysis-cleanup-title">Linked quotes need a decision</h3>
+            </div>
+            <button id="analysisCleanupClose" class="icon-btn" type="button" style="margin: 0;" title="Close">X</button>
+          </div>
+          <p id="analysisCleanupMessage" class="analysis-cleanup-message"></p>
+          <div id="analysisCleanupSummary" class="analysis-cleanup-summary"></div>
+          <div class="analysis-cleanup-actions" style="margin-top: 18px;">
+            <button id="analysisCleanupKeepBtn" class="btn" type="button"></button>
+            <button id="analysisCleanupDeleteBtn" class="btn danger" type="button"></button>
+          </div>
+        </div>
+      </div>
+
+      <div id="analysisParentModal" class="analysis-cleanup-modal" aria-hidden="true">
+        <div class="analysis-cleanup-card panel" role="dialog" aria-modal="true" aria-labelledby="analysisParentTitle">
+          <div style="display: flex; justify-content: space-between; align-items: start; gap: 12px; margin-bottom: 12px;">
+            <div class="analysis-cleanup-copy">
+              <p class="kicker" style="margin: 0;">No Quotes Selected</p>
+              <h3 id="analysisParentTitle" class="analysis-cleanup-title">Parent this analysis to:</h3>
+            </div>
+            <button id="analysisParentClose" class="icon-btn" type="button" style="margin: 0;" title="Close">X</button>
+          </div>
+          <p id="analysisParentMessage" class="analysis-cleanup-message">This analysis has no quote references. Choose how to parent it:</p>
+          <div id="analysisParentActions" class="analysis-cleanup-actions" style="margin-top: 18px;">
+            <button id="analysisParentToSourceBtn" class="btn primary" type="button">Parent to Source</button>
+            <button id="analysisParentToSubjectBtn" class="btn" type="button">Parent to Subject</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>

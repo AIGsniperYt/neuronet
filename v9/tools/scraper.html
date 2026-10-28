@@ -1,0 +1,258 @@
+<div id="scraperTool">
+  <style>
+    #scraperTool {
+      width: 100%; height: 100%; display: flex; flex-direction: column;
+      font-family: var(--font-ui, "Source Sans 3", Inter, system-ui, -apple-system, "Segoe UI", sans-serif);
+      color: var(--text-main); overflow: hidden;
+    }
+    #scraperHeader {
+      padding: 16px; background: var(--glass-surface);
+      backdrop-filter: blur(var(--glass-blur));
+      border-bottom: 1px solid var(--glass-border);
+      display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+    }
+    #scraperHeader h1 { font-size: 1.5rem; font-weight: 600; color: var(--accent); margin: 0; }
+    #scraperHeader .sub { color: var(--text-muted); font-size: var(--text-base, 0.92rem); }
+    #scraperVersion { color: var(--text-muted); font-size: var(--text-xs, 0.82rem); }
+    #scraperContent { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 24px; gap: 16px; }
+    #scraperContent > * { min-height: 0; }
+
+    .scraper-card {
+      background: linear-gradient(135deg, var(--panel-strong), var(--panel-bg));
+      border: 1px solid var(--glass-border); border-radius: 16px; padding: 16px;
+    }
+
+    .scraper-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .scraper-btn {
+      padding: 10px 16px; background: linear-gradient(130deg, rgba(44,255,179,0.24), rgba(44,255,179,0.11));
+      border: 1px solid rgba(44,255,179,0.45); color: #e6fff5; border-radius: 999px; cursor: pointer;
+      font: inherit; font-size: var(--text-base, 0.92rem); font-weight: 500; transition: all 0.2s ease;
+    }
+    .scraper-btn:hover:not(:disabled) { transform: translateY(-1px); background: linear-gradient(130deg, rgba(44,255,179,0.32), rgba(44,255,179,0.18)); }
+    .scraper-btn:disabled { cursor: not-allowed; opacity: 0.6; }
+
+    .scraper-status { font-size: var(--text-base, 0.92rem); color: var(--text-muted); }
+    .scraper-status.ok { color: var(--accent); }
+    .scraper-status.err { color: #ff8c8c; }
+    .scraper-diag {
+      width: 100%; margin: 0; padding: 8px 12px; border: 1px dashed var(--glass-border);
+      border-radius: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: var(--text-xs, 0.82rem); line-height: 1.5; color: var(--text-muted);
+      background: rgba(0,0,0,0.18); white-space: pre-wrap; word-break: break-word;
+    }
+    .scraper-status.busy {
+      background-image: linear-gradient(100deg, rgba(230,255,245,0.55) 30%, rgba(44,255,179,0.95) 50%, rgba(230,255,245,0.55) 70%);
+      background-size: 200% 100%;
+      -webkit-background-clip: text; background-clip: text;
+      -webkit-text-fill-color: transparent; color: transparent;
+      animation: scraper-shimmer-sweep 1.25s linear infinite;
+    }
+
+    .scraper-pick { display: flex; align-items: center; gap: 8px; font-size: var(--text-base, 0.92rem); color: var(--text-muted); position: relative; }
+    .scraper-pick select {
+      font: inherit; font-size: var(--text-base, 0.92rem); color: var(--text-main);
+      background: rgba(0,0,0,0.25); border: 1px solid var(--glass-border); border-radius: 10px;
+      padding: 8px 10px; cursor: pointer; outline: none;
+    }
+    .scraper-pick select:focus { border-color: rgba(44,255,179,0.5); }
+    .scraper-pick select option { background: var(--panel-bg); }
+    .scraper-combo { position: relative; min-width: 260px; }
+    .scraper-combo input {
+      font: inherit; font-size: var(--text-base, 0.92rem); color: var(--text-main);
+      background: rgba(0,0,0,0.25); border: 1px solid var(--glass-border); border-radius: 10px;
+      padding: 8px 10px; width: 100%; box-sizing: border-box; outline: none;
+    }
+    .scraper-combo input:focus { border-color: rgba(44,255,179,0.5); }
+    .scraper-combo input:disabled { opacity: 0.6; cursor: not-allowed; }
+    .scraper-combo input::placeholder { color: var(--text-muted); }
+    .scraper-shimmer-field { animation: none; position: relative; overflow: hidden; }
+    .scraper-shimmer-field::after {
+      content: ""; position: absolute; inset: 0; border-radius: 10px; pointer-events: none;
+      background-image: linear-gradient(100deg, rgba(230,255,245,0.55) 30%, rgba(44,255,179,0.95) 50%, rgba(230,255,245,0.55) 70%);
+      background-size: 200% 100%;
+      animation: scraper-shimmer-sweep 1.25s linear infinite;
+    }
+
+    .scraper-suggestions {
+      position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20;
+      max-height: 240px; overflow: auto; border-radius: 12px;
+      background: var(--panel-strong); border: 1px solid var(--glass-border);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.4); padding: 4px;
+    }
+    .scraper-suggestion {
+      padding: 8px 10px; border-radius: 8px; cursor: pointer; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis; font-size: var(--text-base, 0.92rem);
+    }
+    .scraper-suggestion:hover, .scraper-suggestion.active { background: rgba(44,255,179,0.12); }
+    .scraper-suggestion .s-code { color: var(--accent); font-weight: 700; margin-right: 8px; }
+    .scraper-suggestion .s-no-match { color: var(--text-muted); font-style: italic; }
+
+    .scraper-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; flex: 1; }
+    .scraper-panel { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+    .scraper-panel h3 { margin: 0; font-size: var(--text-base, 0.92rem); font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 1px; }
+
+    #scraperLog {
+      flex: 1; overflow: hidden; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: var(--text-xs, 0.82rem); line-height: 1.5; color: var(--text-muted);
+      background: rgba(0,0,0,0.25); border: 1px solid var(--glass-border); border-radius: 12px; padding: 12px;
+      white-space: pre-wrap; word-break: break-word;
+      display: flex; flex-direction: column; justify-content: center;
+    }
+    .scraper-line {
+      position: relative; padding: 4px 2px; border-radius: 10px;
+    }
+    .scraper-line.idle { padding: 0; }
+
+    /* Text-only steady gradient sweep (AI-style loading). One clean pass over
+       the text, no box background / no double shimmer. Scoped to
+       .scraper-log-text so index.html's global .shimmer-text can't hijack it.
+       Green lit-up style: a bright green peak sweeps across the text,
+       lighting it into clarity, then it settles back. */
+    #scraperTool .scraper-log-text { color: rgba(230,255,245,0.55); }
+    @keyframes scraper-shimmer-sweep {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    #scraperTool .scraper-shimmer .scraper-log-text {
+      background-size: 200% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      color: transparent;
+      animation: scraper-shimmer-sweep 1.25s linear infinite;
+      background-image: linear-gradient(
+        100deg,
+        rgba(230,255,245,0.55) 30%, rgba(44,255,179,0.95) 50%, rgba(230,255,245,0.55) 70%
+      );
+    }
+
+    /* Completion fill: the gradient sweeps from left to right and FILLS the
+       existing descriptive log line into full brightness. */
+    @keyframes scraper-fill-sweep {
+      0%   { background-position: 200% 0; }
+      100% { background-position: 0 0; }
+    }
+    #scraperTool .scraper-done .scraper-log-text {
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      color: transparent;
+      background-image: linear-gradient(
+        100deg,
+        rgba(44,255,179,0.95) 0%, rgba(44,255,179,0.95) 47%,
+        rgba(44,255,179,0.95) 49%, rgba(230,255,245,0.55) 51%,
+        rgba(230,255,245,0.55) 100%
+      );
+      background-size: 200% 100%;
+      background-position: 200% 0;
+      animation: scraper-fill-sweep 2s cubic-bezier(0.22, 0.8, 0.36, 1) 1 forwards;
+    }
+
+    /* Stay alive after completion: the finished log line keeps breathing. */
+    @keyframes scraper-glow-breathe {
+      0%, 100% { opacity: 0.94; filter: drop-shadow(0 0 3px rgba(44,255,179,0.42)); }
+      50%       { opacity: 1; filter: drop-shadow(0 0 11px rgba(44,255,179,0.72)); }
+    }
+    /* Most of the time this is a solid green fill. The first layer makes a
+       restrained green highlight drift through it only occasionally. */
+    @keyframes scraper-glow-sweep {
+      0%, 20%  { background-position: 100% 0, 0 0; }
+      55%, 75% { background-position: 0 0, 0 0; }
+      100%     { background-position: 100% 0, 0 0; }
+    }
+    #scraperTool .scraper-glow .scraper-log-text {
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      color: transparent;
+      background-image:
+        linear-gradient(100deg, transparent 34%, rgba(112,255,198,0.78) 50%, transparent 66%),
+        linear-gradient(100deg, rgba(44,255,179,0.95), rgba(44,255,179,0.95));
+      background-size: 200% 100%, 100% 100%;
+      background-position: 100% 0, 0 0;
+      animation:
+        scraper-glow-breathe 2.8s ease-in-out infinite,
+        scraper-glow-sweep 7s ease-in-out infinite;
+    }
+
+    #scraperResult { flex: 1; overflow: auto; }
+    .card-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+    .card-code { font-weight: 700; color: var(--accent); background: rgba(44,255,179,0.1); border: 1px solid rgba(44,255,179,0.25); border-radius: 999px; padding: 3px 10px; font-size: var(--text-base, 0.92rem); }
+    .card-title { font-weight: 600; font-size: var(--text-md, 1.03rem); }
+    .card-max { color: var(--text-muted); font-size: var(--text-sm, 0.87rem); margin-left: auto; }
+    .card-copy {
+      padding: 6px 12px; background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border);
+      color: var(--text-main); border-radius: 999px; cursor: pointer; font: inherit; font-size: var(--text-xs, 0.82rem);
+      transition: all 0.2s ease; white-space: nowrap;
+    }
+    .card-copy:hover { background: rgba(44,255,179,0.14); border-color: rgba(44,255,179,0.4); transform: translateY(-1px); }
+    .card-copy.done { background: rgba(44,255,179,0.2); border-color: rgba(44,255,179,0.6); color: #e6fff5; }
+    .card-grades { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 10px; }
+    .scraper-grade {
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+      padding: 12px; border-radius: 12px; background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .scraper-grade .grade-num { font-weight: 700; color: var(--accent); font-size: 1.1rem; }
+    .scraper-grade .grade-mark { font-size: var(--text-md, 1.03rem); }
+    .scraper-empty { color: var(--text-muted); font-size: var(--text-base, 0.92rem); }
+
+    @media (max-width: 700px), (pointer: coarse) and (hover: none) {
+      #scraperContent { padding: 14px 12px; }
+      .scraper-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+
+  <div id="scraperHeader">
+    <h1>Grade Boundary <span class="tool-reference" title="Scraper tool"><i class="fa-solid fa-download" aria-hidden="true"></i><code>Scraper</code></span></h1>
+    <div style="text-align:right;">
+      <div id="scraperVersion" class="sub"></div>
+    </div>
+  </div>
+
+  <div id="scraperContent">
+    <div class="scraper-card scraper-controls">
+      <div class="scraper-pick">
+        <span>Board</span>
+        <select id="scraperBoard">
+          <option value="aqa">AQA</option>
+          <option value="ocr">OCR</option>
+          <option value="pearson">Pearson (Edexcel)</option>
+        </select>
+      </div>
+      <div class="scraper-pick">
+        <span>Qualification</span>
+        <select id="scraperQual"></select>
+      </div>
+      <div class="scraper-pick">
+        <span>Series</span>
+        <select id="scraperSeries"></select>
+      </div>
+      <button id="scraperScanBtn" class="scraper-btn" title="Scrape the exam board pages for available series">Scan site</button>
+      <button id="scraperFetchBtn" class="scraper-btn">Fetch boundaries</button>
+      <button id="scraperForceBtn" class="scraper-btn" title="Drop this series from the isolated cache and re-download + re-parse from the source">Force refetch</button>
+      <div class="scraper-pick scraper-subject-pick">
+        <span>Subject</span>
+        <div class="scraper-combo">
+          <input id="scraperSubjectInput" type="text" placeholder="Search subject or code..." disabled autocomplete="off" />
+          <div id="scraperSuggestions" class="scraper-suggestions" hidden></div>
+        </div>
+      </div>
+      <div id="scraperStatus" class="scraper-status"></div>
+      <pre id="scraperDiag" class="scraper-diag"></pre>
+    </div>
+
+    <div class="scraper-grid">
+      <div class="scraper-panel">
+        <h3>Fetch log</h3>
+        <div id="scraperLog"></div>
+      </div>
+      <div class="scraper-panel">
+        <h3>Result</h3>
+        <div id="scraperResult">
+          <div class="scraper-empty">Nothing fetched yet.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

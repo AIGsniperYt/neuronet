@@ -1,0 +1,50 @@
+// examData/adapters.js — board/qualification capabilities vocabulary.
+// EXAM_BOARDS supplies the legacy Scraper's board/qualification lists; it is
+// not proof that every board can acquire data. Tracker acquisition uses the
+// real exact-PDF path in ../boundaries.js (AQA + Pearson GCSE only).
+
+import { boardId, currentExamYear } from "./schema.js";
+
+export const EXAM_BOARDS = [
+  {
+    id: "aqa",
+    name: "AQA",
+    qualifications: ["gcse", "alevel", "as"],
+    source: "filestore.aqa.org.uk (xlsx/pdf series catalogue)",
+    discovery: "hardcoded series calendar + optional archive scan",
+    parsing: "xlsx → subject rows (code includes tier, e.g. 8300H/8300F)",
+    note: "AQA stores one row per tier under a shared base code."
+  },
+  {
+    id: "ocr",
+    name: "OCR",
+    qualifications: ["gcse", "alevel", "as"],
+    source: "ocr.org.uk grade-boundary pages + PDF archive",
+    discovery: "page crawl for current series, datasheet links",
+    parsing: "pdf.js layout lines → subject rows (tier explicit)",
+    note: "OCR separates qualification-level grades from notional component rows."
+  },
+  {
+    id: "pearson",
+    name: "Edexcel (Pearson)",
+    qualifications: ["gcse", "alevel"],
+    source: "qualifications.pearson.com publications + DAM archive",
+    discovery: "publications page crawl + DAM asset crawl",
+    parsing: "pdf.js layout lines → subject rows (tier explicit)",
+    note: "GCSE only (AS/A2 via separate qualification ids)."
+  }
+];
+
+export function adapterFor(board) {
+  const id = boardId(board);
+  if (!id) return null;
+  return EXAM_BOARDS.find((b) => b.id === id) || null;
+}
+
+export function defaultSeriesWindow(board, now = Date.now()) {
+  const y = currentExamYear(now);
+  return [
+    { month: "JUN", year: y },
+    { month: "NOV", year: y - (board && boardId(board) === "pearson" ? 0 : 1) }
+  ];
+}

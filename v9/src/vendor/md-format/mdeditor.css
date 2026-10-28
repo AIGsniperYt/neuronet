@@ -1,0 +1,360 @@
+/* ============================================================================
+ * mdeditor.css — everything the editor needs, scoped under .mdedit
+ * ----------------------------------------------------------------------------
+ * All the colours are CSS variables declared ON the .mdedit root, so theming
+ * an instance is just "drop a palette in": either pick one of the built-in
+ * data-theme blocks below, or set the --md-* variables yourself (via
+ * createEditor's `theme` option) and every pane inherits them. Nothing here
+ * leaks out past the container, so a page embedding the editor keeps its own
+ * look — the whole demo page next door is proof.
+ * ========================================================================== */
+
+/* ---- palettes -------------------------------------------------------
+ * .mdedit carries an inline theme trunk that everything below reads.
+ * data-theme="light"   → the paper-daylight mint
+ * data-theme="nightowl" → the VS Code Night Owl palette people keep asking for
+ * anything else        → the default deep-green that matches the md-format
+ *                        project (and what a bare <div class="mdedit"> shows).
+ * A runtime setTheme() just overrides individual --md-* via inline style. */
+.mdedit {
+    color-scheme: dark;
+    --md-bg: #0b0f0c;          /* editor + preview background         */
+    --md-panel: #101612;       /* chrome: toolbar, dividers, th       */
+    --md-panel2: #151d17;      /* slightly lighter panels             */
+    --md-border: #1d2a20;
+    --md-text: #e8f5ee;        /* body copy                           */
+    --md-muted: #7f9b8d;       /* secondary text                      */
+    --md-accent: #4cff9a;      /* the signature green                 */
+    --md-accent-dim: #2fa265;
+    --md-code-bg: #0a0f0b;
+    --md-link: #5fb8ff;
+    --md-strike: #9aa;
+}
+.mdedit[data-theme="light"] {
+    color-scheme: light;
+    --md-bg: #f7f8f5;
+    --md-panel: #ffffff;
+    --md-panel2: #f0f2ec;
+    --md-border: #d8ded2;
+    --md-text: #1e2a1e;
+    --md-muted: #5f7568;
+    --md-accent: #0c8a4d;
+    --md-accent-dim: #0c8a4d;
+    --md-code-bg: #f0f2ec;
+    --md-link: #0b5bb5;
+    --md-strike: #6b7a6b;
+}
+.mdedit[data-theme="nightowl"] {
+    color-scheme: dark;
+    --md-bg: #011627;
+    --md-panel: #01111f;
+    --md-panel2: #0a2438;
+    --md-border: #1d3b5f;
+    --md-text: #d6deeb;
+    --md-muted: #637777;
+    --md-accent: #82aaff;
+    --md-accent-dim: #5b8bc4;
+    --md-code-bg: #01111f;
+    --md-link: #82aaff;
+    --md-strike: #8ea3b3;
+}
+
+/* ============================================================================
+ * LAYOUT — a column stack: [taskbar] [the split panes]
+ * ========================================================================== */
+.mdedit {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    width: 100%;
+    height: 100%;
+    min-height: 0;            /* keep it shrinkable inside a flex column */
+    min-width: 0;
+    overflow: hidden;         /* the panes scroll, the editor never does */
+    position: relative;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+/* the split row: two panes + the draggable divider. `.gone` hides a pane
+ * entirely when a single-view mode is active. */
+.mdedit .mdedit-cols {
+    display: flex;
+    flex: 1 1 auto;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+}
+.mdedit .gone { display: none !important; }
+.mdedit .mdedit-pane {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    min-width: 0;             /* allow a pane to shrink past its content */
+    flex: 1 1 0;              /* a TRUE 50/50 start; sizes are ratios */
+    overflow: hidden;
+}
+
+/* ---- the formatting toolbar -----------------------------------------
+ * A flex row that wraps on narrow windows. Buttons are transparent until
+ * hovered so they read as tools rather than form fields, and they're split
+ * into clusters by 1px `.sep` dividers: marks | headings | blocks. */
+.mdedit .mdedit-bar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--md-border);
+    background: var(--md-panel);
+}
+.mdedit .mdedit-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-left: auto;
+    padding-left: 10px;
+    border-left: 1px solid var(--md-border);
+}
+.mdedit .mdedit-action-group {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--md-border);
+    border-radius: 7px;
+    background: var(--md-bg);
+}
+.mdedit .mdedit-action {
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--md-muted);
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.72rem;
+    line-height: 1;
+    min-height: 26px;
+    padding: 0 8px;
+    white-space: nowrap;
+}
+.mdedit .mdedit-action:hover { color: var(--md-text); background: var(--md-panel2); }
+.mdedit .mdedit-action:disabled {
+    cursor: default;
+    opacity: 0.38;
+}
+.mdedit .mdedit-action.active {
+    color: var(--md-text);
+    background: color-mix(in srgb, var(--md-accent) 16%, var(--md-panel));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--md-accent) 35%, transparent);
+}
+.mdedit .mdedit-bar .sep {
+    width: 1px;
+    height: 18px;
+    background: var(--md-border);
+    margin: 0 6px;
+}
+.mdedit .tbtn {
+    font: inherit;
+    font-size: 0.78rem;
+    line-height: 1;
+    min-width: 30px;
+    height: 28px;
+    padding: 0 9px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: none;
+    color: var(--md-muted);
+    cursor: pointer;
+    transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.mdedit .tbtn:hover { color: var(--md-text); background: var(--md-panel2); border-color: var(--md-border); }
+.mdedit .tbtn:active { background: color-mix(in srgb, var(--md-accent) 10%, transparent); color: var(--md-accent); }
+.mdedit .tbtn b { font-weight: 700; }
+.mdedit .tbtn s { text-decoration: line-through; }
+
+/* ---- the source editor ---------------------------------------------- */
+.mdedit .mdedit-editor {
+    flex: 1;
+    min-height: 0;            /* scrolls itself instead of growing the page */
+    width: 100%;
+    resize: none;
+    border: 0;
+    outline: none;
+    background: var(--md-bg);
+    color: var(--md-text);
+    font-family: "Fira Code", ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: 13.5px;
+    line-height: 1.6;
+    padding: 16px 18px;
+    tab-size: 4;
+}
+.mdedit .mdedit-editor::selection {
+    background: color-mix(in srgb, var(--md-accent) 25%, transparent);
+}
+
+/* scrollbars belong to the theme, not the OS: thin, quiet, only loud on
+ * hover. Same treatment for the preview below. */
+.mdedit .mdedit-editor { scrollbar-width: thin; scrollbar-color: var(--md-border) transparent; }
+.mdedit .mdedit-editor::-webkit-scrollbar { width: 10px; height: 10px; }
+.mdedit .mdedit-editor::-webkit-scrollbar-thumb {
+    background: var(--md-border);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+}
+.mdedit .mdedit-editor::-webkit-scrollbar-thumb:hover { background: var(--md-accent-dim); }
+.mdedit .mdedit-editor::-webkit-scrollbar-corner { background: transparent; }
+
+/* ---- the draggable splitter ----------------------------------------- */
+.mdedit .mdedit-divider {
+    width: 6px;
+    cursor: col-resize;
+    background: var(--md-panel);
+    border-left: 1px solid var(--md-border);
+    border-right: 1px solid var(--md-border);
+    flex-shrink: 0;
+    transition: background 0.15s ease;
+}
+.mdedit .mdedit-divider:hover, .mdedit .mdedit-divider.dragging { background: var(--md-accent-dim); }
+
+/* ---- the preview ---------------------------------------------------- */
+.mdedit .mdedit-scroll {
+    flex: 1;
+    min-height: 0;            /* non-negotiable: without this a flex child
+                               * refuses to shrink below its content */
+    overflow-y: auto;
+    overflow-x: hidden;       /* content never forces a sideways bar */
+    padding: 16px 26px 48px;
+    background: var(--md-bg);
+    scrollbar-width: thin;
+    scrollbar-color: var(--md-border) transparent;
+    caret-color: var(--md-accent);
+}
+/* the preview is contenteditable when in WYSIWYG mode — kill the loud focus
+ * ring the browser paints and keep the accent caret instead */
+.mdedit .mdedit-scroll:focus { outline: none; }
+.mdedit .mdedit-scroll:focus .md { outline: none; }
+.mdedit .mdedit-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.mdedit .mdedit-scroll::-webkit-scrollbar-thumb {
+    background: var(--md-border);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+}
+.mdedit .mdedit-scroll::-webkit-scrollbar-thumb:hover { background: var(--md-accent-dim); }
+.mdedit .mdedit-scroll::-webkit-scrollbar-corner { background: transparent; }
+
+/* the non-html views (source / text / ansi / ast) land in a <pre>. In raw
+ * mode (mdedit-scroll.raw) the pre is the pane's only child and the scroll
+ * collapses its own padding/background (see below), so the pre sits flush —
+ * a single standalone editing surface, never nested inside another field. */
+.mdedit .mdedit-scroll pre.source {
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--md-text);
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    margin: 0;
+    width: 100%;
+}
+.mdedit .mdedit-scroll pre.source.ansi { white-space: pre-wrap; }
+/* raw/source mode owns the pane: kill the scroll's chrome so the <pre> is
+ * edge-to-edge and free-standing instead of a box floating in a padded well. */
+.mdedit .mdedit-scroll.raw {
+    padding: 0;
+    background: transparent;
+}
+
+/* ============================================================================
+ * THE RENDERED DOCUMENT (.md) — a tiny github-markdown-lite in the palette.
+ * Full width on purpose: in an editor the document owns the pane, it doesn't
+ * sit in a column.
+ * ========================================================================== */
+.mdedit .md { font-size: 14.5px; line-height: 1.48; color: var(--md-text); }
+.mdedit .md:empty::before {
+    content: attr(data-placeholder);
+    display: block;
+    max-width: 44rem;
+    color: var(--md-muted);
+    opacity: 0.78;
+    pointer-events: none;
+    white-space: pre-line;
+}
+.mdedit .md .md-blank-line {
+    height: 1.48em;
+    margin: 0;
+    padding: 0;
+}
+.mdedit .md .md-blank-line br { line-height: 1.48em; }
+.mdedit .md h1, .mdedit .md h2, .mdedit .md h3,
+.mdedit .md h4, .mdedit .md h5, .mdedit .md h6 {
+    font-weight: 700; color: var(--md-text); margin: 0.8em 0 0.3em; line-height: 1.25;
+}
+.mdedit .md h1 { font-size: 1.7em; border-bottom: 1px solid var(--md-border); padding-bottom: .2em; }
+.mdedit .md h2 { font-size: 1.4em; border-bottom: 1px solid var(--md-border); padding-bottom: .2em; }
+.mdedit .md h3 { font-size: 1.2em; }
+.mdedit .md h4 { font-size: 1.05em; }
+.mdedit .md p { margin: 0 0 0.4em 0; }
+.mdedit .md p:last-child { margin-bottom: 0; }
+.mdedit .md a { color: var(--md-link); text-decoration: none; }
+.mdedit .md a:hover { text-decoration: underline; }
+.mdedit .md del { color: var(--md-strike); }
+.mdedit .md code {
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: 0.88em;
+    background: var(--md-panel2);
+    border: 1px solid var(--md-border);
+    border-radius: 5px;
+    padding: 0.12em 0.35em;
+}
+.mdedit .md pre {
+    background: var(--md-code-bg);
+    border: 1px solid var(--md-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    overflow-x: auto;
+    margin: 0.5em 0;
+}
+.mdedit .md pre code { background: none; border: 0; padding: 0; font-size: 0.88em; }
+.mdedit .md blockquote {
+    border-left: 3px solid var(--md-accent-dim);
+    background: var(--md-panel);
+    border-radius: 0 8px 8px 0;
+    margin: 0.5em 0;
+    padding: 0.4em 0.9em;
+    color: var(--md-muted);
+}
+.mdedit .md ul, .mdedit .md ol { padding-left: 1.5em; margin: 0.4em 0; }
+.mdedit .md li { margin: 0.15em 0; }
+.mdedit .md li > ul, .mdedit .md li > ol { margin: 0.15em 0; }
+.mdedit .md li input[type="checkbox"] { accent-color: var(--md-accent); margin-right: 0.4em; vertical-align: -1px; }
+.mdedit .md hr { border: 0; border-top: 2px solid var(--md-border); margin: 1.6em 0; }
+.mdedit .md img { max-width: 100%; border-radius: 8px; }
+
+/* tables: quiet lines, tinted header, zebra body — reads like a sheet of
+ * paper instead of a grid of boxes. */
+.mdedit .md table {
+    border-collapse: collapse;
+    margin: 0.9em 0;
+    font-size: 0.95em;
+    display: block;             /* allow the table to scroll on narrow panes */
+    overflow-x: auto;
+    max-width: 100%;
+}
+.mdedit .md th, .mdedit .md td {
+    border: 1px solid var(--md-border);
+    padding: 0.45em 0.85em;
+    text-align: left;
+}
+.mdedit .md th[align="center"], .mdedit .md td[align="center"] { text-align: center; }
+.mdedit .md th[align="right"],  .mdedit .md td[align="right"]  { text-align: right; }
+.mdedit .md th { background: var(--md-panel); color: var(--md-text); }
+.mdedit .md tbody tr:nth-child(even) { background: color-mix(in srgb, var(--md-panel2) 55%, transparent); }
