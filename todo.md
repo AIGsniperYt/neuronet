@@ -20,6 +20,8 @@ inspired by bma portal: add a quick link option to your classroom to access easi
 
 clean up mindmap tool - the double sidebar is a red flag and a big no no - styling and usability issues, make the heap reordering drag and drop etc QoL updates, functionally sufficient tho - also QoL is memory tool which has FAR too many view modes in top right, this is bloat like i said above and is redundant and poor, the explore in stats sidebar could potentially be a redundant library, all this needs a good sitting down and cleanup, but atleast its all here and done
 
+remove layers to replace with tags, cus cant they do everything layers do but better?
+
 ---
 
 # Mindmap audit (senior review, appended after the checklist above)
@@ -275,7 +277,7 @@ Verified with `node --check src/tools/mindmapTool.js` and the existing `node tes
 
 ## Doubts and handoff notes
 
-- **Positions are still session-only.** Refreshing keeps an arrangement; reloading the tool does not. Persisting belongs in `meta` or a separate layout store, not in the renderer.
+- **Positions are now persisted locally.** `nn-mindmap-layout-v1:<owner>` stores node/card positions, camera, view mode, type filter, and subject scope. A restored arrangement is pinned so force simulation cannot drift it; Re-layout unpins and replays the explosion. The record is browser-local, not part of the synced database.
 - **Pins are permanent until Re-layout.** Dragging a node now deliberately locks it. There is no per-node “unpin” control yet.
 - **DPR invariant.** All canvas geometry must use `viewWidth()` / `viewHeight()` (CSS pixels) from now on. `canvas.width` / `canvas.height` are the scaled backing store.
 - **Pinch edge case.** After a two-finger pinch, lifting one finger leaves the remaining finger inert until it is pressed again. This is intentional to avoid an accidental drag, but it needs an iPad check.
@@ -311,3 +313,37 @@ Rapid `+ Heap` taps all read the same pre-await heap state and overwrote one ano
 ### Shell cleanup
 
 `loadTool()` in `src/main.js` only ran Analysis's teardown. It now runs the matching `__neuronetAnalysisCleanup` / `__neuronetMemoryCleanup` / `__neuronetMindmapCleanup` hook before replacing the tool DOM, so the Mindmap animation loop and document/window listeners do not survive a tool switch.
+
+---
+
+# Follow-up pass: persisted layout and reported tablet bugs
+
+The user reported four issues while preparing to test on iPad: the graph legend duplicated the stat pills, Re-layout appeared to do nothing, graph search failed silently, and the inspector's Connections/Heap tabs appeared dead. None of the reported controls threw errors, and desktop/emulated-iPad taps worked, so the common cause was missing feedback plus a few real layout/view bugs.
+
+## Done
+
+1. **Persisted Mindmap layout.** Positions (knowledge nodes and cards), camera, view mode, type filter, and focused subject are saved to `localStorage` under `nn-mindmap-layout-v1:<owner>`. Cards hydrate their scene position instead of being re-seeded. A restored layout is pinned so physics cannot drift it; the opening explosion is not saved until it settles or the user arranges it. Re-layout still clears pins and replays the explosion.
+2. **CSS-pixel layout fix.** Physics and card seeding used the DPR-scaled backing store (`canvas.width`) instead of `viewWidth()` / `viewHeight()`. On Retina/iPad that put the physics centre in the wrong place and made saved positions drift; all layout math is now CSS pixels.
+3. **Legend merged into stat pills.** `#graphLegend`, the type `<select>`, and their CSS/JS are gone. Every stat pill now has a node-colour dot and doubles as a graph filter: Total resets, a type pill filters, tapping it again clears. Added Layers, Past Papers, and Cards so the pills cover every graph node type. Pills are disabled (stats-only) in Library and Dots.
+4. **Re-layout is explicit and visible.** It now clears the camera interaction flag so auto-fit frames the new explosion, clears any in-flight morph, wakes simulation, restarts the settle timer, and reports “Layout reset” in a live status region. Empty/grid cases report why instead of returning silently.
+5. **Search matches full content and reports results.** Search now indexes full source/analysis/quote/cue/card text, not just title/preview, with a cached haystack per graph node. A live status shows match counts or “No matches”, the camera reframes on search/filter, Escape clears, and Safari's native clear (`search` event) is handled.
+6. **Inspector tabs give feedback.** Connections shows a clear message when there is no selection or no connections; the Heap tab offers New heap and Browse Library actions instead of only disabled buttons. Tabs use `touch-action: manipulation` and an active press state so iPad taps register immediately.
+
+## Verification (follow-up pass)
+
+- `node --check src/tools/mindmapTool.js`; `node tests/run.mjs` still passes 88 assertions.
+- iPad-emulated Chromium (820×1180, DPR 2, touch): taps on stat pills, Re-layout, search, and all three inspector tabs; no page errors, only the known favicon 404.
+- Search: `assassination` (deep source body) → 1 match; `Thunder` → 9 matches; `zzzzzz` → warning + empty state; Escape clears.
+- Filter: Quote pill → 14 quotes and active state; tapping again returns to Total.
+- Re-layout: status shows “Layout reset”, all 182 positions move, camera flag clears so Fit runs.
+- Persistence: reload restores grid view, camera, 182 positions (0 px drift once restored), and the active Quote filter.
+- Heap smoke: create heap, add 3 cards rapidly, reorder, multi-add, delete; all pass.
+- Dots/Library still disable graph-only actions and no longer show the legend.
+
+## New handoff risks
+
+- **Layout scope is a browser/user key, not synced data.** Clearing site data loses the layout; another device starts fresh. Named snapshots or a synced layout store are still deferred.
+- **Restored layouts are pinned.** That is what makes persistence exact, but there is no per-node unpin; Re-layout is the only global release. New nodes remain unpinned and settle normally.
+- **Stability is time-based.** Positions are saved after a short settle window rather than a perfect velocity check. The last few pixels of a slowly settling graph may be lost if the tab closes immediately.
+- **Tabs were not reproducible as dead on emulated iPad.** The added empty states and touch-action fix address the reported no-feedback symptom, but a real iPad/Safari pass is still needed before calling it fixed.
+- **Current build is still unpushed.** The user's iPad cannot test any of this until the local commits are pushed/deployed.
