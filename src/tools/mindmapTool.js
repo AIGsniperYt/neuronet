@@ -3828,11 +3828,15 @@ const state = {
     // card-only deck still has a sensible view.
     const scopedPositions = [];
     state.nodePositions.forEach((pos, id) => {
-      if (state.scopeNodeIds.has(id) && !state.cardScene.has(id)) scopedPositions.push(pos);
+      if (!state.scopeNodeIds.has(id) || state.cardScene.has(id)) return;
+      if (!nodeMatchesGraphFilter(state.graph.nodes.get(id))) return;
+      scopedPositions.push(pos);
     });
     if (scopedPositions.length === 0) {
       state.nodePositions.forEach((pos, id) => {
-        if (state.scopeNodeIds.has(id)) scopedPositions.push(pos);
+        if (!state.scopeNodeIds.has(id)) return;
+        if (!nodeMatchesGraphFilter(state.graph.nodes.get(id))) return;
+        scopedPositions.push(pos);
       });
     }
     if (scopedPositions.length === 0) return;
