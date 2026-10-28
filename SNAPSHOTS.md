@@ -8,7 +8,9 @@ at the site root; old builds live under `/showcase/<version>/`.
 - Snapshots: `/showcase/v0/` through `/showcase/v9/`
 
 The gallery is ordered by the snapshot commit date, not by version number. The
-numbers are not chronological: v6 and v7 landed before v2.
+numbers are not chronological: v6 and v7 landed before v2. The page uses the
+same layout, starfield background, fixed header, and theme toggle as the
+flight-sim versions page.
 
 ## How multiple versions fit on one site
 
@@ -16,7 +18,7 @@ GitHub Pages serves one static site. The deploy job puts two things in it:
 
 ```text
 /                       latest app from main
-/showcase/              gallery (index.html + versions.json)
+/showcase/              gallery (index.html, gallery.js, versions.json)
 /showcase/v0/           frozen copy of v0
 /showcase/v1/           frozen copy of v1
 /showcase/v6/           frozen copy of v6
@@ -78,7 +80,8 @@ For a manual snapshot run:
    - generate `showcase-seed.js` and add it to the snapshot's `index.html`,
    - write `showcase-meta.json`,
    - update `versions.json`, record the snapshot commit date, and regenerate
-     the gallery in chronological order.
+     the gallery in chronological order,
+   - write `gallery.js` from the gallery template.
 6. Commit the result to `showcase`.
 7. Assemble the Pages artifact: latest app at the root, `showcase/` copied to
    `/showcase/`.
@@ -198,6 +201,10 @@ logs `[showcase] demo seed skipped: ...` if seeding could not run.
 
 - `scripts/build-showcase.mjs` — copy, patch, seed, gallery, `versions.json`,
   and the per-version labels/features in `VERSION_META`.
+- `scripts/showcase-gallery.css` — gallery styles cloned from the flight-sim
+  versions page.
+- `scripts/showcase-gallery.template.js` — gallery starfield, theme toggle,
+  scroll progress, reveals, and landing animation.
 - `scripts/showcase-seed.template.js` — browser-side seed script template.
 - `.github/workflows/pages.yml` — deploy and manual snapshot workflow.
 - `demo-data.json` — canonical demo dataset.

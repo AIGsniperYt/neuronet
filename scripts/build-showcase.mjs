@@ -386,6 +386,11 @@ function saveVersions(versions) {
 }
 
 function renderGallery(versions) {
+  const galleryCss = fs.readFileSync(
+    path.join(scriptDir, "showcase-gallery.css"),
+    "utf8"
+  );
+
   const formatDate = (value) => {
     const parsed = Date.parse(value || "");
     if (!Number.isFinite(parsed)) return "";
@@ -397,61 +402,76 @@ function renderGallery(versions) {
     });
   };
 
-  const cards = versions.map((entry, index) => {
-    const version = escapeHtml(entry.version);
-    const label = escapeHtml(entry.label || entry.version);
-    const description = escapeHtml(entry.description || "");
-    const dateSource = entry.committedAt || entry.addedAt || "";
-    const date = formatDate(dateSource);
-    const commitShort = entry.commit ? escapeHtml(String(entry.commit).slice(0, 7)) : "";
-    const commitUrl = entry.commit
-      ? `https://github.com/AIGsniperYt/neuronet/commit/${encodeURIComponent(entry.commit)}`
-      : "";
-    const features =
-      entry.features ||
-      (VERSION_META[entry.version] && VERSION_META[entry.version].features) ||
-      [];
-    const latest = index === versions.length - 1;
-    const href = `./${encodeURIComponent(entry.version)}/`;
+  const cards = versions
+    .map((entry, index) => {
+      const version = escapeHtml(entry.version);
+      const label = escapeHtml(entry.label || entry.version);
+      const description = escapeHtml(entry.description || "");
+      const dateSource = entry.committedAt || entry.addedAt || "";
+      const date = formatDate(dateSource);
+      const commitShort = entry.commit
+        ? escapeHtml(String(entry.commit).slice(0, 7))
+        : "";
+      const commitUrl = entry.commit
+        ? `https://github.com/AIGsniperYt/neuronet/commit/${encodeURIComponent(entry.commit)}`
+        : "";
+      const features =
+        entry.features ||
+        (VERSION_META[entry.version] && VERSION_META[entry.version].features) ||
+        [];
+      const latest = index === versions.length - 1;
+      const href = `./${encodeURIComponent(entry.version)}/`;
+      const delay = (index * 0.035).toFixed(3);
 
-    return `
-      <article class="timeline-item reveal${latest ? " latest" : ""}" id="${version}">
-        <div class="timeline-dot${latest ? " latest" : ""}"></div>
-        <div class="timeline-card">
-          <div class="timeline-header">
-            <h3>${label}</h3>
-            <div class="timeline-tags">
-              ${date ? `<span class="timeline-date">${date}</span>` : ""}
-              <span class="timeline-version">${version}</span>
-              ${latest ? '<span class="timeline-latest">latest snapshot</span>' : ""}
-              ${commitShort ? `<a class="timeline-commit" href="${commitUrl}" target="_blank" rel="noopener" title="View commit ${commitShort}">${commitShort}</a>` : ""}
+      return `
+        <div class="timeline-item reveal${latest ? " latest" : ""}" style="transition-delay:${delay}s">
+            <div class="timeline-dot${latest ? " latest" : ""}"></div>
+            <div class="timeline-card">
+                <div class="timeline-header">
+                    <h3>${label}</h3>
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        ${date ? `<span class="timeline-date">${date}</span>` : ""}
+                        <span class="timeline-version">${version}</span>
+                        ${latest ? '<span class="timeline-latest">Latest</span>' : ""}
+                        ${
+                          commitShort
+                            ? `<a href="${commitUrl}" target="_blank" rel="noopener" class="timeline-commit">${commitShort}</a>`
+                            : ""
+                        }
+                    </div>
+                </div>
+                <p class="timeline-description">${description}</p>
+                ${
+                  features.length
+                    ? `<ul class="timeline-features">${features
+                        .map((feature) => `<li>${escapeHtml(feature)}</li>`)
+                        .join("")}</ul>`
+                    : ""
+                }
+                <div class="timeline-actions">
+                    <a href="${href}" class="btn-ghost">
+                        <i class="fa-solid fa-play" style="font-size:0.7rem"></i>
+                        Launch
+                    </a>
+                    ${
+                      commitUrl
+                        ? `<a href="${commitUrl}" target="_blank" rel="noopener" class="btn-ghost">
+                        <i class="fa-brands fa-github" style="font-size:0.75rem"></i>
+                        Commit
+                    </a>`
+                        : ""
+                    }
+                </div>
             </div>
-          </div>
-          <p class="timeline-description">${description}</p>
-          ${
-            features.length
-              ? `<ul class="timeline-features">${features
-                  .map((feature) => `<li>${escapeHtml(feature)}</li>`)
-                  .join("")}</ul>`
-              : ""
-          }
-          <div class="timeline-actions">
-            <a class="btn-ghost" href="${href}"><span aria-hidden="true">▶</span> Launch</a>
-            ${
-              commitUrl
-                ? `<a class="btn-ghost" href="${commitUrl}" target="_blank" rel="noopener"><span aria-hidden="true">↗</span> Commit</a>`
-                : ""
-            }
-          </div>
-        </div>
-      </article>`;
-  }).join("");
+        </div>`;
+    })
+    .join("");
 
   const empty = versions.length
     ? ""
     : `<div class="empty-state">
         <h2>No snapshots yet</h2>
-        <p>Run the <strong>Deploy NeuroNet showcase</strong> workflow from the GitHub Actions tab to add one.</p>
+        <p>Run the <strong>Deploy NeuroNet showcase</strong> workflow from the Actions tab to add one.</p>
       </div>`;
 
   const times = versions
@@ -459,732 +479,150 @@ function renderGallery(versions) {
     .filter((value) => Number.isFinite(value));
   const firstTime = times.length ? Math.min(...times) : 0;
   const lastTime = times.length ? Math.max(...times) : 0;
-  const days = firstTime && lastTime ? Math.max(1, Math.round((lastTime - firstTime) / 86400000)) : 0;
-  const latestVersion = versions.length ? versions[versions.length - 1].version : "—";
+  const days =
+    firstTime && lastTime
+      ? Math.max(1, Math.round((lastTime - firstTime) / 86400000))
+      : 0;
+  const latestVersion = versions.length
+    ? versions[versions.length - 1].version
+    : "—";
   const stats = [
-    { number: String(versions.length), label: "snapshots" },
-    { number: days ? String(days) : "—", label: "days of history" },
-    { number: latestVersion, label: "latest build" }
+    { number: String(versions.length), label: "Snapshots" },
+    { number: days ? String(days) : "—", label: "Days of History" },
+    { number: latestVersion, label: "Latest Build" },
+    { number: "Local", label: "Storage" }
   ]
     .map(
       (stat) => `
-      <div class="stat-card reveal">
-        <div class="stat-number">${escapeHtml(stat.number)}</div>
-        <div class="stat-label">${escapeHtml(stat.label)}</div>
-      </div>`
+        <div class="stat-card reveal">
+            <div class="stat-number">${escapeHtml(stat.number)}</div>
+            <div class="stat-label">${escapeHtml(stat.label)}</div>
+        </div>`
     )
     .join("");
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>NeuroNet — version by version</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-<script>document.documentElement.classList.add("js");</script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NeuroNet — Version History</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <style>
-  :root {
-    --forest-floor: #04120c;
-    --forest-understory: #071f14;
-    --forest-canopy: #0b2e1f;
-    --forest-light: #145a32;
-    --emerald: #2cffb3;
-    --emerald-soft: rgba(44, 255, 179, 0.35);
-    --emerald-glow: rgba(44, 255, 179, 0.2);
-    --emerald-rgb: 44, 255, 179;
-    --text-primary: #e6fff5;
-    --text-soft: rgba(230, 255, 245, 0.85);
-    --text-muted: rgba(230, 255, 245, 0.55);
-    --glass-bg: rgba(7, 31, 20, 0.55);
-    --glass-border: rgba(44, 255, 179, 0.12);
-    --glass-border-hover: rgba(44, 255, 179, 0.3);
-    --line-subtle: rgba(255, 255, 255, 0.06);
-    --card-bg: rgba(7, 31, 20, 0.88);
-    --panel-bg: rgba(4, 20, 13, 0.85);
-  }
-  *, *::before, *::after { box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
-  body {
-    margin: 0;
-    min-height: 100vh;
-    overflow-x: hidden;
-    color: var(--text-primary);
-    font-family: "Sora", "Segoe UI", system-ui, -apple-system, sans-serif;
-    font-weight: 400;
-    line-height: 1.7;
-    background: linear-gradient(180deg, var(--forest-understory) 0%, var(--forest-floor) 100%);
-  }
-  a { color: inherit; }
-  #neuralCanvas {
-    position: fixed;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-    z-index: 0;
-  }
-  #scrollProgress {
-    position: fixed;
-    top: 0;
-    left: 0;
-    height: 3px;
-    width: 0%;
-    z-index: 1001;
-    background: linear-gradient(90deg, var(--emerald), var(--forest-light));
-    box-shadow: 0 0 10px var(--emerald-glow);
-    transition: width 0.05s linear;
-  }
-  .container {
-    width: min(1100px, calc(100% - 48px));
-    margin: 0 auto;
-    position: relative;
-    z-index: 1;
-  }
-  header {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    z-index: 1000;
-    padding: 16px 0;
-    border-bottom: 1px solid transparent;
-    transition: background 0.4s, backdrop-filter 0.4s, border-color 0.4s;
-  }
-  header.scrolled {
-    background: rgba(4, 18, 12, 0.85);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border-bottom-color: var(--glass-border);
-  }
-  header .container {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 20px;
-  }
-  .logo {
-    display: inline-block;
-    color: var(--text-primary);
-    text-decoration: none;
-    font-size: 1.4rem;
-    font-weight: 700;
-    letter-spacing: -0.03em;
-  }
-  .logo span { color: var(--emerald); }
-  .logo-mark {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    margin-right: 8px;
-    border-radius: 50%;
-    background: var(--emerald);
-    box-shadow: 0 0 10px var(--emerald-glow);
-    vertical-align: middle;
-    animation: pulse-dot 2s ease-in-out infinite;
-  }
-  .nav-links {
-    display: flex;
-    align-items: center;
-    gap: 28px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-  .nav-links a {
-    color: var(--text-soft);
-    text-decoration: none;
-    font-size: 0.88rem;
-    font-weight: 500;
-    transition: color 0.3s;
-  }
-  .nav-links a:hover { color: var(--emerald); }
-  .hero {
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    position: relative;
-    overflow: hidden;
-    padding: 120px 0 80px;
-  }
-  .hero::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background: radial-gradient(ellipse at 50% 40%, rgba(var(--emerald-rgb), 0.12), transparent 60%);
-  }
-  .hero-content {
-    position: relative;
-    z-index: 2;
-    max-width: 820px;
-  }
-  .hero-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 18px;
-    margin-bottom: 24px;
-    border: 1px solid var(--glass-border);
-    border-radius: 100px;
-    background: var(--card-bg);
-    color: var(--emerald);
-    font-size: 0.8rem;
-    font-weight: 500;
-    backdrop-filter: blur(8px);
-  }
-  .hero h1 {
-    margin: 0 0 20px;
-    font-size: clamp(2.6rem, 6vw, 4.2rem);
-    font-weight: 700;
-    line-height: 1.12;
-    letter-spacing: -0.04em;
-  }
-  .hero h1 span { color: var(--emerald); }
-  .hero p {
-    max-width: 640px;
-    margin: 0 auto 36px;
-    color: var(--text-soft);
-    font-size: clamp(1rem, 2vw, 1.15rem);
-    line-height: 1.8;
-  }
-  .hero-actions {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 14px;
-    flex-wrap: wrap;
-  }
-  .btn-primary, .btn-ghost {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 11px 26px;
-    border-radius: 100px;
-    font-family: inherit;
-    font-size: 0.9rem;
-    font-weight: 600;
-    text-decoration: none;
-    cursor: pointer;
-    transition: transform 0.25s, box-shadow 0.25s, background 0.25s, color 0.25s, border-color 0.25s;
-  }
-  .btn-primary {
-    background: linear-gradient(135deg, var(--emerald), var(--forest-light));
-    color: var(--forest-floor);
-    border: 1px solid transparent;
-    box-shadow: 0 4px 20px rgba(var(--emerald-rgb), 0.25);
-  }
-  .btn-primary:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 30px rgba(var(--emerald-rgb), 0.35);
-  }
-  .btn-ghost {
-    background: transparent;
-    color: var(--emerald);
-    border: 1.5px solid var(--emerald);
-    padding: 9px 22px;
-    font-size: 0.85rem;
-  }
-  .btn-ghost:hover {
-    background: var(--emerald);
-    color: var(--forest-floor);
-    box-shadow: 0 0 20px var(--emerald-glow);
-  }
-  .scroll-indicator {
-    position: absolute;
-    bottom: 36px;
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-    color: var(--emerald);
-    font-size: 0.72rem;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    text-shadow: 0 0 12px var(--emerald-glow);
-    animation: bob-down 2s ease-in-out infinite, land-fade 0.8s ease 1.2s both;
-  }
-  .scroll-indicator .line {
-    width: 1.5px;
-    height: 44px;
-    background: linear-gradient(to bottom, var(--emerald), transparent);
-    box-shadow: 0 0 8px var(--emerald-glow);
-  }
-  .section-title {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 16px;
-    margin: 0 0 56px;
-    font-size: clamp(2rem, 4vw, 2.6rem);
-    font-weight: 600;
-    letter-spacing: -0.03em;
-    text-align: center;
-  }
-  .section-title::before,
-  .section-title::after {
-    content: "";
-    width: 60px;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, var(--emerald));
-    opacity: 0.4;
-  }
-  .section-title::after {
-    background: linear-gradient(90deg, var(--emerald), transparent);
-  }
-  .version-timeline {
-    position: relative;
-    padding: 90px 0 70px;
-  }
-  .timeline {
-    position: relative;
-    max-width: 900px;
-    margin: 0 auto;
-  }
-  .timeline::before {
-    content: "";
-    position: absolute;
-    left: 32px;
-    top: 0;
-    bottom: 0;
-    width: 2px;
-    background: linear-gradient(to bottom, var(--emerald), var(--forest-light), transparent);
-    opacity: 0.3;
-  }
-  .timeline-item {
-    position: relative;
-    padding-left: 80px;
-    margin-bottom: 40px;
-  }
-  .timeline-item:last-child { margin-bottom: 0; }
-  .timeline-dot {
-    position: absolute;
-    left: 24px;
-    top: 10px;
-    width: 18px;
-    height: 18px;
-    border: 3px solid var(--forest-floor);
-    border-radius: 50%;
-    background: var(--emerald);
-    box-shadow: 0 0 12px var(--emerald-glow);
-    z-index: 2;
-  }
-  .timeline-dot.latest {
-    left: 21px;
-    top: 7px;
-    width: 24px;
-    height: 24px;
-    animation: pulse-dot 2s ease-in-out infinite;
-  }
-  .timeline-card {
-    padding: 24px 28px;
-    border: 1px solid var(--glass-border);
-    border-radius: 16px;
-    background: var(--card-bg);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    transition: transform 0.3s, border-color 0.3s, box-shadow 0.3s;
-  }
-  .timeline-card:hover {
-    transform: translateX(4px);
-    border-color: var(--glass-border-hover);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-  }
-  .timeline-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 10px 16px;
-    margin-bottom: 8px;
-    flex-wrap: wrap;
-  }
-  .timeline-header h3 {
-    margin: 0;
-    font-size: 1.3rem;
-    font-weight: 600;
-    letter-spacing: -0.02em;
-  }
-  .timeline-tags {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .timeline-date {
-    color: var(--text-muted);
-    font-size: 0.78rem;
-    white-space: nowrap;
-  }
-  .timeline-version {
-    padding: 3px 12px;
-    border-radius: 100px;
-    background: var(--emerald);
-    color: var(--forest-floor);
-    font-size: 0.75rem;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-  }
-  .timeline-latest {
-    padding: 3px 10px;
-    border: 1px solid var(--glass-border-hover);
-    border-radius: 100px;
-    color: var(--emerald);
-    font-size: 0.68rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-  }
-  .timeline-commit {
-    padding: 2px 8px;
-    border-radius: 4px;
-    background: rgba(var(--emerald-rgb), 0.06);
-    color: var(--text-muted);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 0.75rem;
-    text-decoration: none;
-  }
-  .timeline-commit:hover { color: var(--emerald); }
-  .timeline-description {
-    margin: 0 0 12px;
-    color: var(--text-soft);
-    font-size: 0.92rem;
-    line-height: 1.7;
-  }
-  .timeline-features {
-    margin: 0 0 16px;
-    padding: 0;
-    list-style: none;
-  }
-  .timeline-features li {
-    position: relative;
-    padding-left: 18px;
-    margin-bottom: 4px;
-    color: var(--text-soft);
-    font-size: 0.85rem;
-    line-height: 1.6;
-  }
-  .timeline-features li::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 9px;
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: var(--emerald);
-    opacity: 0.55;
-  }
-  .timeline-actions {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-  .stats-section { padding: 70px 0 90px; }
-  .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 20px;
-  }
-  .stat-card {
-    padding: 32px 20px;
-    border: 1px solid var(--glass-border);
-    border-radius: 16px;
-    background: var(--card-bg);
-    text-align: center;
-    transition: border-color 0.3s;
-  }
-  .stat-card:hover { border-color: var(--glass-border-hover); }
-  .stat-number {
-    margin-bottom: 4px;
-    color: var(--emerald);
-    font-size: 2.4rem;
-    font-weight: 700;
-    line-height: 1.1;
-  }
-  .stat-label {
-    color: var(--text-muted);
-    font-size: 0.85rem;
-  }
-  .note {
-    max-width: 820px;
-    margin: 0 auto 70px;
-    padding: 18px 22px;
-    border: 1px solid var(--glass-border);
-    border-radius: 14px;
-    background: rgba(var(--emerald-rgb), 0.04);
-    color: var(--text-soft);
-    font-size: 0.88rem;
-    line-height: 1.7;
-  }
-  .note strong { color: var(--text-primary); }
-  footer {
-    padding: 50px 0 32px;
-    border-top: 1px solid var(--line-subtle);
-    color: var(--text-muted);
-    font-size: 0.85rem;
-    text-align: center;
-  }
-  footer p { margin: 0 0 8px; }
-  footer a { color: var(--emerald); text-decoration: none; }
-  footer a:hover { text-decoration: underline; }
-  .empty-state {
-    max-width: 760px;
-    margin: 0 auto;
-    padding: 2rem;
-    border: 1px dashed var(--glass-border);
-    border-radius: 1rem;
-    color: var(--text-muted);
-    text-align: center;
-  }
-  .empty-state h2 { margin: 0 0 0.5rem; color: var(--text-primary); }
-  .js .reveal {
-    opacity: 0;
-    transform: translateY(30px);
-    transition: opacity 0.7s cubic-bezier(0.25, 0.46, 0.45, 0.94),
-      transform 0.7s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-  }
-  .js .reveal.revealed {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  @keyframes pulse-dot {
-    0%, 100% { box-shadow: 0 0 6px var(--emerald-glow); }
-    50% { box-shadow: 0 0 16px var(--emerald-soft); }
-  }
-  @keyframes bob-down {
-    0%, 100% { transform: translateX(-50%) translateY(0); }
-    50% { transform: translateX(-50%) translateY(8px); }
-  }
-  @keyframes land-fade {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-  @keyframes land-up {
-    from { opacity: 0; transform: translateY(34px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  @media (prefers-reduced-motion: no-preference) {
-    .hero-badge { animation: land-up 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s both; }
-    .hero h1 { animation: land-up 0.7s cubic-bezier(0.22, 0.61, 0.36, 1) 0.25s both; }
-    .hero p { animation: land-up 0.7s cubic-bezier(0.22, 0.61, 0.36, 1) 0.4s both; }
-    .hero-actions { animation: land-up 0.65s cubic-bezier(0.22, 0.61, 0.36, 1) 0.55s both; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    html { scroll-behavior: auto; }
-    .js .reveal { opacity: 1; transform: none; transition: none; }
-    .scroll-indicator { animation: none; }
-    .timeline-dot.latest, .logo-mark { animation: none; }
-  }
-  @media (max-width: 768px) {
-    .container { width: min(100% - 32px, 1100px); }
-    .nav-links { display: none; }
-    .timeline::before { left: 20px; }
-    .timeline-item { padding-left: 56px; }
-    .timeline-dot { left: 12px; }
-    .timeline-dot.latest { left: 9px; }
-    .timeline-card { padding: 20px; }
-    .section-title { margin-bottom: 40px; }
-    .section-title::before, .section-title::after { width: 36px; }
-    .stats-grid { grid-template-columns: 1fr 1fr; }
-    .stat-card:last-child { grid-column: 1 / -1; }
-  }
+${galleryCss}
 </style>
 </head>
 <body>
-  <div id="scrollProgress"></div>
-  <canvas id="neuralCanvas" aria-hidden="true"></canvas>
 
-  <header id="header">
+<div id="scrollProgress"></div>
+<canvas id="neuralCanvas"></canvas>
+
+<!-- Header -->
+<header id="header">
     <div class="container">
-      <a class="logo" href="./">
-        <span class="logo-mark" aria-hidden="true"></span>Neuro<span>Net</span>
-      </a>
-      <ul class="nav-links">
-        <li><a href="#versions">Versions</a></li>
-        <li><a href="#stats">Stats</a></li>
-        <li><a href="../">Latest app</a></li>
-        <li><a href="https://github.com/AIGsniperYt/neuronet" target="_blank" rel="noopener">GitHub</a></li>
-      </ul>
+        <a href="./" class="logo">
+            <span class="logo-mark"></span>
+            Neuro<span>Net</span>
+        </a>
+        <ul class="nav-links">
+            <li><a href="#versions">Versions</a></li>
+            <li><a href="#stats">Stats</a></li>
+            <li><a href="../">Latest app</a></li>
+            <li><a href="https://github.com/AIGsniperYt/neuronet" target="_blank" rel="noopener">GitHub</a></li>
+            <li><button id="themeToggle" class="theme-toggle">Switch Theme</button></li>
+        </ul>
     </div>
-  </header>
+</header>
 
-  <main>
-    <section class="hero" id="hero">
-      <div class="container hero-content">
-        <div class="hero-badge">NeuroNet · old builds</div>
-        <h1>NeuroNet, <span>version by version</span>.</h1>
-        <p>
-          Old builds, still working. Sorted by when they were built, not by
-          version number — the numbers jumped around. Open any version and have
-          a look, or jump into the latest.
-        </p>
+<!-- Hero -->
+<section class="hero" id="hero">
+    <div class="floating-shapes">
+        <div class="shape shape-1"></div>
+        <div class="shape shape-2"></div>
+        <div class="shape shape-3"></div>
+        <div class="shape shape-4"></div>
+    </div>
+    <div class="hero-content">
+        <div class="hero-badge"><i class="fa-solid fa-brain" style="margin-right:6px"></i> NeuroNet Version History</div>
+        <h1>NeuroNet — Version History</h1>
+        <p>Every working build of NeuroNet, from the first split to the card-first rebuild. They're ordered by when they were built, not by version number — the numbers jumped around. Open any snapshot, or jump straight into the latest.</p>
         <div class="hero-actions">
-          <a class="btn-primary" href="#versions">View timeline</a>
-          <a class="btn-ghost" href="../">Launch latest <span aria-hidden="true">→</span></a>
+            <a href="#versions" class="btn-primary">
+                <i class="fa-solid fa-timeline" style="font-size:0.85rem"></i>
+                View Timeline
+            </a>
+            <a href="../" class="btn-ghost">
+                Launch Latest
+                <i class="fa-solid fa-arrow-right" style="font-size:0.75rem"></i>
+            </a>
         </div>
-      </div>
-      <div class="scroll-indicator" aria-hidden="true">
+    </div>
+    <div class="scroll-indicator">
         <span>Scroll</span>
         <div class="line"></div>
-      </div>
-    </section>
+    </div>
+</section>
 
-    <section class="version-timeline" id="versions">
-      <div class="container">
-        <h2 class="section-title">Version timeline</h2>
-        <div class="timeline">${cards}</div>
+<!-- Section Divider -->
+<div class="section-divider parallax-medium" data-speed="-0.08">
+    <svg viewBox="0 0 1440 200" preserveAspectRatio="none">
+        <path d="M0,40 C240,160 480,0 720,120 C960,240 1200,20 1440,80 L1440,200 L0,200 Z" fill="var(--forest-canopy)" opacity="0.3"/>
+        <path d="M0,60 C320,180 640,40 960,140 C1280,240 1360,60 1440,100 L1440,200 L0,200 Z" fill="var(--forest-understory)"/>
+    </svg>
+</div>
+
+<!-- Version Timeline -->
+<section class="version-timeline" id="versions">
+    <div class="container">
+        <h2 class="section-title reveal">Version Timeline</h2>
+        <div class="timeline" id="timeline">${cards}</div>
         ${empty}
-      </div>
-    </section>
-
-    <section class="stats-section" id="stats">
-      <div class="container">
-        <h2 class="section-title">By the numbers</h2>
-        <div class="stats-grid">${stats}</div>
-      </div>
-    </section>
-
-    <div class="container">
-      <div class="note">
-        <strong>How this works.</strong> Each snapshot is a static copy of an old
-        build with its own demo data and browser database. Anything you change
-        stays in that version. The latest app is the live build.
-      </div>
     </div>
-  </main>
+</section>
 
-  <footer>
+<!-- Section Divider -->
+<div class="section-divider parallax-slow" data-speed="-0.05">
+    <svg viewBox="0 0 1440 200" preserveAspectRatio="none">
+        <path d="M0,20 C360,120 720,0 1080,80 C1260,120 1350,40 1440,60 L1440,200 L0,200 Z" fill="rgba(11,46,31,0.2)"/>
+        <path d="M0,40 C400,160 800,20 1200,100 C1320,140 1380,60 1440,80 L1440,200 L0,200 Z" fill="var(--forest-floor)"/>
+    </svg>
+</div>
+
+<!-- Stats -->
+<section class="stats-section" id="stats">
     <div class="container">
-      <p>Snapshots are generated from the git history of this repository.</p>
-      <p><a href="https://github.com/AIGsniperYt/neuronet">AIGsniperYt/neuronet</a></p>
+        <h2 class="section-title reveal">By the Numbers</h2>
+        <div class="stats-grid" id="statsGrid">${stats}</div>
     </div>
-  </footer>
+</section>
 
-  <script>
-    (function () {
-      var progress = document.getElementById("scrollProgress");
-      var header = document.getElementById("header");
-      function onScroll() {
-        var doc = document.documentElement;
-        var max = doc.scrollHeight - window.innerHeight;
-        progress.style.width = (max > 0 ? (window.scrollY / max) * 100 : 0) + "%";
-        header.classList.toggle("scrolled", window.scrollY > 40);
-      }
-      window.addEventListener("scroll", onScroll, { passive: true });
-      onScroll();
+<!-- Section Divider -->
+<div class="section-divider parallax-medium" data-speed="-0.07">
+    <svg viewBox="0 0 1440 200" preserveAspectRatio="none">
+        <path d="M0,140 C240,60 480,180 720,100 C960,20 1200,160 1440,80 L1440,200 L0,200 Z" fill="rgba(11,46,31,0.25)"/>
+        <path d="M0,160 C320,80 640,200 960,120 C1200,40 1320,160 1440,100 L1440,200 L0,200 Z" fill="var(--forest-floor)"/>
+    </svg>
+</div>
 
-      var revealItems = document.querySelectorAll(".reveal");
-      if ("IntersectionObserver" in window) {
-        var observer = new IntersectionObserver(function (entries) {
-          entries.forEach(function (entry) {
-            if (!entry.isIntersecting) return;
-            entry.target.classList.add("revealed");
-            observer.unobserve(entry.target);
-          });
-        }, { threshold: 0.08 });
-        revealItems.forEach(function (item) { observer.observe(item); });
-      } else {
-        revealItems.forEach(function (item) { item.classList.add("revealed"); });
-      }
+<!-- Footer -->
+<footer>
+    <div class="container">
+        <div class="footer-content">
+            <div class="breadcrumb">
+                <a href="../">Latest app</a>
+                <span>/</span>
+                <span>Version History</span>
+            </div>
+            <p class="copyright">&copy; 2026 AIGsniper. NeuroNet.</p>
+            <p class="copyright">Each snapshot keeps its own demo data in your browser.</p>
+        </div>
+    </div>
+</footer>
 
-      var canvas = document.getElementById("neuralCanvas");
-      var ctx = canvas && canvas.getContext("2d");
-      if (!ctx) return;
-      var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      var width = 0;
-      var height = 0;
-      var nodes = [];
-      var frame = 0;
-
-      function makeNodes() {
-        var count = Math.max(28, Math.min(80, Math.floor((width * height) / 26000)));
-        nodes = [];
-        for (var i = 0; i < count; i += 1) {
-          nodes.push({
-            x: Math.random() * width,
-            y: Math.random() * height,
-            vx: (Math.random() - 0.5) * 0.18,
-            vy: (Math.random() - 0.5) * 0.18,
-            r: Math.random() * 1.6 + 0.8
-          });
-        }
-      }
-
-      function resize() {
-        var dpr = Math.min(window.devicePixelRatio || 1, 2);
-        width = window.innerWidth;
-        height = window.innerHeight;
-        canvas.width = Math.round(width * dpr);
-        canvas.height = Math.round(height * dpr);
-        canvas.style.width = width + "px";
-        canvas.style.height = height + "px";
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        makeNodes();
-      }
-
-      function draw() {
-        ctx.clearRect(0, 0, width, height);
-        var maxDist = Math.min(150, Math.max(90, width / 10));
-        for (var i = 0; i < nodes.length; i += 1) {
-          var a = nodes[i];
-          for (var j = i + 1; j < nodes.length; j += 1) {
-            var b = nodes[j];
-            var dx = a.x - b.x;
-            var dy = a.y - b.y;
-            var dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist > maxDist) continue;
-            ctx.beginPath();
-            ctx.moveTo(a.x, a.y);
-            ctx.lineTo(b.x, b.y);
-            ctx.strokeStyle = "rgba(44,255,179," + ((1 - dist / maxDist) * 0.12) + ")";
-            ctx.lineWidth = 0.6;
-            ctx.stroke();
-          }
-        }
-        for (var k = 0; k < nodes.length; k += 1) {
-          var node = nodes[k];
-          ctx.beginPath();
-          ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2);
-          ctx.fillStyle = "rgba(44,255,179,0.5)";
-          ctx.shadowBlur = 8;
-          ctx.shadowColor = "rgba(44,255,179,0.35)";
-          ctx.fill();
-          ctx.shadowBlur = 0;
-        }
-      }
-
-      function tick() {
-        if (!reduced) {
-          for (var i = 0; i < nodes.length; i += 1) {
-            var node = nodes[i];
-            node.x += node.vx;
-            node.y += node.vy;
-            if (node.x < -20) node.x = width + 20;
-            if (node.x > width + 20) node.x = -20;
-            if (node.y < -20) node.y = height + 20;
-            if (node.y > height + 20) node.y = -20;
-          }
-        }
-        draw();
-        if (!reduced) frame = window.requestAnimationFrame(tick);
-      }
-
-      resize();
-      tick();
-      window.addEventListener("resize", function () {
-        window.cancelAnimationFrame(frame);
-        resize();
-        tick();
-      });
-    })();
-  </script>
+<script src="gallery.js"></script>
 </body>
 </html>
 `;
@@ -1244,6 +682,13 @@ function main() {
 
   const versions = loadVersions();
   write(path.join(showcaseDir, "index.html"), renderGallery(versions));
+  write(
+    path.join(showcaseDir, "gallery.js"),
+    fs.readFileSync(
+      path.join(scriptDir, "showcase-gallery.template.js"),
+      "utf8"
+    )
+  );
   write(path.join(showcaseDir, ".nojekyll"), "");
 
   if (addedVersion && process.env.GITHUB_OUTPUT) {
