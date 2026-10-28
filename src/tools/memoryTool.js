@@ -4601,7 +4601,7 @@ export async function initMemoryTool(deps, context = {}) {
           front: cue?.cue || quote.quote,
           back: quote.quote,
           priority: quote.priority || 3,
-          tags: (quote.meta?.tags || []).filter((tag) => tag !== "custom-deck"),
+          tags: quote.meta?.tags || [],
           isExisting: false,
           meta: quote.meta || {},
           createdAt: quote.createdAt,

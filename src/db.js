@@ -12,20 +12,6 @@ function emitDBChange(detail) {
   }
 }
 
-export async function cleanupOldDemoDatabases() {
-  if (window.DEMO_MODE) return;
-  if (!indexedDB.databases) return;
-
-  const dbs = await indexedDB.databases();
-  for (const db of dbs) {
-    if (!db.name) continue;
-    if (db.name.startsWith("neuronet-")) {
-      console.log("Deleting old demo DB:", db.name);
-      indexedDB.deleteDatabase(db.name);
-    }
-  }
-}
-
 export function initDB() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(getDBName(), DB_VERSION);
@@ -949,7 +935,7 @@ function normalizeCardTags(tags = []) {
   return [...new Set(
     (Array.isArray(tags) ? tags : [])
       .map((tag) => String(tag || "").trim())
-      .filter((tag) => tag && tag !== "custom-deck")
+      .filter(Boolean)
   )];
 }
 

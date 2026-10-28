@@ -1010,7 +1010,7 @@ const state = {
         : [];
     return tags
       .map((tag) => String(tag || "").trim())
-      .filter((tag) => tag && tag.toLowerCase() !== "custom-deck");
+      .filter(Boolean);
   }
 
   function getItemLayerParts(item, depth = 0) {

@@ -1,4 +1,4 @@
-import { cleanupOldDemoDatabases, initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, addSubject, deleteSubject, renameSubject, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, clearTags, addHeap, addHeaps, getAllHeaps, getHeap, deleteHeap, clearHeaps } from "./db.js";
+import { initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, addSubject, deleteSubject, renameSubject, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, clearTags, addHeap, addHeaps, getAllHeaps, getHeap, deleteHeap, clearHeaps } from "./db.js";
 import { syncLocalWithCloud, syncToCloud, deleteCloudNode, deleteCloudQuote, deleteCloudCue, fetchCloudNodes, fetchCloudQuotes, fetchCloudCues } from "./sync.js";
 import { initAnalysisToolV2 } from "./tools/analysisTool.js";
 import { dialog } from "./tools/dialog.js";
@@ -721,37 +721,6 @@ async function importDatabaseJson(file) {
   await importPayload(payload);
 }
 
-// `custom-deck` was an internal marker on legacy quote records, never a user
-// tag. Strip it from stored quotes and the tag store so it cannot resurface in
-// tag pickers, Grid filters, or Analysis.
-async function stripReservedTagMetadata() {
-  const RESERVED = "custom-deck";
-  try {
-    const quotes = await getAllQuotes();
-    for (const quote of quotes) {
-      if (!Array.isArray(quote?.meta?.tags) || !quote.meta.tags.includes(RESERVED)) {
-        continue;
-      }
-      await addQuote({
-        ...quote,
-        meta: {
-          ...quote.meta,
-          tags: quote.meta.tags.filter((tag) => tag !== RESERVED)
-        }
-      });
-    }
-
-    const tags = await getAllTags();
-    for (const tag of tags) {
-      const title = String(tag?.title || tag?.name || "").trim().toLowerCase();
-      const isReserved = title === RESERVED || String(tag?.id || "") === `tag-${RESERVED}`;
-      if (isReserved && tag?.id) await deleteTag(tag.id);
-    }
-  } catch (error) {
-    console.warn("Could not strip reserved custom-deck tag:", error);
-  }
-}
-
 // The tag store is a derived index, not the source of truth. Keep it in sync
 // with nodes, quotes, and cards so backups and old databases cannot inherit
 // stale tags. Card tags are included because cards are first-class.
@@ -760,7 +729,7 @@ function collectTagTitles({ nodes = [], quotes = [], cards = [] } = {}) {
   const collect = (tags) => {
     for (const tag of tags || []) {
       const value = String(tag || "").trim();
-      if (!value || value === "custom-deck") continue;
+      if (!value) continue;
       const key = value.toLowerCase();
       if (!titles.has(key)) titles.set(key, value);
     }
@@ -817,7 +786,6 @@ async function importPayload(payload) {
   await addCues(cues);
   await addCards(cards);
   await addHeaps(heaps);
-  await stripReservedTagMetadata();
   // Rebuild the derived tag index from the final imported records. This also
   // removes stale tags from the DB the import replaced.
   const [finalNodes, finalQuotes, finalCards] = await Promise.all([
@@ -1813,7 +1781,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (sidebarEl) sidebarEl.classList.add("entering");
   if (launchpadEl) launchpadEl.classList.add("entering");
 
-  await cleanupOldDemoDatabases();
   await initDB();
   DB_READY = true;
 
@@ -1828,7 +1795,6 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Cards are the study source of truth. Legacy quote/cue pairs are optional
   // context only; they are never auto-converted into cards.
-  await stripReservedTagMetadata();
 
   // The tag store is a derived index. Reconcile it with the records so an old
   // database cannot keep orphaned tags or tags that no longer exist.

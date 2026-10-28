@@ -2456,18 +2456,12 @@ function htmlToPlainText(html) {
       const [nodes, quotes] = await Promise.all([getAllNodes(), getAllQuotes()]);
       const allTags = new Set();
 
-      // `custom-deck` is reserved app metadata from the old deck builder. It
-      // must never surface as a user tag.
-      const isUserTag = (tag) => {
-        const value = String(tag || "").trim();
-        return value && value !== "custom-deck";
-      };
-
       // Collect all tags from nodes
       for (const node of nodes) {
         if (node?.meta?.tags && Array.isArray(node.meta.tags)) {
           for (const tag of node.meta.tags) {
-            if (isUserTag(tag)) allTags.add(String(tag).trim());
+            const value = String(tag || "").trim();
+            if (value) allTags.add(value);
           }
         }
       }
@@ -2476,7 +2470,8 @@ function htmlToPlainText(html) {
       for (const quote of quotes) {
         if (quote?.meta?.tags && Array.isArray(quote.meta.tags)) {
           for (const tag of quote.meta.tags) {
-            if (isUserTag(tag)) allTags.add(String(tag).trim());
+            const value = String(tag || "").trim();
+            if (value) allTags.add(value);
           }
         }
       }
