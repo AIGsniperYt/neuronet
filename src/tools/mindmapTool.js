@@ -2074,12 +2074,12 @@ const state = {
   }
 
   function screenToWorldX(x) {
-    const centerX = canvas.width / 2;
+    const centerX = viewWidth() / 2;
     return (x - centerX - state.panOffset.x) / state.zoom + centerX;
   }
 
   function screenToWorldY(y) {
-    const centerY = canvas.height / 2;
+    const centerY = viewHeight() / 2;
     return (y - centerY - state.panOffset.y) / state.zoom + centerY;
   }
 
@@ -2375,8 +2375,8 @@ const state = {
     const layout = state.dotsLayout;
     if (!layout || layout.empty) return null;
 
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2;
+    const centerX = viewWidth() / 2;
+    const centerY = viewHeight() / 2;
     // At the minimum cell size a dot is only a few pixels wide. Grow the
     // invisible hit target so touch users can still select it; nearest-dot
     // resolution keeps overlapping targets deterministic.
@@ -2547,8 +2547,8 @@ const state = {
     const layout = state.dotsLayout;
     if (morph > 0.999 && (!layout || layout.empty || scene.dotSection < 0)) return;
 
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2;
+    const centerX = viewWidth() / 2;
+    const centerY = viewHeight() / 2;
     const screenX = centerX + (scene.x - centerX) * state.zoom + state.panOffset.x;
     const screenY = centerY + (scene.y - centerY) * state.zoom + state.panOffset.y;
 
@@ -2720,8 +2720,8 @@ const state = {
     if (state.hoveredNodeId) {
       const hovered = state.cardScene.get(state.hoveredNodeId);
       if (hovered && hovered.dotSection >= 0 && (morph > 0.5 || state.viewMode === "dots")) {
-        const centerX = canvas.width / 2;
-        const centerY = canvas.height / 2;
+        const centerX = viewWidth() / 2;
+        const centerY = viewHeight() / 2;
         drawCardTooltip(
           hovered,
           centerX + (hovered.x - centerX) * state.zoom + state.panOffset.x,
@@ -3264,8 +3264,8 @@ const state = {
     const forces = new Map();
     const positions = state.nodePositions;
     const graph = state.graph;
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2;
+    const centerX = viewWidth() / 2;
+    const centerY = viewHeight() / 2;
 
     const nodeParents = new Map();
     graph.nodes.forEach((node, id) => {
@@ -3725,8 +3725,8 @@ const state = {
   }
 
   function transformPoint(x, y) {
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2;
+    const centerX = viewWidth() / 2;
+    const centerY = viewHeight() / 2;
     return {
       x: centerX + (x - centerX) * state.zoom + state.panOffset.x,
       y: centerY + (y - centerY) * state.zoom + state.panOffset.y
@@ -3864,8 +3864,8 @@ const state = {
     }
     if (scopedPositions.length === 0) return;
 
-    const viewportWidth = canvas.width || canvas.parentElement?.clientWidth || 800;
-    const viewportHeight = canvas.height || canvas.parentElement?.clientHeight || 600;
+    const viewportWidth = viewWidth() || canvas.parentElement?.clientWidth || 800;
+    const viewportHeight = viewHeight() || canvas.parentElement?.clientHeight || 600;
     const centerX = viewportWidth / 2;
     const centerY = viewportHeight / 2;
     let targetZoom = state.zoom;
@@ -3925,12 +3925,28 @@ const state = {
     state.panOffset.y += (targetPanY - state.panOffset.y) * 0.07;
   }
 
+  // Canvas geometry is kept in CSS pixels for every calculation (hit-testing,
+  // layout, camera). Only the backing store is scaled, so the map is sharp on
+  // Retina/iPad screens without changing any coordinate system.
+  const viewportSize = { width: 1, height: 1, dpr: 1 };
+  const viewWidth = () => viewportSize.width;
+  const viewHeight = () => viewportSize.height;
+
   function syncCanvasSize() {
     const container = canvas.parentElement;
     const width = Math.max(1, Math.round(container.clientWidth));
     const height = Math.max(1, Math.round(container.clientHeight));
-    if (canvas.width !== width) canvas.width = width;
-    if (canvas.height !== height) canvas.height = height;
+    const dpr = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+    const backingWidth = Math.max(1, Math.round(width * dpr));
+    const backingHeight = Math.max(1, Math.round(height * dpr));
+    if (canvas.width !== backingWidth) canvas.width = backingWidth;
+    if (canvas.height !== backingHeight) canvas.height = backingHeight;
+    viewportSize.width = width;
+    viewportSize.height = height;
+    viewportSize.dpr = dpr;
+    // Resizing the backing store resets the context, so reapply the scale each
+    // time the size is confirmed. All drawing then uses CSS pixels.
+    ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
     return { width, height };
   }
 
@@ -4054,8 +4070,8 @@ const state = {
   }
 
   function inverseTransform(x, y) {
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2;
+    const centerX = viewWidth() / 2;
+    const centerY = viewHeight() / 2;
     return {
       x: (x - centerX - state.panOffset.x) / state.zoom + centerX,
       y: (y - centerY - state.panOffset.y) / state.zoom + centerY
@@ -4784,8 +4800,8 @@ const state = {
         if (activePointers.size === 2) {
           const [a, b] = Array.from(activePointers.values());
           const mid = pointerMidpoint(a, b);
-          const centerX = canvas.width / 2;
-          const centerY = canvas.height / 2;
+          const centerX = viewWidth() / 2;
+          const centerY = viewHeight() / 2;
           pinchStart = {
             distance: Math.max(1, pointerDistance(a, b)),
             zoom: state.zoom,
@@ -4851,8 +4867,8 @@ const state = {
             config.maxZoom,
             Math.max(config.minZoom, pinchStart.zoom * (pointerDistance(a, b) / pinchStart.distance))
           );
-          const centerX = canvas.width / 2;
-          const centerY = canvas.height / 2;
+          const centerX = viewWidth() / 2;
+          const centerY = viewHeight() / 2;
           state.zoom = nextZoom;
           state.panOffset = {
             x: mid.x - centerX - (pinchStart.world.x - centerX) * nextZoom,
@@ -4915,11 +4931,11 @@ const state = {
         const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
         const newZoom = Math.min(config.maxZoom, Math.max(config.minZoom, state.zoom * zoomFactor));
 
-        const worldX = (mouseX - canvas.width / 2 - state.panOffset.x) / state.zoom + canvas.width / 2;
-        const worldY = (mouseY - canvas.height / 2 - state.panOffset.y) / state.zoom + canvas.height / 2;
+        const worldX = (mouseX - viewWidth() / 2 - state.panOffset.x) / state.zoom + viewWidth() / 2;
+        const worldY = (mouseY - viewHeight() / 2 - state.panOffset.y) / state.zoom + viewHeight() / 2;
 
-        state.panOffset.x = mouseX - canvas.width / 2 - (worldX - canvas.width / 2) * newZoom;
-        state.panOffset.y = mouseY - canvas.height / 2 - (worldY - canvas.height / 2) * newZoom;
+        state.panOffset.x = mouseX - viewWidth() / 2 - (worldX - viewWidth() / 2) * newZoom;
+        state.panOffset.y = mouseY - viewHeight() / 2 - (worldY - viewHeight() / 2) * newZoom;
         state.zoom = newZoom;
       }, { passive: false });
     }
