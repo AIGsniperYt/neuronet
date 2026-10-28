@@ -1,21 +1,113 @@
 [
   {
-    "version": "v9",
-    "label": "Card-first + Heaps",
-    "description": "Cards became the study unit, with heaps for manual study and a unified graph.",
-    "ref": "demo-v9",
-    "commit": "9eb05f6ff83c2ff3f01a8be654a85eeb3f804594",
-    "addedAt": "2026-10-28T15:53:14.288Z",
-    "path": "v9/"
+    "version": "v0",
+    "label": "Initial split",
+    "description": "Analysis, Memory, Mindmap and Tracker split into separate tools. Sources and quotes already live in IndexedDB.",
+    "ref": "v0",
+    "commit": "5946acd0cbf30ba3bd7d141042bac90eda66e6a6",
+    "committedAt": "2026-04-13T21:19:29+01:00",
+    "addedAt": "2026-10-28T16:31:12.907Z",
+    "path": "v0/",
+    "features": [
+      "Analysis, Memory, Mindmap and Tracker as separate tools",
+      "Sources and quotes stored in IndexedDB",
+      "Source-linked analysis workflow"
+    ]
   },
   {
-    "version": "v8",
-    "label": "Pre-card-first UI",
-    "description": "The last build before cards became the study unit.",
-    "ref": "v8",
-    "commit": "8ee177d040faa45fd554be99ad7451a6e2becd89",
-    "addedAt": "2026-10-28T15:53:53.567Z",
-    "path": "v8/"
+    "version": "v1",
+    "label": "Quote-first analysis",
+    "description": "The analysis tool and database cleanup pass, with quote priority and a cleaner source/quote split.",
+    "ref": "v1",
+    "commit": "ba81e3b287abfe477f5b125f9122afde9a818e4d",
+    "committedAt": "2026-04-19T20:57:36+01:00",
+    "addedAt": "2026-10-28T16:31:13.000Z",
+    "path": "v1/",
+    "features": [
+      "Quote priority and cleaner source/quote separation",
+      "Analysis tool and database cleanup",
+      "JSON import/export controls"
+    ]
+  },
+  {
+    "version": "v6",
+    "label": "The styling pass",
+    "description": "Loading screen, offline mode, animations, and a big readability and accessibility pass.",
+    "ref": "v6",
+    "commit": "0220f677e3cdb0d8585dab70a43692416d14c760",
+    "committedAt": "2026-04-21T19:21:10+01:00",
+    "addedAt": "2026-10-28T16:31:13.395Z",
+    "path": "v6/",
+    "features": [
+      "Loading screen and offline mode",
+      "Styling, animation and accessibility pass",
+      "Pinned tools and launchpad",
+      "Better error handling and feedback"
+    ]
+  },
+  {
+    "version": "v7",
+    "label": "Canvas split",
+    "description": "The graph engine moved into canvas.js, with a reworked NeuroNet visual and more Memory tool work.",
+    "ref": "v7",
+    "commit": "e244fbd94fb4f5f7dc747f58859d0b8c70a79136",
+    "committedAt": "2026-04-23T07:27:27+01:00",
+    "addedAt": "2026-10-28T16:31:13.479Z",
+    "path": "v7/",
+    "features": [
+      "Graph engine moved into canvas.js",
+      "Reworked NeuroNet visual",
+      "More Memory tool work",
+      "Canvas initialisation removed from the main script"
+    ]
+  },
+  {
+    "version": "v2",
+    "label": "Mindmap layers + physics",
+    "description": "Layered mindmap nodes, better physics, and node flagging came back.",
+    "ref": "v2",
+    "commit": "8a8b808089ff86be8aba9a8477701fe6bd6183ac",
+    "committedAt": "2026-04-24T19:15:45+01:00",
+    "addedAt": "2026-10-28T16:31:13.103Z",
+    "path": "v2/",
+    "features": [
+      "Layered mindmap nodes",
+      "Improved physics",
+      "Node flagging returns",
+      "Cue node groundwork"
+    ]
+  },
+  {
+    "version": "v3",
+    "label": "Memory graph overhaul",
+    "description": "A significant Memory tool update: new graph engine behaviour and a reworked interface.",
+    "ref": "v3",
+    "commit": "7f9d96369e5f621d07f7cb614976a328a7d5154f",
+    "committedAt": "2026-04-24T22:08:28+01:00",
+    "addedAt": "2026-10-28T16:31:13.197Z",
+    "path": "v3/",
+    "features": [
+      "Significant Memory graph engine update",
+      "Reworked Memory interface",
+      "Flashcard scheduling experiment",
+      "View metadata from the mindmap"
+    ]
+  },
+  {
+    "version": "v4",
+    "label": "Card grading + stats",
+    "description": "Card grading, a stats menu with system reasoning, live stats, and a heap viewer debugger.",
+    "ref": "v4",
+    "commit": "2ffc5eff36eeed195b2644aaf5e1e79be7ca403f",
+    "committedAt": "2026-04-25T19:48:51+01:00",
+    "addedAt": "2026-10-28T16:31:13.305Z",
+    "path": "v4/",
+    "features": [
+      "Card grading",
+      "Stats menu with system reasoning",
+      "Live stats and heap viewer debugger",
+      "Much bigger Memory tool"
+    ]
   },
   {
     "version": "v5",
@@ -24,6 +116,45 @@
     "ref": "v5",
     "commit": "efb5da72e6d3a65b168210a6ee4f2faf41486488",
     "addedAt": "2026-10-28T15:54:37.412Z",
-    "path": "v5/"
+    "path": "v5/",
+    "committedAt": "2026-04-25T21:33:27+01:00",
+    "features": [
+      "Cue nodes",
+      "Tag-driven semantic theming",
+      "Cues rendered in the graph",
+      "Database v8"
+    ]
+  },
+  {
+    "version": "v8",
+    "label": "Pre-card-first UI",
+    "description": "The last build before cards became the study unit.",
+    "ref": "v8",
+    "commit": "8ee177d040faa45fd554be99ad7451a6e2becd89",
+    "addedAt": "2026-10-28T15:53:53.567Z",
+    "path": "v8/",
+    "committedAt": "2026-04-27T17:59:12+01:00",
+    "features": [
+      "Formatting and editor fixes",
+      "Google Docs copy/paste toolbar",
+      "Flipping freeze bug fixed",
+      "Last build before the card-first rebuild"
+    ]
+  },
+  {
+    "version": "v9",
+    "label": "Card-first + Heaps",
+    "description": "Cards became the study unit, with heaps for manual study and a unified graph.",
+    "ref": "demo-v9",
+    "commit": "9eb05f6ff83c2ff3f01a8be654a85eeb3f804594",
+    "addedAt": "2026-10-28T15:53:14.288Z",
+    "path": "v9/",
+    "committedAt": "2026-10-28T15:04:55Z",
+    "features": [
+      "Cards became the study unit",
+      "Heaps for manual study",
+      "Unified graph view",
+      "Grades still feed SRS scheduling"
+    ]
   }
 ]

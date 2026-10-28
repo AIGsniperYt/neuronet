@@ -1,0 +1,15 @@
+{
+  "version": "v0",
+  "label": "Initial split",
+  "description": "Analysis, Memory, Mindmap and Tracker split into separate tools. Sources and quotes already live in IndexedDB.",
+  "ref": "v0",
+  "commit": "5946acd0cbf30ba3bd7d141042bac90eda66e6a6",
+  "committedAt": "2026-04-13T21:19:29+01:00",
+  "addedAt": "2026-10-28T16:31:12.907Z",
+  "path": "v0/",
+  "features": [
+    "Analysis, Memory, Mindmap and Tracker as separate tools",
+    "Sources and quotes stored in IndexedDB",
+    "Source-linked analysis workflow"
+  ]
+}

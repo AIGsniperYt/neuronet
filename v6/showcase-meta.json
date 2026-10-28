@@ -1,0 +1,16 @@
+{
+  "version": "v6",
+  "label": "The styling pass",
+  "description": "Loading screen, offline mode, animations, and a big readability and accessibility pass.",
+  "ref": "v6",
+  "commit": "0220f677e3cdb0d8585dab70a43692416d14c760",
+  "committedAt": "2026-04-21T19:21:10+01:00",
+  "addedAt": "2026-10-28T16:31:13.395Z",
+  "path": "v6/",
+  "features": [
+    "Loading screen and offline mode",
+    "Styling, animation and accessibility pass",
+    "Pinned tools and launchpad",
+    "Better error handling and feedback"
+  ]
+}

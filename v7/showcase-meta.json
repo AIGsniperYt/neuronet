@@ -1,0 +1,16 @@
+{
+  "version": "v7",
+  "label": "Canvas split",
+  "description": "The graph engine moved into canvas.js, with a reworked NeuroNet visual and more Memory tool work.",
+  "ref": "v7",
+  "commit": "e244fbd94fb4f5f7dc747f58859d0b8c70a79136",
+  "committedAt": "2026-04-23T07:27:27+01:00",
+  "addedAt": "2026-10-28T16:31:13.479Z",
+  "path": "v7/",
+  "features": [
+    "Graph engine moved into canvas.js",
+    "Reworked NeuroNet visual",
+    "More Memory tool work",
+    "Canvas initialisation removed from the main script"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "version": "v1",
+  "label": "Quote-first analysis",
+  "description": "The analysis tool and database cleanup pass, with quote priority and a cleaner source/quote split.",
+  "ref": "v1",
+  "commit": "ba81e3b287abfe477f5b125f9122afde9a818e4d",
+  "committedAt": "2026-04-19T20:57:36+01:00",
+  "addedAt": "2026-10-28T16:31:13.000Z",
+  "path": "v1/",
+  "features": [
+    "Quote priority and cleaner source/quote separation",
+    "Analysis tool and database cleanup",
+    "JSON import/export controls"
+  ]
+}

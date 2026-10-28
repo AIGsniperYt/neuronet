@@ -1,0 +1,16 @@
+{
+  "version": "v3",
+  "label": "Memory graph overhaul",
+  "description": "A significant Memory tool update: new graph engine behaviour and a reworked interface.",
+  "ref": "v3",
+  "commit": "7f9d96369e5f621d07f7cb614976a328a7d5154f",
+  "committedAt": "2026-04-24T22:08:28+01:00",
+  "addedAt": "2026-10-28T16:31:13.197Z",
+  "path": "v3/",
+  "features": [
+    "Significant Memory graph engine update",
+    "Reworked Memory interface",
+    "Flashcard scheduling experiment",
+    "View metadata from the mindmap"
+  ]
+}

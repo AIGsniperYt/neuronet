@@ -1,0 +1,16 @@
+{
+  "version": "v2",
+  "label": "Mindmap layers + physics",
+  "description": "Layered mindmap nodes, better physics, and node flagging came back.",
+  "ref": "v2",
+  "commit": "8a8b808089ff86be8aba9a8477701fe6bd6183ac",
+  "committedAt": "2026-04-24T19:15:45+01:00",
+  "addedAt": "2026-10-28T16:31:13.103Z",
+  "path": "v2/",
+  "features": [
+    "Layered mindmap nodes",
+    "Improved physics",
+    "Node flagging returns",
+    "Cue node groundwork"
+  ]
+}

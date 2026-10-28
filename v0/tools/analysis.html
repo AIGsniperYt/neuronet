@@ -1,0 +1,699 @@
+<style>
+.analysis-shell {
+  display: grid;
+  gap: 8px;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  padding: 12px;
+}
+
+/* Hide scrollbars globally */
+::-webkit-scrollbar,
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-thumb {
+  display: none;
+}
+
+html, body, * {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.panel {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(160deg, rgba(14, 34, 26, 0.88), rgba(9, 26, 19, 0.82));
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: 0 22px 38px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(6px);
+  transition: all 0.3s ease;
+}
+
+.panel h2,
+.panel h3 {
+  margin: 0;
+}
+
+.kicker {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.72rem;
+  color: rgba(44, 255, 179, 0.75);
+  margin-bottom: 8px;
+}
+
+.analysis-launch {
+  display: grid;
+  gap: 16px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  align-content: start;
+}
+
+.launch-top {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 14px;
+}
+
+.subject-toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.inline-input,
+.inline-select,
+.inline-textarea,
+.source-editor {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(5, 18, 13, 0.85);
+  color: #e6fff5;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.inline-textarea {
+  resize: vertical;
+}
+
+.source-editor {
+  min-height: 220px;
+  overflow-y: auto;
+  line-height: 1.56;
+  white-space: pre-wrap;
+}
+
+.source-editor:focus,
+.inline-input:focus,
+.inline-select:focus,
+.inline-textarea:focus {
+  outline: none;
+  border-color: rgba(44, 255, 179, 0.45);
+  box-shadow: 0 0 0 3px rgba(44, 255, 179, 0.08);
+}
+
+.btn {
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: #e6fff5;
+  padding: 8px 12px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  transition: all 0.2s ease;
+}
+
+.btn:hover {
+  border-color: rgba(44, 255, 179, 0.45);
+  background: rgba(44, 255, 179, 0.08);
+}
+
+.btn.primary {
+  background: linear-gradient(130deg, rgba(44, 255, 179, 0.24), rgba(44, 255, 179, 0.11));
+  border-color: rgba(44, 255, 179, 0.45);
+}
+
+.btn.primary:hover {
+  background: linear-gradient(130deg, rgba(44, 255, 179, 0.32), rgba(44, 255, 179, 0.18));
+  box-shadow: 0 0 12px rgba(44, 255, 179, 0.2);
+}
+
+.stats-row,
+.subject-list,
+.source-list,
+.analysis-list {
+  display: grid;
+  gap: 10px;
+}
+
+.stats-row {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.stat-card,
+.subject-card,
+.item-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 12px;
+}
+
+.stat-card strong {
+  display: block;
+  font-size: 1.5rem;
+}
+
+.subject-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.subject-name {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.subject-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.subject-open {
+  cursor: pointer;
+}
+
+.analysis-study {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 12px;
+  height: 100%;
+  overflow: hidden;
+}
+
+.study-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.study-head-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.study-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+}
+
+.main-surface {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+}
+
+.source-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  position: relative;
+  padding: 16px !important;
+}
+
+
+
+.save-source-edit-only,
+.cancel-source-edit-only {
+  display: none;
+}
+
+.save-source-edit-only.visible,
+.cancel-source-edit-only.visible {
+  display: inline-block;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.source-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.reader-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 6px;
+}
+
+.source-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.source-view.hidden {
+  display: none !important;
+}
+
+.reader-surface {
+  min-height: 56vh;
+  max-height: calc(100vh - 280px);
+  overflow-y: auto;
+}
+
+.floating-card {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  width: min(380px, 100%);
+  max-height: calc(100vh - 80px);
+  overflow: auto;
+  background: rgba(7, 20, 15, 0.96);
+  border: 1px solid rgba(44, 255, 179, 0.25);
+  box-shadow: 0 35px 60px rgba(0, 0, 0, 0.3), inset 0 0 1px rgba(44, 255, 179, 0.1);
+  z-index: 30;
+  backdrop-filter: blur(8px);
+  display: none;
+}
+
+.quote-action {
+  position: absolute;
+  display: none;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(44, 255, 179, 0.96);
+  color: #062016;
+  border: none;
+  font-weight: 700;
+  z-index: 4;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.quote-action:hover {
+  background: #2cffb3;
+  box-shadow: 0 12px 32px rgba(44, 255, 179, 0.3);
+  transform: translateY(-2px);
+}
+
+.highlight-quote {
+  display: inline;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  background: rgba(44, 255, 179, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(44, 255, 179, 0.22);
+  border-radius: 10px;
+  padding: 2px 6px 3px;
+  margin: 0 1px;
+  transition: background 0.25s ease, box-shadow 0.25s ease;
+}
+
+.highlight-quote.active {
+  background: rgba(44, 255, 179, 0.35);
+  box-shadow: inset 0 0 0 2px rgba(44, 255, 179, 0.45), 0 0 12px rgba(44, 255, 179, 0.25);
+}
+
+.source-list {
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+}
+
+.analysis-list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: grid;
+  gap: 10px;
+}
+
+.side-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  padding: 0 !important;
+}
+
+.side-panel > .panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 8px !important;
+}
+
+.reader-mode-label {
+  color: rgba(230, 255, 245, 0.75);
+  font-size: 0.92rem;
+}
+
+.study-column {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  overflow: hidden;
+}
+
+.reader-surface {
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 14px;
+  background: rgba(7, 20, 15, 0.72);
+  flex: 1;
+  min-height: 200px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 22px;
+  line-height: 1.75;
+  color: rgba(237, 255, 248, 0.92);
+  user-select: text;
+}
+
+.reader-surface p {
+  margin-bottom: 1em;
+}
+
+.reader-surface::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.reader-meta {
+  color: rgba(230, 255, 245, 0.74);
+}
+
+.selection-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.empty-note {
+  text-align: center;
+  color: rgba(230, 255, 245, 0.65);
+  padding: 14px;
+}
+
+.form-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: rgba(44, 255, 179, 0.16);
+  border: 1px solid rgba(44, 255, 179, 0.26);
+  font-size: 0.8rem;
+}
+
+.analysis-item {
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 14px !important;
+  display: grid;
+  gap: 8px;
+}
+
+.analysis-item:hover {
+  background: rgba(44, 255, 179, 0.08) !important;
+  border-color: rgba(44, 255, 179, 0.25) !important;
+}
+
+.analysis-item.active {
+  background: rgba(44, 255, 179, 0.12) !important;
+  border-color: rgba(44, 255, 179, 0.35) !important;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.card-header .location {
+  flex: 1;
+}
+
+.card-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #e6fff5;
+  cursor: pointer;
+  font: inherit;
+  font-size: 1rem;
+  transition: all 0.2s ease;
+}
+
+.icon-btn:hover {
+  border-color: rgba(44, 255, 179, 0.45);
+  background: rgba(44, 255, 179, 0.12);
+}
+
+.icon-btn.edit-btn {
+  color: #2cffb3;
+}
+
+.icon-btn.copy-btn {
+  color: #4da6ff;
+}
+
+.icon-btn.delete-btn {
+  color: #ff6b6b;
+}
+
+.analysis-item blockquote {
+  margin: 0;
+  border-left: 3px solid rgba(44, 255, 179, 0.45);
+  padding-left: 10px;
+  color: #ecfff7;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  word-wrap: break-word;
+}
+
+.analysis-item blockquote.analysis-quote-preview {
+  margin: 0 0 8px 0;
+  font-style: italic;
+}
+
+.analysis-item blockquote.analysis-quote-preview:last-of-type {
+  margin-bottom: 0;
+}
+
+button.analysis-quote-jump,
+.analysis-quote-static {
+  display: block;
+  width: 100%;
+  margin: 0 0 10px 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  color: inherit;
+  border-radius: 8px;
+}
+
+.analysis-quote-static {
+  cursor: default;
+}
+
+button.analysis-quote-jump:hover {
+  background: rgba(44, 255, 179, 0.06);
+}
+
+button.analysis-quote-jump:focus-visible {
+  outline: 1px solid rgba(44, 255, 179, 0.45);
+  outline-offset: 2px;
+}
+
+button.analysis-quote-jump .quote-ref-origin,
+.analysis-quote-static .quote-ref-origin {
+  pointer-events: none;
+}
+
+.quote-ref-origin {
+  text-align: right;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: rgba(168, 188, 178, 0.58);
+  margin: 2px 0 10px 0;
+  padding-left: 10px;
+  letter-spacing: 0.01em;
+}
+
+.floating-card .quote-ref-form-row .quote-ref-origin {
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+
+.analysis-item p {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: rgba(230, 255, 245, 0.85);
+}
+
+.analysis-item .location {
+  color: rgba(44, 255, 179, 0.78);
+  font-size: 0.82rem;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+@media (max-width: 980px) {
+  .stats-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .study-grid,
+  .launch-top {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
+
+<div class="analysis-shell">
+  <section id="launchpadView" class="analysis-launch">
+    <div class="panel launch-top">
+      <div>
+        <p class="kicker">Primary Engine</p>
+        <h2>Analysis Workspace</h2>
+        <p>Choose a subject to enter focus mode, explore sources, and generate source-linked analysis nodes.</p>
+      </div>
+      <div class="subject-toolbar">
+        <button id="toggleSubjectEdit" class="btn" type="button">Edit Subjects</button>
+      </div>
+    </div>
+
+    <section class="panel" id="analysisStats"></section>
+
+    <section class="panel">
+      <div class="subject-toolbar" style="margin-bottom: 10px;">
+        <input id="newSubjectName" class="inline-input" type="text" placeholder="New subject name" maxlength="80" />
+        <button id="addSubjectBtn" class="btn primary" type="button">+ Add Subject</button>
+      </div>
+      <div id="subjectList" class="subject-list"></div>
+    </section>
+  </section>
+
+  <section id="studyView" class="analysis-study" hidden>
+    <div class="panel study-head">
+      <div class="study-top">
+        <div>
+          <p class="kicker">Focus Mode</p>
+          <h2 id="studySubjectTitle">Subject</h2>
+          <div id="currentHierarchy" class="reader-meta"></div>
+        </div>
+        <div class="study-head-controls">
+          <select id="sourceSelect" class="inline-select source-select-compact"></select>
+          <button id="newSourceBtn" class="btn" type="button">+ New</button>
+          <button id="saveSourceBtn" class="btn primary save-source-edit-only" type="button">Save</button>
+          <button id="cancelEditSourceBtn" class="btn cancel-source-edit-only" type="button">Cancel</button>
+          <button id="deleteSourceBtn" class="btn" type="button" title="Delete this source">Delete</button>
+          <button id="toggleSourceModeBtn" class="btn" type="button">Edit Source</button>
+          <button id="backToLaunchpad" class="btn" type="button">Back</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="study-grid">
+      <main class="study-column main-surface">
+        <section class="panel source-panel">
+          <div class="reader-wrap">
+            <div id="readerWrapper" class="source-view">
+              <div id="analysisReader" class="reader-surface"></div>
+              <button id="quoteSelectionBtn" class="quote-action" type="button">Quote selection</button>
+            </div>
+
+            <div id="editorWrapper" class="source-view hidden">
+              <form id="sourceForm" class="form-grid">
+                <input type="hidden" id="sourceId" />
+                <input type="hidden" id="sourceSubject" />
+                <input id="sourceTitle" class="inline-input" type="text" placeholder="Source title" maxlength="120" required />
+                <input id="sourceLevel1" class="inline-input" type="text" placeholder="Layer 1 (optional)" maxlength="80" />
+                <input id="sourceLevel2" class="inline-input" type="text" placeholder="Layer 2 (optional)" maxlength="80" />
+                <input id="sourceLevel3" class="inline-input" type="text" placeholder="Layer 3 (optional)" maxlength="80" />
+                <div id="sourceEditor" class="source-editor" contenteditable="true"></div>
+              </form>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <aside class="study-column side-panel">
+        <section class="panel">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <p class="kicker" style="margin: 0;">Analysis Nodes</p>
+            <button id="addAnalysisNodeBtn" class="btn" type="button" style="padding: 4px 8px; font-size: 0.75rem;">+ Add</button>
+          </div>
+          <div id="analysisNodeList" class="analysis-list"></div>
+        </section>
+      </aside>
+
+      <div id="analysisFloatCard" class="floating-card panel">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <p class="kicker" id="analysisCardKicker">Create Analysis Node</p>
+          <button id="closeAnalysisCard" class="icon-btn" type="button" style="margin: 0;" title="Close">✕</button>
+        </div>
+        <form id="analysisForm" class="form-grid">
+          <input type="hidden" id="analysisNodeId" />
+          
+          <!-- NEW: Quote section for analysis workflow (Path 2) -->
+          <div style="border-top: 1px solid rgba(44, 255, 179, 0.15); padding-top: 12px;">
+            <p class="kicker" style="margin: 0 0 8px 0; font-size: 0.7rem;">Quote References (NEW)</p>
+            <button id="addQuoteRefBtn" class="btn" type="button" style="width: 100%; margin-bottom: 12px;">+ Add Quote Reference</button>
+            <div id="quoteRefsList" style="display: flex; flex-direction: column; gap: 8px; max-height: 120px; overflow-y: auto;"></div>
+          </div>
+
+          <textarea id="analysisNotes" class="inline-textarea" rows="5" placeholder="Analysis commentary"></textarea>
+          <input id="analysisTags" class="inline-input" type="text" placeholder="tags, separated, by commas" />
+          <div class="form-actions">
+            <button class="btn primary" id="analysisSubmitBtn" type="submit">Save Analysis Node</button>
+            <button id="resetAnalysisForm" class="btn" type="button">Clear</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </section>
+</div>

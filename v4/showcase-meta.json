@@ -1,0 +1,16 @@
+{
+  "version": "v4",
+  "label": "Card grading + stats",
+  "description": "Card grading, a stats menu with system reasoning, live stats, and a heap viewer debugger.",
+  "ref": "v4",
+  "commit": "2ffc5eff36eeed195b2644aaf5e1e79be7ca403f",
+  "committedAt": "2026-04-25T19:48:51+01:00",
+  "addedAt": "2026-10-28T16:31:13.305Z",
+  "path": "v4/",
+  "features": [
+    "Card grading",
+    "Stats menu with system reasoning",
+    "Live stats and heap viewer debugger",
+    "Much bigger Memory tool"
+  ]
+}
