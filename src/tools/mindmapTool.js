@@ -46,6 +46,7 @@ const state = {
     panOffset: { x: 0, y: 0 },
     isPanning: false,
     panStartPos: { x: 0, y: 0 },
+    panLastPos: { x: 0, y: 0 },
     simulationRunning: true,
     viewMode: contextView === "grid" || contextHeapId ? "grid" : "graph",
     sidebarView: "content",
@@ -4079,6 +4080,7 @@ const state = {
     if (canvas) {
       canvas.addEventListener("click", (e) => {
         if (performance.now() < ignoreCanvasClicksUntil) return;
+        if (state.isConnecting) return;
         if (state.hasDragged) {
           state.hasDragged = false; // Reset it here just in case
           return;
@@ -4101,101 +4103,164 @@ const state = {
         }
       });
 
-      canvas.addEventListener("mousemove", (e) => {
+      // Pointer Events are the single gesture layer for mouse, pen and touch.
+      // One pointer pans or drags a node; two pointers pinch-zoom. Node
+      // positions are kept in world space so the drag offset survives zoom.
+      const activePointers = new Map();
+      let pinchStart = null;
+
+      const canvasPoint = (e) => {
         const rect = canvas.getBoundingClientRect();
-        const pos = {
-          x: e.clientX - rect.left,
-          y: e.clientY - rect.top
-        };
-        const node = findNodeAtPosition(pos.x, pos.y);
+        return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      };
 
-        if (state.viewMode === "dots") {
-          state.hoveredNodeId = node ? node.id : null;
-          canvas.style.cursor = node ? "pointer" : "default";
-          return;
+      const pointerMidpoint = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+      const pointerDistance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+      const releasePointer = (e) => {
+        try {
+          if (canvas.hasPointerCapture?.(e.pointerId)) {
+            canvas.releasePointerCapture(e.pointerId);
+          }
+        } catch (_) {
+          // Pointer already released by the browser.
         }
+      };
 
-        if (state.isPanning) {
-          state.userInteracted = true;
-          state.hasDragged = true;
-          state.panOffset.x += e.movementX;
-          state.panOffset.y += e.movementY;
-        } else if (state.draggingNodeId) {
-          state.userInteracted = true;
-          state.hasDragged = true;
+      const finishGesture = (e, cancelled = false) => {
+        activePointers.delete(e.pointerId);
+        if (activePointers.size < 2) pinchStart = null;
+        if (activePointers.size === 0) {
+          // A dragged node stays pinned until Re-layout. Otherwise the next
+          // physics tick would pull the arrangement straight back.
+          state.draggingNodeId = null;
+          state.isPanning = false;
+          canvas.style.cursor = "default";
+        }
+        if (cancelled) state.hasDragged = true;
+        releasePointer(e);
+      };
+
+      canvas.addEventListener("pointerdown", (e) => {
+        if (state.viewMode === "dots") return;
+        if (e.pointerType === "mouse" && e.button !== 0 && e.button !== 1) return;
+
+        canvas.setPointerCapture?.(e.pointerId);
+        const point = canvasPoint(e);
+        activePointers.set(e.pointerId, point);
+        state.hasDragged = false;
+
+        if (activePointers.size === 2) {
+          const [a, b] = Array.from(activePointers.values());
+          const mid = pointerMidpoint(a, b);
           const centerX = canvas.width / 2;
           const centerY = canvas.height / 2;
-          const nodePos = state.nodePositions.get(state.draggingNodeId);
-          if (nodePos) {
-            const rawX = (pos.x - centerX - state.panOffset.x) / state.zoom + centerX;
-            const rawY = (pos.y - centerY - state.panOffset.y) / state.zoom + centerY;
-            nodePos.x = rawX;
-            nodePos.y = rawY;
-          }
-        } else {
-          state.hoveredNodeId = node ? node.id : null;
-          canvas.style.cursor = node ? "pointer" : state.isPanning ? "grabbing" : "default";
-        }
-      });
-
-      canvas.addEventListener("mousedown", (e) => {
-        state.hasDragged = false;
-        if (state.viewMode === "dots") return;
-        if (e.button === 1) {
-          state.isPanning = true;
-          canvas.style.cursor = "grabbing";
-          e.preventDefault();
+          pinchStart = {
+            distance: Math.max(1, pointerDistance(a, b)),
+            zoom: state.zoom,
+            pan: { ...state.panOffset },
+            world: {
+              x: (mid.x - centerX - state.panOffset.x) / state.zoom + centerX,
+              y: (mid.y - centerY - state.panOffset.y) / state.zoom + centerY
+            }
+          };
+          state.draggingNodeId = null;
+          state.isPanning = false;
+          state.hasDragged = true;
           return;
         }
 
-        const rect = canvas.getBoundingClientRect();
-        const pos = {
-          x: e.clientX - rect.left,
-          y: e.clientY - rect.top
-        };
-        const node = findNodeAtPosition(pos.x, pos.y);
-        if (node) {
+        if (activePointers.size > 2) return;
+
+        const node = findNodeAtPosition(point.x, point.y);
+        if (node && e.button !== 1) {
           state.userInteracted = true;
           state.draggingNodeId = node.id;
-          state.lockedNodes.add(node.id);
+          state.panStartPos = point;
           const nodePos = state.nodePositions.get(node.id);
           if (nodePos) {
+            const world = inverseTransform(point.x, point.y);
             state.dragOffset = {
-              x: pos.x - nodePos.x,
-              y: pos.y - nodePos.y
+              x: world.x - nodePos.x,
+              y: world.y - nodePos.y
             };
+          } else {
+            state.dragOffset = { x: 0, y: 0 };
           }
-          e.preventDefault();
-        } else {
-          // Pan with left-click on empty space
-          state.isPanning = true;
-          state.panStartPos = { x: e.clientX, y: e.clientY };
           canvas.style.cursor = "grabbing";
-          e.preventDefault();
+        } else {
+          state.isPanning = true;
+          state.panStartPos = point;
+          state.panLastPos = point;
+          canvas.style.cursor = "grabbing";
         }
       });
 
-      canvas.addEventListener("mouseup", (e) => {
-        const dragged = state.draggingNodeId;
-        state.draggingNodeId = null;
+      canvas.addEventListener("pointermove", (e) => {
+        const point = canvasPoint(e);
+
+        if (!activePointers.has(e.pointerId)) {
+          if (e.pointerType === "mouse") {
+            const node = findNodeAtPosition(point.x, point.y);
+            state.hoveredNodeId = node ? node.id : null;
+            canvas.style.cursor = node ? "pointer" : "default";
+          }
+          return;
+        }
+
+        activePointers.set(e.pointerId, point);
+
+        if (activePointers.size >= 2 && pinchStart) {
+          const [a, b] = Array.from(activePointers.values());
+          const mid = pointerMidpoint(a, b);
+          const nextZoom = Math.min(
+            config.maxZoom,
+            Math.max(config.minZoom, pinchStart.zoom * (pointerDistance(a, b) / pinchStart.distance))
+          );
+          const centerX = canvas.width / 2;
+          const centerY = canvas.height / 2;
+          state.zoom = nextZoom;
+          state.panOffset = {
+            x: mid.x - centerX - (pinchStart.world.x - centerX) * nextZoom,
+            y: mid.y - centerY - (pinchStart.world.y - centerY) * nextZoom
+          };
+          state.hasDragged = true;
+          state.userInteracted = true;
+          return;
+        }
+
         if (state.isPanning) {
-          state.isPanning = false;
-          // Only reset cursor if we're not hovering over a node
-          const rect = canvas.getBoundingClientRect();
-          const pos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-          const node = findNodeAtPosition(pos.x, pos.y);
-          canvas.style.cursor = node ? "pointer" : "default";
-        }
-        // Keep locked for 2 seconds after release
-        if (dragged) {
-          setTimeout(() => state.lockedNodes.delete(dragged), 2000);
+          const dx = point.x - state.panLastPos.x;
+          const dy = point.y - state.panLastPos.y;
+          if (Math.abs(dx) + Math.abs(dy) > 2) state.hasDragged = true;
+          state.userInteracted = true;
+          state.panOffset.x += dx;
+          state.panOffset.y += dy;
+          state.panLastPos = point;
+        } else if (state.draggingNodeId) {
+          if (Math.hypot(point.x - state.panStartPos.x, point.y - state.panStartPos.y) <= 3) return;
+          state.hasDragged = true;
+          state.userInteracted = true;
+          state.lockedNodes.add(state.draggingNodeId);
+          const nodePos = state.nodePositions.get(state.draggingNodeId);
+          if (nodePos) {
+            const world = inverseTransform(point.x, point.y);
+            nodePos.x = world.x - state.dragOffset.x;
+            nodePos.y = world.y - state.dragOffset.y;
+          }
         }
       });
 
-      canvas.addEventListener("mouseleave", () => {
-        state.draggingNodeId = null;
-        state.isPanning = false;
+      canvas.addEventListener("pointerup", (e) => finishGesture(e));
+      canvas.addEventListener("pointercancel", (e) => finishGesture(e, true));
+
+      canvas.addEventListener("pointerleave", () => {
+        // With pointer capture this fires only after the gesture is over.
+        // Never clear drag/pan here: that was the source of stuck nodes.
         state.hoveredNodeId = null;
+        if (!state.draggingNodeId && !state.isPanning) {
+          canvas.style.cursor = "default";
+        }
       });
 
       canvas.addEventListener("wheel", (e) => {
