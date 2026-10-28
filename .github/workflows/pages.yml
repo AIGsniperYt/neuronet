@@ -3,7 +3,6 @@ name: Deploy NeuroNet showcase
 on:
   push:
     branches: [main]
-    tags: ["demo-*"]
   workflow_dispatch:
     inputs:
       ref:
@@ -61,15 +60,15 @@ jobs:
           fetch-depth: 1
 
       - name: Checkout snapshot
-        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+          ref: ${{ inputs.ref }}
           path: snapshot
           fetch-depth: 1
 
       - name: Snapshot commit
-        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'workflow_dispatch'
         id: snapshot
         run: echo "sha=$(git -C snapshot rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
@@ -81,7 +80,7 @@ jobs:
           VERSION: ${{ inputs.version }}
           LABEL: ${{ inputs.label }}
           DESCRIPTION: ${{ inputs.description }}
-          REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref_name }}
+          REF: ${{ inputs.ref || 'main' }}
           COMMIT: ${{ steps.snapshot.outputs.sha || github.sha }}
         run: node workflow-src/scripts/build-showcase.mjs
 
