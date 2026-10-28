@@ -346,4 +346,4 @@ The user reported four issues while preparing to test on iPad: the graph legend 
 - **Restored layouts are pinned.** That is what makes persistence exact, but there is no per-node unpin; Re-layout is the only global release. New nodes remain unpinned and settle normally.
 - **Stability is time-based.** Positions are saved after a short settle window rather than a perfect velocity check. The last few pixels of a slowly settling graph may be lost if the tab closes immediately.
 - **Tabs were not reproducible as dead on emulated iPad.** The added empty states and touch-action fix address the reported no-feedback symptom, but a real iPad/Safari pass is still needed before calling it fixed.
-- **Current build is still unpushed.** The user's iPad cannot test any of this until the local commits are pushed/deployed.
+- **Deployment timing.** The follow-up fixes were rebased onto origin's showcase commit and pushed to `origin/main`; allow the Pages workflow a minute or two before testing on the iPad.
