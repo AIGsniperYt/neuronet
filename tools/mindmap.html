@@ -1496,9 +1496,12 @@
   .node-sidebar-backdrop { display: none; }
 
   /* One inspector, three tabs. The old second sidebar is gone. */
+  .header-actions [hidden] {
+    display: none !important;
+  }
+
   .inspector-tabs {
-    display: flex;
-    gap: 4px;
+    display: flex;    gap: 4px;
     flex: 0 0 auto;
     padding: 8px 10px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);

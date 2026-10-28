@@ -106,6 +106,8 @@ const state = {
   const dotsLegend = document.getElementById("mindmapDotsLegend");
   const viewToggle = document.getElementById("mindmapViewToggle");
   const relayoutGraphBtn = document.getElementById("relayoutGraphBtn");
+  const connectNodesBtn = document.getElementById("connectNodesBtn");
+  const newNodeDropdown = document.getElementById("newNodeDropdown");
   const libraryHeapBar = document.getElementById("libraryHeapBar");
   const libraryHeapSelect = document.getElementById("libraryHeapSelect");
   const libraryHeapStatus = document.getElementById("libraryHeapStatus");
@@ -2548,11 +2550,20 @@ const state = {
     }
   }
 
+  function updateContextualActions() {
+    const isGraph = state.viewMode === "graph";
+    [connectNodesBtn, relayoutGraphBtn, newNodeDropdown].forEach((element) => {
+      if (element) element.hidden = !isGraph;
+    });
+    if (!isGraph) newNodeDropdown?.classList.remove("open");
+  }
+
   function setViewMode(nextMode) {
     const mode = nextMode === "dots" ? "dots" : nextMode === "grid" ? "grid" : "graph";
     const previousMode = state.viewMode;
     const changed = previousMode !== mode;
     state.viewMode = mode;
+    updateContextualActions();
 
     if (viewToggle) {
       viewToggle.querySelectorAll(".view-toggle-btn").forEach((button) => {
@@ -4635,7 +4646,6 @@ const state = {
     }
 
     // New Node Dropdown
-    const newNodeDropdown = document.getElementById("newNodeDropdown");
     const dropdownToggle = newNodeDropdown?.querySelector(".dropdown-toggle");
     const dropdownBtns = newNodeDropdown?.querySelectorAll(".dropdown-content button");
 
@@ -4659,7 +4669,6 @@ const state = {
     });
 
     // Connection Mode
-    const connectNodesBtn = document.getElementById("connectNodesBtn");
     const connectingOverlay = document.getElementById("connectingOverlay");
 
     if (connectNodesBtn) {
@@ -4799,6 +4808,7 @@ const state = {
   if (state.viewMode !== "graph") {
     setViewMode(state.viewMode);
   }
+  updateContextualActions();
 
   // Opening from a heap context lands in the Library with the unified
   // inspector already showing that heap.
