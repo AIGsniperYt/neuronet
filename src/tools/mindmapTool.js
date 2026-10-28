@@ -1445,6 +1445,22 @@ const state = {
     return (state.heaps || []).find((heap) => heap.id === state.activeHeapId) || null;
   }
 
+  function mergeHeapOrder(incoming) {
+    // getAllHeaps() returns updatedAt-desc. That is correct for a database
+    // listing, but using it directly makes the active heap jump to the top of
+    // the select every time it is edited. Keep the order the user is looking
+    // at and append genuinely new heaps.
+    const order = new Map((state.heaps || []).map((heap, index) => [heap.id, index]));
+    return [...(incoming || [])].sort((a, b) => {
+      const ai = order.has(a.id) ? order.get(a.id) : Infinity;
+      const bi = order.has(b.id) ? order.get(b.id) : Infinity;
+      if (ai === bi) return 0;
+      if (ai === Infinity) return -1;
+      if (bi === Infinity) return 1;
+      return ai - bi;
+    });
+  }
+
   function getHeapCards(heap) {
     if (!heap) return [];
     const cardsById = new Map((state.cards || []).map((card) => [card.id, card]));
@@ -1558,7 +1574,8 @@ const state = {
         : availableCards.length === 0
           ? `<div class="library-heap-empty">This heap is empty. Hover a card and use <strong>+ Heap</strong> to add it.</div>`
           : availableCards.map((card, index) => `
-              <div class="library-heap-item">
+              <div class="library-heap-item" data-heap-item-id="${escapeHtml(card.id)}">
+                <span class="heap-drag-handle" data-heap-drag-handle title="Drag to reorder" aria-hidden="true">\u2630</span>
                 <div class="library-heap-item-title">${escapeHtml(card.front || "Untitled card")}</div>
                 <div class="library-heap-item-meta">${index + 1}. ${escapeHtml(card.deck || "Unsorted")}</div>
                 <div class="library-heap-item-actions">
@@ -1640,18 +1657,70 @@ const state = {
     return getActiveHeap() || createHeap();
   }
 
-  async function saveHeapCardIds(heap, cardIds) {
-    if (!heap || typeof addHeap !== "function") return null;
-    const saved = await addHeap({
-      ...heap,
-      cardIds,
-      updatedAt: Date.now()
+  let heapSaveTimer = null;
+  let pendingHeapSave = null;
+  let suppressHeapDBRefresh = false;
+
+  function applyHeapCardIds(heap, cardIds) {
+    const next = { ...heap, cardIds: [...cardIds] };
+    state.heaps = (state.heaps || []).map((entry) => (entry.id === heap.id ? next : entry));
+    return next;
+  }
+
+  function syncGridHeapState() {
+    if (!gridContainer) return;
+    const activeIds = new Set(getActiveHeap()?.cardIds || []);
+    gridContainer.querySelectorAll(".mindmap-grid-card").forEach((card) => {
+      const id = card.dataset.nodeId;
+      if (!id) return;
+      const inHeap = activeIds.has(id);
+      card.classList.toggle("in-heap", inHeap);
+      const button = card.querySelector(".mindmap-grid-heap-btn");
+      if (button) {
+        button.classList.toggle("in-heap", inHeap);
+        button.setAttribute("aria-pressed", String(inHeap));
+        button.title = inHeap ? "Remove from heap" : "Add to heap";
+        button.textContent = inHeap ? "\u2713 In Heap" : "+ Heap";
+      }
     });
-    state.heaps = (state.heaps || []).map((entry) => entry.id === saved.id ? saved : entry);
-    state.activeHeapId = saved.id;
+  }
+
+  async function flushHeapSave() {
+    const pending = pendingHeapSave;
+    pendingHeapSave = null;
+    if (!pending || typeof addHeap !== "function") return;
+    try {
+      // The optimistic state is already correct. Chasing our own heap write
+      // with a full database refresh is what made a single reorder rebuild the
+      // whole library.
+      suppressHeapDBRefresh = true;
+      const saved = await addHeap({ ...pending, updatedAt: Date.now() });
+      state.heaps = (state.heaps || []).map((entry) => (entry.id === saved.id ? saved : entry));
+      renderHeapControls();
+      syncGridHeapState();
+    } catch (error) {
+      suppressHeapDBRefresh = false;
+      console.error("Failed to save heap:", error);
+      dialog.alert("Failed to save heap: " + error.message);
+    }
+  }
+
+  function scheduleHeapSave(heap) {
+    pendingHeapSave = { ...heap, cardIds: [...(heap.cardIds || [])] };
+    if (heapSaveTimer) clearTimeout(heapSaveTimer);
+    heapSaveTimer = setTimeout(() => {
+      heapSaveTimer = null;
+      flushHeapSave();
+    }, 300);
+  }
+
+  async function saveHeapCardIds(heap, cardIds) {
+    if (!heap) return null;
+    const next = applyHeapCardIds(heap, cardIds);
     renderHeapControls();
-    renderGrid();
-    return saved;
+    syncGridHeapState();
+    scheduleHeapSave(next);
+    return next;
   }
 
   async function toggleCardInActiveHeap(cardId) {
@@ -1684,6 +1753,21 @@ const state = {
     if (index < 0 || nextIndex < 0 || nextIndex >= cardIds.length) return;
     [cardIds[index], cardIds[nextIndex]] = [cardIds[nextIndex], cardIds[index]];
     await saveHeapCardIds(heap, cardIds);
+  }
+
+  function reorderHeapCard(cardId, insertPosition) {
+    const heap = getActiveHeap();
+    if (!heap) return;
+    const cardIds = [...(heap.cardIds || [])];
+    const from = cardIds.indexOf(cardId);
+    if (from < 0) return;
+    const target = Math.max(0, Math.min(cardIds.length - 1, insertPosition));
+    if (target === from) return;
+    cardIds.splice(from, 1);
+    cardIds.splice(Math.min(target, cardIds.length), 0, cardId);
+    const next = applyHeapCardIds(heap, cardIds);
+    renderHeapControls();
+    scheduleHeapSave(next);
   }
 
   function studyActiveHeap() {
@@ -4035,7 +4119,7 @@ const state = {
     state.cues = cues;
     state.tags = tags;
     state.cards = cards || [];
-    state.heaps = heaps || [];
+    state.heaps = mergeHeapOrder(heaps);
     if (state.activeHeapId && !state.heaps.some((heap) => heap.id === state.activeHeapId)) {
       state.activeHeapId = null;
       state.heapSidebarOpen = false;
@@ -4349,6 +4433,75 @@ const state = {
         else if (action === "down") await moveHeapCard(cardId, 1);
         else if (action === "remove") await removeHeapCard(cardId);
       });
+
+      // Pointer-based reorder. The list is re-rendered only once, on release,
+      // so the dragged element is never destroyed mid-gesture.
+      let heapDrag = null;
+
+      const heapDropPosition = (clientY) => {
+        const remaining = heapDrag.items.filter((element) => element !== heapDrag.item);
+        let position = 0;
+        for (const element of remaining) {
+          const rect = element.getBoundingClientRect();
+          if (clientY > rect.top + rect.height / 2) position += 1;
+          else break;
+        }
+        return position;
+      };
+
+      libraryHeapItems.addEventListener("pointerdown", (e) => {
+        const target = e.target instanceof Element ? e.target : null;
+        const handle = target?.closest("[data-heap-drag-handle]");
+        const item = handle?.closest("[data-heap-item-id]");
+        if (!item || !libraryHeapItems.contains(item) || !getActiveHeap()) return;
+        const items = Array.from(libraryHeapItems.querySelectorAll("[data-heap-item-id]"));
+        heapDrag = {
+          pointerId: e.pointerId,
+          cardId: item.dataset.heapItemId,
+          item,
+          items,
+          startIndex: items.indexOf(item),
+          dropPosition: items.indexOf(item)
+        };
+        item.classList.add("dragging");
+        handle.setPointerCapture?.(e.pointerId);
+        e.preventDefault();
+      });
+
+      libraryHeapItems.addEventListener("pointermove", (e) => {
+        if (!heapDrag || heapDrag.pointerId !== e.pointerId) return;
+        const rect = libraryHeapItems.getBoundingClientRect();
+        if (e.clientY < rect.top + 36) libraryHeapItems.scrollTop -= 10;
+        else if (e.clientY > rect.bottom - 36) libraryHeapItems.scrollTop += 10;
+
+        heapDrag.dropPosition = heapDropPosition(e.clientY);
+        const remaining = heapDrag.items.filter((element) => element !== heapDrag.item);
+        remaining.forEach((element, index) => {
+          element.classList.toggle(
+            "drag-over",
+            index === Math.min(heapDrag.dropPosition, remaining.length - 1)
+          );
+        });
+      });
+
+      const finishHeapDrag = (e, cancelled = false) => {
+        if (!heapDrag || heapDrag.pointerId !== e.pointerId) return;
+        const { cardId, item, items, startIndex, dropPosition } = heapDrag;
+        heapDrag = null;
+        items.forEach((element) => element.classList.remove("dragging", "drag-over"));
+        item.classList.remove("dragging");
+        try {
+          if (item.hasPointerCapture?.(e.pointerId)) item.releasePointerCapture(e.pointerId);
+        } catch (_) {
+          // Already released.
+        }
+        if (!cancelled && dropPosition !== startIndex) {
+          reorderHeapCard(cardId, dropPosition);
+        }
+      };
+
+      libraryHeapItems.addEventListener("pointerup", (e) => finishHeapDrag(e));
+      libraryHeapItems.addEventListener("pointercancel", (e) => finishHeapDrag(e, true));
     }
 
     if (canvas) {
@@ -4735,6 +4888,10 @@ const state = {
   }
 
   function handleDBChange() {
+    if (suppressHeapDBRefresh) {
+      suppressHeapDBRefresh = false;
+      return;
+    }
     refreshData();
     // Trigger reactive sweep on data change
     if (window.__neuronetCanvas) {
