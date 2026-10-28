@@ -1446,8 +1446,9 @@ const state = {
 
   async function addSelectedCardsToHeap() {
     if (state.selectedCardIds.size === 0) return;
-    const heap = await ensureActiveHeap();
-    if (!heap) return;
+    const ensured = await ensureActiveHeap();
+    if (!ensured) return;
+    const heap = getActiveHeap() || ensured;
     const current = Array.isArray(heap.cardIds) ? heap.cardIds : [];
     const additions = [...state.selectedCardIds].filter((id) => !current.includes(id));
     if (additions.length) {
@@ -1749,8 +1750,12 @@ const state = {
   }
 
   async function toggleCardInActiveHeap(cardId) {
-    const heap = await ensureActiveHeap();
-    if (!heap) return;
+    const ensured = await ensureActiveHeap();
+    if (!ensured) return;
+    // ensureActiveHeap resolves asynchronously. Re-read the heap after the
+    // await so rapid taps each build on the previous tap's optimistic update
+    // instead of all overwriting it with their own single-card list.
+    const heap = getActiveHeap() || ensured;
     const cardIds = Array.isArray(heap.cardIds) ? heap.cardIds : [];
     const nextIds = cardIds.includes(cardId)
       ? cardIds.filter((id) => id !== cardId)
