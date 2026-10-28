@@ -257,10 +257,16 @@ function setActiveTool(toolName) {
 
 async function loadTool(toolName, context = {}) {
   flushBoundaryCache();
-  if (currentToolName === "analysis" && toolName !== "analysis") {
-    if (typeof window.__neuronetAnalysisCleanup === "function") {
-      window.__neuronetAnalysisCleanup();
-    }
+  // Tear down the tool that is being replaced. Analysis was the only tool
+  // whose cleanup ever ran, so Mindmap and Memory could leave document/window
+  // listeners behind after a switch.
+  const previousCleanup = {
+    analysis: window.__neuronetAnalysisCleanup,
+    memory: window.__neuronetMemoryCleanup,
+    mindmap: window.__neuronetMindmapCleanup
+  }[currentToolName];
+  if (typeof previousCleanup === "function") {
+    previousCleanup();
   }
 
   currentToolName = toolName;
