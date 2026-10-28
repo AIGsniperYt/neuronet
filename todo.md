@@ -19,3 +19,170 @@ the context rail is super garbage, that needs to be fixed, overall the memory to
 inspired by bma portal: add a quick link option to your classroom to access easily from neuronet - OH MY WOW GOOGLE CLASSROOM HAS A REST API FOR DEVELOPERS LETS ABSOLUTELY GO, WE CAN GET ASSIGNMENTS AND STUFF!!!
 
 clean up mindmap tool - the double sidebar is a red flag and a big no no - styling and usability issues, make the heap reordering drag and drop etc QoL updates, functionally sufficient tho - also QoL is memory tool which has FAR too many view modes in top right, this is bloat like i said above and is redundant and poor, the explore in stats sidebar could potentially be a redundant library, all this needs a good sitting down and cleanup, but atleast its all here and done
+
+---
+
+# Mindmap audit (senior review, appended after the checklist above)
+
+Reviewed `tools/mindmap.html` (~1,790 lines) and `src/tools/mindmapTool.js` (~4,470 lines), plus how the tool is launched from `src/main.js` and `src/tools/memoryTool.js`.
+
+## Reframing
+
+The tool is currently three products in one:
+
+1. a force-directed **knowledge graph** (subjects → layers → sources → quotes → analyses → cues → tags),
+2. a **card deck browser** (`Library`),
+3. a **manual study-set builder** (heaps).
+
+That is why the layout, controls and terminology feel like they are fighting each other. The double sidebar is a symptom of not having decided which of those is the primary surface.
+
+Mindmap is an **admin/navigation lens over the database**, not a processing tool. It should do CRUD plus make the data legible in different ways. The canvas is the primary surface; everything else belongs in one inspector.
+
+## What is genuinely good
+
+- Card signal language: priority border, split recall/accuracy dot, R/A labels, Library/Dots legends.
+- The Graph → Dots morph reads as one surface changing shape.
+- Card-first scoping works: a deck can exist with no knowledge nodes.
+- Inspector source markdown rendering matches the Analysis tool.
+- Empty states and narrow-screen handling show real thought.
+
+## Critical issues
+
+### 1. Connecting a card can corrupt the database
+
+`findItemById()` returns cards as plain objects with `type: "card"` (`mindmapTool.js:3225`). `linkNodes()` falls through to the generic path and calls `addNode(item)` for anything that is not a quote or cue. So using **Connect Nodes** on a card writes a card record into the `nodes` store. `breakLink()` has the same bug. It is also invisible: `buildGraph()` never reads manual links from cards.
+
+Fix: block cards in connect mode until a real card-link model exists.
+
+### 2. Every database change resets the graph layout
+
+`handleDBChange()` → `refreshData()` → `layoutRadial()`, which reassigns every non-card node to a random position in a tiny cluster near the centre (`mindmapTool.js:3166-3203`). Adding a tag, deleting a quote, reordering a heap — all restart the graph. Card positions survive; knowledge-node positions do not.
+
+Fix: preserve existing positions across refreshes; seed only new nodes. Keep the re-explode as an explicit **Re-layout** action.
+
+**Layout policy:** automatic reset on every DB change is the wrong default, but the reset animation is genuinely satisfying and worth keeping as a deliberate feature. Store positions canonically (persisted per node, not regenerated), and offer:
+- normal refresh = positions are stable;
+- explicit **Re-layout** = the current re-explode animation;
+- later, optional saved layout snapshots for large graphs, so a user can return to a known arrangement.
+
+Canonical storage means "position is data", not "position is a side effect of rendering". That is also what makes authored tree/star layouts possible later.
+
+### 3. Drag is broken in several ways
+
+- `dragOffset` is computed on mousedown but never applied on mousemove, so the dragged node snaps its centre to the cursor.
+- `mouseleave` clears `draggingNodeId` but never unlocks the node, leaving permanently stuck locks.
+- No pointer capture and no window-level release, so releasing outside the canvas is unreliable.
+- Nodes unlock after 2 seconds and are then reset by issue #2. There is no persistent pin.
+
+### 4. Dots cannot handle a large deck
+
+Cells shrink to `DOT_MIN_CELL = 6`. If content still does not fit, the bottom sections are clipped. Dots has no scroll, zoom, or pan (wheel and mousedown return early). At 6px, dots are also smaller than a usable touch target.
+
+Fix: fit-to-width scaling, vertical scroll/pagination, and a "show remaining in Library" fallback.
+
+### 5. The double sidebar is a state-model problem
+
+`libraryHeapSidebar` and `nodeSidebar` are independently toggled and can be open together. On wide screens they consume ~700px; at `<=1100px` they overlap as right-hand overlays with competing z-indexes.
+
+Fix: one inspector with `Details / Connections / Heap` tabs, one open panel, one close button, drawer semantics on mobile.
+
+### 6. Heap mutations cause a render and event storm
+
+`saveHeapCardIds()` → `addHeap()` → `db-change` → `refreshData()` + full `renderGrid()`, while the same handler also re-renders directly. `renderGrid()` rebuilds the entire card DOM and replays the stagger animation. Also `getAllHeaps()` sorts by `updatedAt`, so every save makes the active heap jump to the top of the select.
+
+Fix: optimistic local reorder, debounced persistence, no global refresh, stable heap ordering.
+
+### 7. Metadata hides exactly what it should show
+
+`formatMetadataHumanReadable()` reduces `analysis.quoteRefs` to a count, collapses arrays to `[n items]`, omits top-level card `links`, and drops `lastGrade`. For a knowledge graph, references are first-class data. Render structured sections: Identity, Organization, Signals, References (clickable), SRS, Raw.
+
+### 8. The graph has no way to find anything
+
+No search, type filter, subject filter, fit-to-view, or graph legend. The eight stat pills are passive. For a graph containing every subject/source/quote/analysis/cue/tag/past paper/card, this is the biggest usability gap after the sidebar.
+
+### 9. Graph-only actions are available in card-only views
+
+`Connect Nodes` and `New Node` are always visible. In Library/Dots, connection mode is cancelled but the buttons remain; New Node creates nodes the current view cannot show.
+
+Fix: contextual toolbar actions per view.
+
+### 10. No touch support
+
+The canvas only listens to mouse events. There are zero `touch*` or `pointer*` handlers. Pan, zoom and drag are impossible on a tablet. The CSS even has a `pointer: coarse` layout and an iPad-specific click-suppression hack, so touch is clearly an expected target.
+
+Fix: Pointer Events, `setPointerCapture`, pinch-zoom, window-level up/cancel.
+
+### 11. Creating nodes from Mindmap is poor CRUD
+
+`createNewNode()` chains modal prompts with no title/tag/source context, falls back to `"General"`, and can leave floating unconnected nodes. Either route creation to Analysis/Memory with context or build one proper form.
+
+### 12. Performance and maintainability
+
+- `renderScene()` writes stats and empty-state DOM every frame.
+- `perf.enabled = true`; two marks plus a measure per physics frame; `logPerf()` outputs nothing.
+- `computeForces()` is O(n²); the existing `QuadTree` is dead code.
+- `addEdge()` de-dupe is O(E²).
+- `findItemById()` rebuilds an array on every call, inside loops.
+- One 4,470-line file plus a second override `<style>` block.
+
+### 13. Accessibility and polish
+
+- Canvas has no role, label, keyboard navigation, or screen-reader alternative.
+- Hover-only Dots tooltips are inaccessible to keyboard and touch.
+- Inspector does not manage focus; no dialog semantics.
+- Grid card is a `div role="button"` containing a real `<button>` (invalid nesting).
+- No `prefers-reduced-motion`.
+- Global scrollbar hiding removes scroll affordances.
+- Labels at 0.82rem and 0.42–0.55 alpha are likely below comfortable contrast.
+- Connection titles are injected into `innerHTML` unescaped.
+- Canvas ignores `devicePixelRatio`.
+- No Mindmap tests.
+
+## Touch usability audit (iPad / touch)
+
+Concrete failures when driving the current build on a touch device:
+
+1. **Pan is impossible.** Pan starts on `mousedown` only. A finger drag produces no `mousedown`. The graph cannot be moved.
+2. **Node drag is impossible.** Node selection and dragging also start on `mousedown`. Tapping fires a synthetic `click`, so nodes can be selected, but not moved.
+3. **Zoom is impossible.** Zoom is `wheel` only. There is no pinch gesture and no touch-aware zoom control.
+4. **Dots is unusable.** Dots suppresses wheel/pan/drag, and 6px minimum cells fall below the ~44px recommended touch target. Hover tooltips never appear on touch, so the only information channel is unavailable.
+5. **Tap-to-connect is fragile.** Connection mode relies on click; combined with the first-run click suppression and the graph's own click handling, taps can be swallowed or select the wrong thing.
+6. **Drag releases can stick.** There is no `pointercancel`/`touchend` handling, so a finger leaving the canvas mid-gesture can leave a node locked.
+7. **Double sidebar overlays collide.** On an iPad-width viewport both sidebars become overlays; the second one covers the first, and the close affordance can end up behind another layer.
+8. **Touch targets are too small.** View-toggle buttons, connection-row actions, dot cells, and some icon buttons are below comfortable finger size.
+9. **No pull-to-refresh / scroll containment.** Global scrollbar hiding plus `overflow: hidden` on the shell makes it unclear whether the inspector or grid can scroll; on iOS this can also trigger page rubber-banding.
+10. **Blurry canvas on Retina.** Canvas backing store ignores DPR, so lines and text are soft on iPad.
+11. **No `touch-action` policy.** Without `touch-action: none` on the canvas, iOS may claim drags for scrolling or page zoom while the user is trying to pan the graph.
+12. **Text selection / callout on long-press.** Missing `user-select: none` and `-webkit-touch-callout: none` on interactive canvas regions can interrupt dragging.
+
+Fix direction: one pointer-event gesture layer (single pointer = pan or node drag, two pointers = pinch zoom), persistent node drag, `touch-action: none` on the canvas, minimum 44px controls, and a touch-accessible replacement for hover-only Dots info.
+
+## Recommended order
+
+### Phase 0 — correctness
+1. Block cards from Connect Nodes.
+2. Preserve knowledge-node positions across refreshes; add explicit Re-layout.
+3. Fix drag: offset, pointer capture, release handling, stuck locks, touch/pointer support.
+4. Fix Dots overflow and touch target sizes.
+5. Render real references in metadata.
+6. Escape connection titles.
+
+### Phase 1 — unify the layout
+7. One inspector with `Details / Connections / Heap` tabs; one open panel; mobile drawer.
+8. Contextual toolbar; hide Graph-only actions outside Graph.
+9. Heap drag-and-drop reorder with optimistic save and no full-grid rerender.
+10. Stable heap ordering; remove duplicate Study Heap controls.
+11. Library search, sort, collapsible deck sections, multi-select, add-selected-to-heap.
+
+### Phase 2 — visual engine
+12. Graph search, type/subject filters, legend, fit/reset camera, persistent view state.
+13. Authored layout mode (tree/star, explicit root including a tag) as a separate algorithm.
+14. Accessibility, focus management, reduced motion, DPR, visible scrollbars.
+15. Performance cleanup: remove profiler, spatial index or reduce O(n²), dedupe edges, split modules and CSS.
+16. Tests for pure geometry/state functions only.
+
+## Deliberately out of scope
+
+- Card-to-card / connectable card links: separate debate (tags may already cover it).
+- Terminology cleanup (`subject` vs `deck` vs `library` vs `heap`): discuss separately.
+- Star/tree authored layout: build after the position model is stable.
