@@ -780,12 +780,10 @@ const state = {
     return config.colors[type] || "#9aa4ad";
   }
 
-  const LOCK_COLOR_RGB = [255, 209, 102];
-
   // A lock is a shape state, not an icon: unlocked nodes stay hollow, locked
-  // ones fill with their own colour and gain a thin gold containment ring.
-  // The transition is kept in one short-lived map so unlocking can fade back
-  // to hollow without mutating persisted state.
+  // ones fill with their own colour and gain a brighter containment ring.
+  // Effects are single-colour too: locking sends out one fading ring, while
+  // unlocking shatters into particles, all in the node's own colour.
   function getLockLevel(id) {
     const visual = state.lockVisuals.get(id);
     if (visual) return visual.level;
@@ -800,20 +798,30 @@ const state = {
     const screen = transformPoint(pos.x, pos.y);
     const radius = Math.max(8, config.nodeRadius * state.zoom);
     const nodeRgb = hexToRgb(getNodeColor(node.type));
-    const ttl = 430;
-    const count = 12;
 
-    // Locking: crystals converge and the node solidifies. Unlocking: the
-    // crystals release outward and the fill drains. Both are deliberately
-    // quiet so rapid locking does not become visual noise.
+    if (locking) {
+      // Locking is a calm containment pulse: one ring expands out and fades.
+      state.lockRings.push({
+        x: screen.x,
+        y: screen.y,
+        from: radius * 0.95,
+        to: radius * 2.6,
+        age: 0,
+        ttl: 520,
+        rgb: nodeRgb
+      });
+      return;
+    }
+
+    // Unlocking shatters the held shape. Every shard uses the node colour so
+    // the effect reads as that node releasing, not a generic sparkle.
+    const ttl = 430;
+    const count = 14;
     for (let i = 0; i < count; i += 1) {
       const angle = (i / count) * Math.PI * 2 + Math.random() * 0.34;
-      const startDistance = locking
-        ? radius * (1.9 + Math.random() * 0.9)
-        : radius * (0.22 + Math.random() * 0.35);
-      const endDistance = locking ? radius * 0.85 : radius * (1.8 + Math.random() * 0.8);
+      const startDistance = radius * (0.22 + Math.random() * 0.35);
+      const endDistance = radius * (1.8 + Math.random() * 0.8);
       const travel = endDistance - startDistance;
-      const rgb = i % 3 === 0 ? LOCK_COLOR_RGB : nodeRgb;
       state.lockParticles.push({
         x: screen.x + Math.cos(angle) * startDistance,
         y: screen.y + Math.sin(angle) * startDistance,
@@ -824,19 +832,9 @@ const state = {
         spin: (Math.random() - 0.5) * 0.012,
         age: 0,
         ttl: ttl + Math.random() * 120,
-        rgb
+        rgb: nodeRgb
       });
     }
-
-    state.lockRings.push({
-      x: screen.x,
-      y: screen.y,
-      from: locking ? radius * 2.45 : radius * 1.05,
-      to: locking ? radius * 1.02 : radius * 2.45,
-      age: 0,
-      ttl,
-      rgb: LOCK_COLOR_RGB
-    });
   }
 
   function setNodeLocked(id, locked, { announce = true } = {}) {
@@ -3017,7 +3015,7 @@ const state = {
       }
       ctx.beginPath();
       ctx.arc(screenX, screenY, radius + 4.5, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(255, 209, 102, ${0.42 * lockLevel})`;
+      ctx.strokeStyle = `rgba(${CARD_COLOR_RGB[0]}, ${CARD_COLOR_RGB[1]}, ${CARD_COLOR_RGB[2]}, ${0.5 * lockLevel})`;
       ctx.lineWidth = 1.4;
       ctx.stroke();
     }
@@ -4651,9 +4649,10 @@ const state = {
       ctx.lineWidth = (isSelected ? 3 : 2) + lockLevel * 0.7;
       ctx.stroke();
       if (lockLevel > 0.01) {
+        const halo = hexToRgb(color);
         ctx.beginPath();
         ctx.arc(posTrans.x, posTrans.y, radius + 4.5, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(255, 209, 102, ${0.42 * lockLevel})`;
+        ctx.strokeStyle = `rgba(${halo[0]}, ${halo[1]}, ${halo[2]}, ${0.5 * lockLevel})`;
         ctx.lineWidth = 1.4;
         ctx.stroke();
       }
