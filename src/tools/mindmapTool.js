@@ -323,7 +323,7 @@ const state = {
       dragReleaseTimers.delete(id);
       if (state.lockedNodes.has(id)) return;
       state.pinnedNodes.delete(id);
-    }, 1000);
+    }, 2000);
     dragReleaseTimers.set(id, timer);
   }
 
