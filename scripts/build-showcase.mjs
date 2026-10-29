@@ -530,8 +530,7 @@ ${galleryCss}
         <ul class="nav-links">
             <li><a href="#versions">Versions</a></li>
             <li><a href="#stats">Stats</a></li>
-            <li><a href="../">Latest app</a></li>
-            <li><a href="https://github.com/AIGsniperYt/neuronet" target="_blank" rel="noopener">GitHub</a></li>
+            <li><a href="https://aigsniperyt.github.io/">Portfolio</a></li>
             <li><button id="themeToggle" class="theme-toggle">Switch Theme</button></li>
         </ul>
     </div>
@@ -546,9 +545,9 @@ ${galleryCss}
         <div class="shape shape-4"></div>
     </div>
     <div class="hero-content">
-        <div class="hero-badge"><i class="fa-solid fa-brain" style="margin-right:6px"></i> NeuroNet Version History</div>
+        <div class="hero-badge"><i class="fa-solid fa-brain" style="margin-right:6px"></i> Browser-based study app</div>
         <h1>NeuroNet — Version History</h1>
-        <p>Every working build of NeuroNet, from the first split to the card-first rebuild. They're ordered by when they were built, not by version number — the numbers jumped around. Open any snapshot, or jump straight into the latest.</p>
+        <p>Every iteration of NeuroNet, from the first version to the latest build. Browse, compare, and launch any version.</p>
         <div class="hero-actions">
             <a href="#versions" class="btn-primary">
                 <i class="fa-solid fa-timeline" style="font-size:0.85rem"></i>
@@ -612,7 +611,7 @@ ${galleryCss}
     <div class="container">
         <div class="footer-content">
             <div class="breadcrumb">
-                <a href="../">Latest app</a>
+                <a href="https://aigsniperyt.github.io/">Portfolio</a>
                 <span>/</span>
                 <span>Version History</span>
             </div>
