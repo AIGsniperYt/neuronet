@@ -347,3 +347,41 @@ The user reported four issues while preparing to test on iPad: the graph legend 
 - **Stability is time-based.** Positions are saved after a short settle window rather than a perfect velocity check. The last few pixels of a slowly settling graph may be lost if the tab closes immediately.
 - **Tabs were not reproducible as dead on emulated iPad.** The added empty states and touch-action fix address the reported no-feedback symptom, but a real iPad/Safari pass is still needed before calling it fixed.
 - **Deployment timing.** The follow-up fixes were rebased onto origin's showcase commit and pushed to `origin/main`; allow the Pages workflow a minute or two before testing on the iPad.
+
+---
+
+# Follow-up pass: iPad bugs and explicit node locks
+
+## Bugs fixed
+
+1. **Home button no longer leaves the Mindmap scoped to the old subject.** The shell always passes a `subject` key when opening a tool, including an explicit `null` for All. The Mindmap now treats that key as authoritative instead of restoring its last saved `focusSubject`, so home → Mindmap opens on All.
+2. **Double-tap page zoom is disabled.** `body` uses `touch-action: manipulation`, which keeps pinch-zoom but stops iPadOS/Safari from zooming the whole app when a control is tapped twice. The canvas already manages its own gestures with `touch-action: none`.
+3. **Memory stats is a drawer again on tablets.** The coarse-pointer media query was forcing the desktop 360px panel to `width: 100%` even on an iPad. Tablets now keep `min(360px, 46vw)` anchored right; only phones use the full-width sheet.
+
+## Explicit locks
+
+- `pinnedNodes` is the invisible session hold for restored layouts and dropped nodes. `lockedNodes` is the explicit user lock; the two are no longer conflated.
+- Inspector Details has a full-width **Lock position / Unlock position** toggle with `aria-pressed`, plus a gold **Locked** badge in the type line.
+- Locked nodes stay hollow/filled as a shape language: unlocked nodes are hollow rings, locked nodes fill with their own colour and gain a thin gold containment ring. Locking converges a short crystal burst; unlocking releases it. No padlock glyphs.
+- A red **Unlock all** stat pill appears only when locks exist. There is deliberately no “lock all” action.
+- Locks are persisted in the layout record (`version: 2`, `locks` array) and pruned when nodes disappear.
+- Re-layout keeps locked nodes exactly in place, re-explodes everything else, reports how many locks were kept, and refuses with a warning when every node is locked.
+- Unlocking keeps the session pin, so the node does not immediately drift; the next Re-layout is what releases it.
+- Re-layout now seeds cards into the same opening burst as knowledge nodes instead of leaving them at their previous positions to be dragged in by springs.
+- A pagehide / early save while the layout is still unstable no longer overwrites the last good arrangement (and its locks) with a half-formed explosion.
+
+## Verification
+
+- `node --check src/tools/mindmapTool.js`; `node tests/run.mjs` 88 assertions passed.
+- iPad-emulated Chromium (834×1194, DPR 2, touch) with demo data:
+  - lock toggles button/badge/pill state;
+  - layout record stores `version: 2` and the locked ID;
+  - Re-layout reports `1 locked kept` and the node stays locked;
+  - reload restores the lock and button state;
+  - Unlock all clears the record, hides the pill, and returns the button to unlocked.
+
+## New handoff risks
+
+- **Locks are per-node.** Branch/subject locking is intentionally deferred as likely bloat; mass editing is the explicit Unlock all action only.
+- **Lock save still depends on a settled layout.** A lock made during the opening explosion is persisted after the settle timer, not instantly.
+- **Double-tap zoom was fixed in CSS, not tested on real Safari.** `touch-action: manipulation` is the intended behaviour but still needs the physical iPad pass.
