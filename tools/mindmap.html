@@ -80,6 +80,14 @@
     scrollbar-width: none;
   }
 
+  .stat-pill[hidden] {
+    display: none;
+  }
+
+  .stat-unlock {
+    --pill-rgb: 255, 107, 107;
+  }
+
   .stat-pill {
     --pill-rgb: 44, 255, 179;
     display: inline-flex;
@@ -527,12 +535,38 @@
     padding: 12px 18px;
     border-top: 1px solid rgba(255,255,255,0.08);
     display: flex;
+    flex-wrap: wrap;
     flex-shrink: 0;
     gap: 10px;
   }
 
   .sidebar-actions .btn {
     flex: 1;
+  }
+
+  .sidebar-actions #lockNodeBtn {
+    flex: 1 0 100%;
+  }
+
+  #lockNodeBtn[aria-pressed="true"] {
+    border-color: rgba(255, 209, 102, 0.55);
+    background: rgba(255, 209, 102, 0.12);
+    color: #ffd166;
+  }
+
+  .sidebar-lock-badge {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 8px;
+    padding: 1px 7px;
+    border: 1px solid rgba(255, 209, 102, 0.45);
+    border-radius: 999px;
+    background: rgba(255, 209, 102, 0.1);
+    color: #ffd166;
+    font-size: var(--text-xs, 0.82rem);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    vertical-align: 1px;
   }
 
   .btn {
@@ -2090,6 +2124,11 @@
         <strong id="totalConnections">0</strong>
         <span class="stat-label">Links</span>
       </div>
+      <button type="button" id="unlockAllNodesBtn" class="stat-pill stat-unlock" hidden aria-label="Unlock all locked positions" title="Release every locked node position">
+        <i class="stat-dot" aria-hidden="true"></i>
+        <strong id="lockedNodeCount">0</strong>
+        <span class="stat-label">Unlock all</span>
+      </button>
     </div>
   </div>
 
@@ -2219,6 +2258,7 @@
         </div>
 
         <div class="sidebar-actions">
+          <button id="lockNodeBtn" class="btn" type="button" aria-pressed="false" title="Keep this node in place during Re-layout">Lock position</button>
           <button id="toggleMetadataBtn" class="btn">Metadata</button>
           <button id="editNodeBtn" class="btn primary">Edit</button>
           <button id="deleteNodeBtn" class="btn danger">Delete</button>

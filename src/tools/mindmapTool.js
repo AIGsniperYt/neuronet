@@ -47,7 +47,18 @@ const state = {
     graph: { nodes: new Map(), edges: [] },
     draggingNodeId: null,
     dragOffset: { x: 0, y: 0 },
+    // Session-only physics hold. Restored layouts and freshly dropped nodes
+    // live here so the force simulation cannot drift them. It is deliberately
+    // invisible: a restored layout is not the same thing as an explicit lock.
+    pinnedNodes: new Set(),
+    // Explicit user locks. These survive reloads and Re-layout, and are the
+    // only nodes that get the solid "secured" treatment on the canvas.
     lockedNodes: new Set(),
+    // 0..1 fill/ring transitions and short-lived crystal feedback, keyed by
+    // node id. Both are visual only and never serialized.
+    lockVisuals: new Map(),
+    lockParticles: [],
+    lockRings: [],
     zoom: 1,
     panOffset: { x: 0, y: 0 },
     isPanning: false,
@@ -198,9 +209,19 @@ const state = {
         positionsStable = true;
         // A restored arrangement is deliberate. Pin those nodes so the force
         // simulation cannot slowly drift the saved layout away from the user's
-        // chosen positions. Re-layout clears the pins and explodes afresh.
-        state.nodePositions.forEach((_, id) => state.lockedNodes.add(id));
+        // chosen positions. These are session pins, not visible user locks:
+        // Re-layout clears them and explodes afresh.
+        state.nodePositions.forEach((_, id) => state.pinnedNodes.add(id));
       }
+    }
+
+    if (Array.isArray(saved.locks)) {
+      saved.locks.forEach((id) => {
+        if (typeof id !== "string" || !id) return;
+        state.lockedNodes.add(id);
+        state.pinnedNodes.add(id);
+        state.lockVisuals.set(id, { level: 1, target: 1 });
+      });
     }
 
     const camera = saved.camera;
@@ -240,10 +261,12 @@ const state = {
     });
 
     return {
-      version: 1,
+      version: 2,
       // Only persist an arrangement once it has settled (or the user has
-      // arranged it), never the first frames of an explosion.
+      // arranged it), never the first frames of an explosion. Locks follow
+      // the same rule: a lock without its position is meaningless.
       positions: positionsStable ? positions : null,
+      locks: positionsStable ? Array.from(state.lockedNodes) : [],
       camera: state.userInteracted
         ? { zoom: Math.round(state.zoom * 1000) / 1000, x: state.panOffset.x, y: state.panOffset.y }
         : null,
@@ -259,6 +282,10 @@ const state = {
       layoutSaveTimer = 0;
     }
     if (state.nodePositions.size === 0) return;
+    // Never replace a good saved arrangement with a half-formed explosion.
+    // pagehide can fire while Re-layout is still settling; in that case the
+    // previous record (including its locks) is the safer thing to keep.
+    if (!positionsStable) return;
     try {
       localStorage.setItem(layoutStorageKey(), JSON.stringify(serializeLayout()));
       layoutDirty = false;
@@ -751,6 +778,157 @@ const state = {
 
   function getNodeColor(type) {
     return config.colors[type] || "#9aa4ad";
+  }
+
+  const LOCK_COLOR_RGB = [255, 209, 102];
+
+  // A lock is a shape state, not an icon: unlocked nodes stay hollow, locked
+  // ones fill with their own colour and gain a thin gold containment ring.
+  // The transition is kept in one short-lived map so unlocking can fade back
+  // to hollow without mutating persisted state.
+  function getLockLevel(id) {
+    const visual = state.lockVisuals.get(id);
+    if (visual) return visual.level;
+    return state.lockedNodes.has(id) ? 1 : 0;
+  }
+
+  function spawnLockEffect(id, locking) {
+    const pos = state.nodePositions.get(id);
+    const node = state.graph.nodes.get(id);
+    if (!pos || !node) return;
+
+    const screen = transformPoint(pos.x, pos.y);
+    const radius = Math.max(8, config.nodeRadius * state.zoom);
+    const nodeRgb = hexToRgb(getNodeColor(node.type));
+    const ttl = 430;
+    const count = 12;
+
+    // Locking: crystals converge and the node solidifies. Unlocking: the
+    // crystals release outward and the fill drains. Both are deliberately
+    // quiet so rapid locking does not become visual noise.
+    for (let i = 0; i < count; i += 1) {
+      const angle = (i / count) * Math.PI * 2 + Math.random() * 0.34;
+      const startDistance = locking
+        ? radius * (1.9 + Math.random() * 0.9)
+        : radius * (0.22 + Math.random() * 0.35);
+      const endDistance = locking ? radius * 0.85 : radius * (1.8 + Math.random() * 0.8);
+      const travel = endDistance - startDistance;
+      const rgb = i % 3 === 0 ? LOCK_COLOR_RGB : nodeRgb;
+      state.lockParticles.push({
+        x: screen.x + Math.cos(angle) * startDistance,
+        y: screen.y + Math.sin(angle) * startDistance,
+        vx: (Math.cos(angle) * travel) / ttl,
+        vy: (Math.sin(angle) * travel) / ttl,
+        size: 2.2 + Math.random() * 2.2,
+        rotation: Math.random() * Math.PI,
+        spin: (Math.random() - 0.5) * 0.012,
+        age: 0,
+        ttl: ttl + Math.random() * 120,
+        rgb
+      });
+    }
+
+    state.lockRings.push({
+      x: screen.x,
+      y: screen.y,
+      from: locking ? radius * 2.45 : radius * 1.05,
+      to: locking ? radius * 1.02 : radius * 2.45,
+      age: 0,
+      ttl,
+      rgb: LOCK_COLOR_RGB
+    });
+  }
+
+  function setNodeLocked(id, locked, { announce = true } = {}) {
+    if (!id || !state.graph.nodes.has(id)) return false;
+    const wasLocked = state.lockedNodes.has(id);
+    if (wasLocked === locked) {
+      updateLockControls();
+      return false;
+    }
+
+    const visual = state.lockVisuals.get(id) || {
+      level: wasLocked ? 1 : 0,
+      target: wasLocked ? 1 : 0
+    };
+    visual.target = locked ? 1 : 0;
+    state.lockVisuals.set(id, visual);
+
+    if (locked) {
+      state.lockedNodes.add(id);
+      state.pinnedNodes.add(id);
+      if (state.nodePositions.has(id)) spawnLockEffect(id, true);
+    } else {
+      state.lockedNodes.delete(id);
+      // Unlocking only removes the persistent lock. Keep the session pin so
+      // the node does not immediately drift away from where it was placed.
+      state.pinnedNodes.add(id);
+      if (state.nodePositions.has(id)) spawnLockEffect(id, false);
+    }
+
+    saveLayoutNow();
+    updateLockControls();
+    if (announce) {
+      setGraphStatus(locked ? "Position locked" : "Position unlocked", "success");
+    }
+    return true;
+  }
+
+  function unlockAllNodes() {
+    if (state.lockedNodes.size === 0) return;
+    const ids = Array.from(state.lockedNodes);
+    ids.forEach((id, index) => {
+      state.lockedNodes.delete(id);
+      state.pinnedNodes.add(id);
+      const visual = state.lockVisuals.get(id) || { level: 1, target: 1 };
+      visual.target = 0;
+      state.lockVisuals.set(id, visual);
+      // A whole map can hold hundreds of locks; cap the flourish when the
+      // user clears a large batch so the canvas stays responsive.
+      if (index < 24 && state.nodePositions.has(id)) spawnLockEffect(id, false);
+    });
+    saveLayoutNow();
+    updateLockControls();
+    updateInspectorLockState();
+    setGraphStatus(ids.length === 1 ? "Position unlocked" : `${ids.length} positions unlocked`, "success");
+  }
+
+  function updateLockControls() {
+    const button = document.getElementById("lockNodeBtn");
+    const selectedId = state.selectedNodeId;
+    const selectedIsNode = Boolean(selectedId && state.graph.nodes.has(selectedId));
+    const selectedIsLocked = Boolean(selectedId && state.lockedNodes.has(selectedId));
+    if (button) {
+      button.disabled = !selectedIsNode;
+      button.setAttribute("aria-pressed", String(selectedIsLocked));
+      button.textContent = selectedIsLocked ? "Unlock position" : "Lock position";
+      button.title = selectedIsLocked
+        ? "Let the simulation and Re-layout move this node again"
+        : "Keep this node in place during Re-layout";
+    }
+
+    const unlockAll = document.getElementById("unlockAllNodesBtn");
+    const count = state.lockedNodes.size;
+    if (unlockAll) {
+      unlockAll.hidden = count === 0;
+      unlockAll.disabled = count === 0;
+      const countEl = document.getElementById("lockedNodeCount");
+      if (countEl) countEl.textContent = String(count);
+      unlockAll.setAttribute("aria-label", `Unlock ${count} locked ${count === 1 ? "position" : "positions"}`);
+    }
+  }
+
+  function updateInspectorLockState() {
+    const item = state.selectedNodeId ? findItemById(state.selectedNodeId) : null;
+    if (item && sidebarType) {
+      sidebarType.innerHTML = inspectorTypeMarkup(item);
+    }
+    updateLockControls();
+  }
+
+  function inspectorTypeMarkup(item) {
+    const locked = state.lockedNodes.has(item.id);
+    return `<span>${getNodeTypeIcon(item.type)}</span> ${item.type.charAt(0).toUpperCase() + item.type.slice(1)}${locked ? '<span class="sidebar-lock-badge">Locked</span>' : ""}`;
   }
 
   function getNodeDisplayTitle(node) {
@@ -1756,9 +1934,7 @@ const state = {
     const item = state.selectedNodeId ? findItemById(state.selectedNodeId) : null;
     if (item) {
       if (sidebarTitle) sidebarTitle.textContent = getNodeDisplayTitle(item);
-      if (sidebarType) {
-        sidebarType.innerHTML = `<span>${getNodeTypeIcon(item.type)}</span> ${item.type.charAt(0).toUpperCase() + item.type.slice(1)}`;
-      }
+      if (sidebarType) sidebarType.innerHTML = inspectorTypeMarkup(item);
       return;
     }
     const heap = getActiveHeap();
@@ -2751,6 +2927,7 @@ const state = {
     const isHovered = state.hoveredNodeId === scene.id;
     const isSelected = state.selectedNodeId === scene.id;
     const visibility = state.nodeVisibility.get(scene.id) ?? 1;
+    const lockLevel = getLockLevel(scene.id);
     if (visibility < 0.02 && morph < 0.01) return;
 
     // Graph cards use exactly the same radius, reveal scale, border width and
@@ -2828,6 +3005,23 @@ const state = {
     ctx.lineWidth = borderWidth;
     ctx.stroke();
 
+    if (lockLevel > 0.01) {
+      // Cards use the same filled-when-locked language in Graph view. Dots
+      // are already filled by score, so the gold containment ring carries the
+      // state there without fighting the data colour.
+      if (morph < 0.98) {
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, Math.max(1, fillRadius - 0.5), 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${CARD_COLOR_RGB[0]}, ${CARD_COLOR_RGB[1]}, ${CARD_COLOR_RGB[2]}, ${0.26 * lockLevel * (1 - morph)})`;
+        ctx.fill();
+      }
+      ctx.beginPath();
+      ctx.arc(screenX, screenY, radius + 4.5, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255, 209, 102, ${0.42 * lockLevel})`;
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+    }
+
     if (isSelected && morph > 0.01) {
       ctx.globalAlpha = cardAlpha * morph;
       ctx.beginPath();
@@ -2864,10 +3058,74 @@ const state = {
     ctx.restore();
   }
 
+  let lastLockFxAt = 0;
+
+  function updateLockEffects(now) {
+    const dt = lastLockFxAt ? Math.min(48, Math.max(0, now - lastLockFxAt)) : 16.7;
+    lastLockFxAt = now;
+    // Frame-rate independent easing: the fill reaches its target in roughly
+    // the same wall-clock time at 60Hz and 120Hz.
+    const easing = 1 - Math.pow(0.82, dt / 16.67);
+    state.lockVisuals.forEach((visual, id) => {
+      const delta = visual.target - visual.level;
+      if (Math.abs(delta) <= 0.004) {
+        visual.level = visual.target;
+        state.lockVisuals.delete(id);
+        return;
+      }
+      visual.level += delta * easing;
+    });
+
+    if (state.lockParticles.length) {
+      state.lockParticles = state.lockParticles.filter((particle) => {
+        particle.age += dt;
+        if (particle.age >= particle.ttl) return false;
+        particle.x += particle.vx * dt;
+        particle.y += particle.vy * dt;
+        particle.rotation += particle.spin * dt;
+        return true;
+      });
+    }
+    if (state.lockRings.length) {
+      state.lockRings = state.lockRings.filter((ring) => {
+        ring.age += dt;
+        return ring.age < ring.ttl;
+      });
+    }
+  }
+
+  function drawLockEffects() {
+    if (!state.lockParticles.length && !state.lockRings.length) return;
+    ctx.save();
+    state.lockRings.forEach((ring) => {
+      const t = clamp01Number(ring.age / ring.ttl);
+      const radius = ring.from + (ring.to - ring.from) * (1 - Math.pow(1 - t, 2));
+      ctx.globalAlpha = (1 - t) * 0.5;
+      ctx.beginPath();
+      ctx.arc(ring.x, ring.y, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(${ring.rgb[0]}, ${ring.rgb[1]}, ${ring.rgb[2]}, 0.9)`;
+      ctx.lineWidth = 0.5 + (1 - t) * 1.6;
+      ctx.stroke();
+    });
+    state.lockParticles.forEach((particle) => {
+      const t = clamp01Number(particle.age / particle.ttl);
+      const size = particle.size * (1 - 0.32 * t);
+      ctx.save();
+      ctx.globalAlpha = (1 - t) * 0.9;
+      ctx.translate(particle.x, particle.y);
+      ctx.rotate(particle.rotation);
+      ctx.fillStyle = `rgb(${particle.rgb[0]}, ${particle.rgb[1]}, ${particle.rgb[2]})`;
+      ctx.fillRect(-size / 2, -size / 2, size, size);
+      ctx.restore();
+    });
+    ctx.restore();
+  }
+
   function renderScene(now) {
     if (!ctx || !canvas) return;
 
     const { width, height } = syncCanvasSize();
+    updateLockEffects(now);
     if (
       (state.viewMode === "dots" || state.sceneTransition?.mode === "to-dots")
       && (!state.dotsLayout
@@ -2912,6 +3170,10 @@ const state = {
     state.cardScene.forEach((scene) => {
       drawCardScene(scene, morph, 1, now);
     });
+
+    // Lock feedback is drawn in screen space so the little crystal squares
+    // keep a stable size while the camera is at any zoom level.
+    drawLockEffects();
 
     if (state.hoveredNodeId) {
       const hovered = state.cardScene.get(state.hoveredNodeId);
@@ -3081,7 +3343,8 @@ const state = {
 
     const isCard = selectedItem.type === "card";
     sidebarTitle.textContent = getNodeDisplayTitle(selectedItem);
-    sidebarType.innerHTML = `<span>${getNodeTypeIcon(selectedItem.type)}</span> ${selectedItem.type.charAt(0).toUpperCase() + selectedItem.type.slice(1)}`;
+    sidebarType.innerHTML = inspectorTypeMarkup(selectedItem);
+    updateLockControls();
 
     if (editNodeBtn) editNodeBtn.textContent = isCard ? "Open in Memory" : "Edit";
     if (deleteNodeBtn) {
@@ -3767,6 +4030,14 @@ const state = {
         return;
       }
 
+      // An explicit lock always wins over the subject's automatic centring.
+      // Otherwise locking the focused subject would still make it drift to
+      // the middle of the viewport on the next frame.
+      if (state.lockedNodes.has(id)) {
+        velocities.set(id, { x: 0, y: 0 });
+        return;
+      }
+
       // The focused subject is the visual anchor: it glides to the exact
       // centre and then stays there while its cluster settles around it.
       if (id === state.focusSubjectId) {
@@ -3781,7 +4052,7 @@ const state = {
         return;
       }
 
-      if (state.lockedNodes.has(id)) {
+      if (state.pinnedNodes.has(id)) {
         velocities.set(id, { x: 0, y: 0 });
         return;
       }
@@ -3886,15 +4157,35 @@ const state = {
     // cluster explodes outward from there, which gives the filter transition a
     // clear "subject comes into focus" origin.
     graph.nodes.forEach((node, id) => {
+      // Locks hold their exact position through Re-layout. Ordinary session
+      // pins are handled by the preserveExisting branch below and are released
+      // when Re-layout restarts the explosion.
+      if (state.lockedNodes.has(id) && state.nodePositions.has(id)) {
+        state.velocities.set(id, { x: 0, y: 0 });
+        return;
+      }
       if (node.type === "card") {
-        // Card scene positions persist for the whole tool session. New cards
-        // are seeded around their cached anchors after the knowledge layout.
         const velocity = state.velocities.get(id);
         if (velocity) {
           velocity.x = 0;
           velocity.y = 0;
         } else {
           state.velocities.set(id, { x: 0, y: 0 });
+        }
+        // Re-layout should include cards in the same opening burst as the
+        // knowledge nodes. Skipping them left cards at their old positions
+        // while everything else exploded, so the springs had to drag them in
+        // from far away afterwards. Their anchor springs still settle them.
+        if (!preserveExisting) {
+          const scene = node.cardScene || state.cardScene.get(id);
+          if (scene) {
+            const angle = Math.random() * Math.PI * 2;
+            const r = Math.random() * (focusId ? 24 : 30);
+            scene.x = centerX + Math.cos(angle) * r;
+            scene.y = centerY + Math.sin(angle) * r;
+            scene.seeded = true;
+            state.nodePositions.set(id, scene);
+          }
         }
         return;
       }
@@ -3941,10 +4232,19 @@ const state = {
       setGraphStatus("Nothing to lay out yet.", "warning");
       return;
     }
+    const unlockedCount = [...state.graph.nodes.keys()]
+      .filter((id) => !state.lockedNodes.has(id)).length;
+    if (unlockedCount === 0) {
+      setGraphStatus("Every node is locked. Unlock one to re-layout.", "warning", { sticky: true });
+      return;
+    }
     const width = canvas?.parentElement?.clientWidth || canvas?.width || 800;
     const height = canvas?.parentElement?.clientHeight || canvas?.height || 600;
     state.sceneTransition = null;
-    state.lockedNodes.clear();
+    // Re-layout releases ordinary session pins, but explicit locks are the
+    // user's arrangement and must stay exactly where they are.
+    state.pinnedNodes.clear();
+    state.lockedNodes.forEach((id) => state.pinnedNodes.add(id));
     state.draggingNodeId = null;
     state.isPanning = false;
     state.panOffset = { x: 0, y: 0 };
@@ -3967,7 +4267,11 @@ const state = {
         1.2
       );
     }
-    setGraphStatus("Layout reset", "success");
+    const lockedCount = state.lockedNodes.size;
+    setGraphStatus(
+      lockedCount ? `Layout reset · ${lockedCount} locked kept` : "Layout reset",
+      "success"
+    );
   }
 
   // The flattened knowledge list is rebuilt on every frame by the renderer and
@@ -4309,6 +4613,7 @@ const state = {
       const revealScale = 0.55 + 0.45 * visibility;
       const radius = baseRadius * state.zoom * revealScale * (isFocusedSubject ? 1.35 : 1);
       const color = getNodeColor(item.type);
+      const lockLevel = getLockLevel(item.id);
 
       ctx.globalAlpha = alpha * visibility;
 
@@ -4333,9 +4638,25 @@ const state = {
       ctx.arc(posTrans.x, posTrans.y, radius, 0, Math.PI * 2);
       ctx.fillStyle = "rgba(10, 30, 22, 0.9)";
       ctx.fill();
+      if (lockLevel > 0.01) {
+        // Unlocked nodes are hollow. A locked node fills with its own colour
+        // so security is readable at a glance without a padlock glyph.
+        const tint = hexToRgb(color);
+        ctx.beginPath();
+        ctx.arc(posTrans.x, posTrans.y, Math.max(1, radius - 1), 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${tint[0]}, ${tint[1]}, ${tint[2]}, ${0.3 * lockLevel})`;
+        ctx.fill();
+      }
       ctx.strokeStyle = color;
-      ctx.lineWidth = isSelected ? 3 : 2;
+      ctx.lineWidth = (isSelected ? 3 : 2) + lockLevel * 0.7;
       ctx.stroke();
+      if (lockLevel > 0.01) {
+        ctx.beginPath();
+        ctx.arc(posTrans.x, posTrans.y, radius + 4.5, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(255, 209, 102, ${0.42 * lockLevel})`;
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+      }
 
       // Hierarchical label visibility based on zoom level. The focused
       // subject is always labelled, even when the cluster is zoomed out.
@@ -4455,6 +4776,7 @@ const state = {
     state.inspectorTab = "details";
     state.heapSidebarOpen = false;
     if (toggleHeapSidebarBtn) toggleHeapSidebarBtn.setAttribute("aria-expanded", "false");
+    updateLockControls();
     syncGridSelection();
     if (returnFocus?.isConnected) {
       returnFocus.focus({ preventScroll: true });
@@ -4644,12 +4966,24 @@ const state = {
     }
 
     const currentIds = new Set(state.graph.nodes.keys());
+    let prunedLock = false;
     for (const id of state.nodePositions.keys()) {
       if (!currentIds.has(id)) {
         state.nodePositions.delete(id);
         state.velocities.delete(id);
+        if (state.lockedNodes.delete(id)) prunedLock = true;
+        state.pinnedNodes.delete(id);
+        state.lockVisuals.delete(id);
       }
     }
+    state.lockedNodes.forEach((id) => {
+      if (currentIds.has(id)) return;
+      state.lockedNodes.delete(id);
+      state.pinnedNodes.delete(id);
+      state.lockVisuals.delete(id);
+      prunedLock = true;
+    });
+    if (prunedLock) scheduleLayoutSave();
 
     const layoutWidth = canvas?.parentElement?.clientWidth || 800;
     const layoutHeight = canvas?.parentElement?.clientHeight || 600;
@@ -4678,6 +5012,7 @@ const state = {
     updateStats();
     updateEmptyState();
     updateGraphSearchStatus();
+    updateLockControls();
   }
 
   async function createNewNode(type) {
@@ -5341,7 +5676,9 @@ const state = {
           if (Math.hypot(point.x - state.panStartPos.x, point.y - state.panStartPos.y) <= 3) return;
           state.hasDragged = true;
           state.userInteracted = true;
-          state.lockedNodes.add(state.draggingNodeId);
+          // A drop holds the node for this session. It is not an explicit lock:
+          // Re-layout may still release it and move it with the rest.
+          state.pinnedNodes.add(state.draggingNodeId);
           const nodePos = state.nodePositions.get(state.draggingNodeId);
           if (nodePos) {
             const world = inverseTransform(point.x, point.y);
@@ -5407,6 +5744,23 @@ const state = {
       });
     }
     nodeSidebarBackdrop?.addEventListener("click", closeSidebar);
+
+    const lockNodeBtn = document.getElementById("lockNodeBtn");
+    if (lockNodeBtn) {
+      lockNodeBtn.addEventListener("click", () => {
+        if (!state.selectedNodeId) return;
+        const id = state.selectedNodeId;
+        setNodeLocked(id, !state.lockedNodes.has(id));
+        updateInspectorLockState();
+      });
+    }
+
+    const unlockAllNodesBtn = document.getElementById("unlockAllNodesBtn");
+    if (unlockAllNodesBtn) {
+      unlockAllNodesBtn.addEventListener("click", () => {
+        unlockAllNodes();
+      });
+    }
 
     if (toggleMetadataBtn) {
       toggleMetadataBtn.addEventListener("click", () => {
