@@ -47,9 +47,10 @@ const state = {
     graph: { nodes: new Map(), edges: [] },
     draggingNodeId: null,
     dragOffset: { x: 0, y: 0 },
-    // Session-only physics hold. Restored layouts and freshly dropped nodes
-    // live here so the force simulation cannot drift them. It is deliberately
-    // invisible: a restored layout is not the same thing as an explicit lock.
+    // Session-only physics hold. Restored layouts live here so the force
+    // simulation cannot drift them. Dropping a node is not added: a drag is a
+    // move, not an implicit lock, and tapping Lock position is the explicit
+    // way to hold a node.
     pinnedNodes: new Set(),
     // Explicit user locks. These survive reloads and Re-layout, and are the
     // only nodes that get the solid "secured" treatment on the canvas.
@@ -5599,12 +5600,17 @@ const state = {
       };
 
       const finishGesture = (e, cancelled = false) => {
-        const wasDragging = Boolean(state.draggingNodeId);
+        const draggedId = state.draggingNodeId;
+        const wasDragging = Boolean(draggedId);
         activePointers.delete(e.pointerId);
         if (activePointers.size < 2) pinchStart = null;
         if (activePointers.size === 0) {
-          // A dragged node stays pinned until Re-layout. Otherwise the next
-          // physics tick would pull the arrangement straight back.
+          // A drop moves the node; it does not lock it. Hand the node back to
+          // physics so dragging can untangle the map without freezing every
+          // node touched. Explicit locks remain held.
+          if (draggedId && !state.lockedNodes.has(draggedId)) {
+            state.pinnedNodes.delete(draggedId);
+          }
           state.draggingNodeId = null;
           state.isPanning = false;
           canvas.style.cursor = state.lockMode ? "crosshair" : "default";
@@ -5665,6 +5671,7 @@ const state = {
         if (node && e.button !== 1) {
           state.userInteracted = true;
           state.draggingNodeId = node.id;
+          state.velocities.set(node.id, { x: 0, y: 0 });
           state.panStartPos = point;
           const nodePos = state.nodePositions.get(node.id);
           if (nodePos) {
@@ -5737,9 +5744,6 @@ const state = {
           if (Math.hypot(point.x - state.panStartPos.x, point.y - state.panStartPos.y) <= 3) return;
           state.hasDragged = true;
           state.userInteracted = true;
-          // A drop holds the node for this session. It is not an explicit lock:
-          // Re-layout may still release it and move it with the rest.
-          state.pinnedNodes.add(state.draggingNodeId);
           const nodePos = state.nodePositions.get(state.draggingNodeId);
           if (nodePos) {
             const world = inverseTransform(point.x, point.y);

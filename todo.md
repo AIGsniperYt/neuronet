@@ -252,7 +252,7 @@ One task per commit, oldest first. Commits stay local; nothing was pushed.
 1. **Block cards from Connect Nodes.** Cards can no longer enter connection mode or `breakLink()`, because the old generic path would have copied a card into the `nodes` store. The connect banner also resolves its title correctly.
 2. **Escape connection titles/IDs.** The connection list no longer injects raw node text into `innerHTML`.
 3. **Preserve positions; explicit Re-layout.** A database refresh keeps every existing knowledge-node position. Only genuinely new nodes are seeded. `Re-layout` clears pins and the camera, then replays the explosion.
-4. **Pointer and touch gestures.** One pointer drags a node (with a correct grab offset) or pans; two pointers pinch-zoom; pointer capture plus `pointerup`/`pointercancel` prevents stuck gestures; a dragged node stays pinned; `touch-action: none` and selection/callout suppression are on the canvas.
+4. **Pointer and touch gestures.** One pointer drags a node (with a correct grab offset) or pans; two pointers pinch-zoom; pointer capture plus `pointerup`/`pointercancel` prevents stuck gestures; `touch-action: none` and selection/callout suppression are on the canvas. A dropped node returns to physics rather than being implicitly pinned; only explicit locks hold a position.
 5. **Dots for large decks.** Wheel and one-finger vertical drag scroll an overflowing Dots chart, with a scroll hint, clamped bounds, and larger invisible hit targets for touch.
 6. **Real metadata.** References resolve to titles, `quoteRefs`/`links`/`manualLinks`/source/cue IDs are shown, `lastGrade` is included, and arrays/objects are printed in full instead of `[n items]`.
 7. **One tabbed inspector.** `Details / Connections / Heap` in a single panel, one panel open at a time, heap integrated, no second sidebar or `heap-open` layout hack.
@@ -360,7 +360,7 @@ The user reported four issues while preparing to test on iPad: the graph legend 
 
 ## Explicit locks
 
-- `pinnedNodes` is the invisible session hold for restored layouts and dropped nodes. `lockedNodes` is the explicit user lock; the two are no longer conflated.
+- `pinnedNodes` is the invisible session hold for restored layouts. `lockedNodes` is the explicit user lock; the two are no longer conflated. A dragged node is **not** pinned on drop: dragging moves a node and hands it back to physics, so manual untangling is not an accidental movement lock. Use Lock position / Lock mode to hold a node.
 - Inspector Details has a full-width **Lock position / Unlock position** toggle with `aria-pressed`, plus a gold **Locked** badge in the type line.
 - Locked nodes stay hollow/filled as a shape language: unlocked nodes are hollow rings, locked nodes fill with their own colour and gain a thin gold containment ring. Locking converges a short crystal burst; unlocking releases it. No padlock glyphs.
 - A red **Unlock all** stat pill appears only when locks exist. There is deliberately no “lock all” action.
