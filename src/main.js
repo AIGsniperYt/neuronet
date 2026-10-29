@@ -1748,9 +1748,9 @@ async function confirmUnpin() {
   await renderPinnedToolsSidebar();
 }
 
-// A local build is allowed to run on any port. The badge is the ownership
-// marker: it links the dev copy back to the portfolio instead of pretending to
-// be the official deployment. This is deliberately not a security boundary;
+// A localhost build is allowed to run on any port. The badge is the ownership
+// marker: it links the local copy back to the portfolio instead of pretending
+// to be the official deployment. This is deliberately not a security boundary;
 // the app is local-first and anyone running a copy can edit it.
 function installDevWatermark() {
   if (document.getElementById("devWatermark")) return;
@@ -1804,41 +1804,21 @@ document.addEventListener("DOMContentLoaded", async () => {
   const loadingCheckmark = document.getElementById("loadingCheckmark");
   const appElement = document.getElementById("app");
 
-  // Origin validation. The official GitHub Pages host is always allowed.
-  // Local development is allowed on any port (loopback, private LAN, or an
-  // explicit ?dev=1) so Live Server, Vite, and plain static servers all work.
-  // The watermark links a dev build back to the portfolio.
+  // Origin validation. Only the official GitHub Pages host and localhost are
+  // allowed. Localhost is allowed on any port so Live Server and other local
+  // static servers work; a small watermark links the local build back to the
+  // portfolio. Every other host is denied.
   const OFFICIAL_HOST = "aigsniperyt.github.io";
   const hostname = window.location.hostname;
-  const isOfficialHost =
-    hostname === OFFICIAL_HOST || hostname === `www.${OFFICIAL_HOST}`;
-  const isLoopbackHost =
+  const isOfficialHost = hostname === OFFICIAL_HOST;
+  const isLocalhost =
     hostname === "localhost" ||
     hostname === "127.0.0.1" ||
-    hostname === "0.0.0.0" ||
     hostname === "[::1]" ||
-    hostname === "[::]" ||
     hostname === "::1";
-  const isPrivateNetworkHost = (() => {
-    const match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-    if (!match) return false;
-    const octets = match.slice(1).map(Number);
-    if (octets.some((octet) => octet > 255)) return false;
-    const [a, b] = octets;
-    return (
-      a === 10 ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      (a === 169 && b === 254)
-    );
-  })();
-  const devModeRequested = new URLSearchParams(window.location.search).has("dev");
-  const isDevOrigin =
-    !isOfficialHost &&
-    (isLoopbackHost || isPrivateNetworkHost || devModeRequested);
-  const isAllowed = isOfficialHost || isDevOrigin;
+  const isAllowed = isOfficialHost || isLocalhost;
 
-  if (isDevOrigin) installDevWatermark();
+  if (isLocalhost) installDevWatermark();
 
   if (!isAllowed) {
     loadingOverlay.style.display = "flex";
