@@ -310,6 +310,23 @@ const state = {
 
   let layoutSettleTimer = 0;
   let graphStatusTimer = 0;
+  // A dropped node is held briefly so its neighbours can settle into the space
+  // the user just made, then it is handed back to physics. This is a grace
+  // period, not a lock: explicit locks never expire. Timers are per node so
+  // dropping a second node does not cancel the first one's release.
+  const dragReleaseTimers = new Map();
+
+  function scheduleDragRelease(id) {
+    const existing = dragReleaseTimers.get(id);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      dragReleaseTimers.delete(id);
+      if (state.lockedNodes.has(id)) return;
+      state.pinnedNodes.delete(id);
+    }, 1000);
+    dragReleaseTimers.set(id, timer);
+  }
+
   function setGraphStatus(text, tone = "neutral", { sticky = false } = {}) {
     if (!graphStatus) return;
     if (graphStatusTimer) {
@@ -5605,11 +5622,12 @@ const state = {
         activePointers.delete(e.pointerId);
         if (activePointers.size < 2) pinchStart = null;
         if (activePointers.size === 0) {
-          // A drop moves the node; it does not lock it. Hand the node back to
-          // physics so dragging can untangle the map without freezing every
-          // node touched. Explicit locks remain held.
-          if (draggedId && !state.lockedNodes.has(draggedId)) {
-            state.pinnedNodes.delete(draggedId);
+          // A drop moves the node; it does not lock it. Hold it for a moment
+          // so the surrounding nodes can settle into the new space, then hand
+          // it back to physics. Explicit locks stay held.
+          if (draggedId) {
+            state.pinnedNodes.add(draggedId);
+            if (!state.lockedNodes.has(draggedId)) scheduleDragRelease(draggedId);
           }
           state.draggingNodeId = null;
           state.isPanning = false;
