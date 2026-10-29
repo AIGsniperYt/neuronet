@@ -1748,6 +1748,49 @@ async function confirmUnpin() {
   await renderPinnedToolsSidebar();
 }
 
+// A local build is allowed to run on any port. The badge is the ownership
+// marker: it links the dev copy back to the portfolio instead of pretending to
+// be the official deployment. This is deliberately not a security boundary;
+// the app is local-first and anyone running a copy can edit it.
+function installDevWatermark() {
+  if (document.getElementById("devWatermark")) return;
+  const watermark = document.createElement("a");
+  watermark.id = "devWatermark";
+  watermark.href = "https://aigsniperyt.github.io/";
+  watermark.target = "_blank";
+  watermark.rel = "noopener";
+  watermark.textContent = "DEV BUILD · aigsniperyt.github.io";
+  watermark.title = "Local development build. Portfolio: https://aigsniperyt.github.io/";
+  watermark.setAttribute("aria-label", "Local development build. Open the portfolio.");
+  Object.assign(watermark.style, {
+    position: "fixed",
+    right: "10px",
+    bottom: "10px",
+    zIndex: "2147483647",
+    padding: "4px 9px",
+    borderRadius: "999px",
+    border: "1px solid rgba(44,255,179,0.35)",
+    background: "rgba(8,24,18,0.82)",
+    color: "#2cffb3",
+    fontFamily: "var(--font-ui), system-ui, sans-serif",
+    fontSize: "10px",
+    fontWeight: "600",
+    lineHeight: "1.4",
+    letterSpacing: "0.04em",
+    textDecoration: "none",
+    opacity: "0.72",
+    backdropFilter: "blur(6px)",
+    pointerEvents: "auto",
+  });
+  watermark.addEventListener("mouseenter", () => {
+    watermark.style.opacity = "1";
+  });
+  watermark.addEventListener("mouseleave", () => {
+    watermark.style.opacity = "0.72";
+  });
+  document.body.appendChild(watermark);
+}
+
 // ========== TOOL CATALOGUE ==========
 
 // ========== EVENT LISTENERS ==========
@@ -1761,15 +1804,41 @@ document.addEventListener("DOMContentLoaded", async () => {
   const loadingCheckmark = document.getElementById("loadingCheckmark");
   const appElement = document.getElementById("app");
 
-  // Origin validation
-  const ALLOWED_ORIGINS = [
-    "http://127.0.0.1:5500",
-    "http://localhost:5173",
-    "http://localhost:4173",
-    "https://aigsniperyt.github.io"
-  ];
-  const currentOrigin = window.location.origin;
-  const isAllowed = ALLOWED_ORIGINS.some(origin => currentOrigin.startsWith(origin));
+  // Origin validation. The official GitHub Pages host is always allowed.
+  // Local development is allowed on any port (loopback, private LAN, or an
+  // explicit ?dev=1) so Live Server, Vite, and plain static servers all work.
+  // The watermark links a dev build back to the portfolio.
+  const OFFICIAL_HOST = "aigsniperyt.github.io";
+  const hostname = window.location.hostname;
+  const isOfficialHost =
+    hostname === OFFICIAL_HOST || hostname === `www.${OFFICIAL_HOST}`;
+  const isLoopbackHost =
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "0.0.0.0" ||
+    hostname === "[::1]" ||
+    hostname === "[::]" ||
+    hostname === "::1";
+  const isPrivateNetworkHost = (() => {
+    const match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (!match) return false;
+    const octets = match.slice(1).map(Number);
+    if (octets.some((octet) => octet > 255)) return false;
+    const [a, b] = octets;
+    return (
+      a === 10 ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 169 && b === 254)
+    );
+  })();
+  const devModeRequested = new URLSearchParams(window.location.search).has("dev");
+  const isDevOrigin =
+    !isOfficialHost &&
+    (isLoopbackHost || isPrivateNetworkHost || devModeRequested);
+  const isAllowed = isOfficialHost || isDevOrigin;
+
+  if (isDevOrigin) installDevWatermark();
 
   if (!isAllowed) {
     loadingOverlay.style.display = "flex";

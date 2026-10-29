@@ -182,7 +182,8 @@ COMMITTED_AT="$(git -C /tmp/neuronet-v8 log -1 --format=%cI)" \
 node scripts/build-showcase.mjs
 ```
 
-Serve it on port 5500, because the app whitelists `http://127.0.0.1:5500`:
+Serve it on port 5500, because the older snapshots whitelist
+`http://127.0.0.1:5500`:
 
 ```bash
 python3 -m http.server 5500 --directory /tmp/neuronet-showcase
@@ -190,8 +191,13 @@ python3 -m http.server 5500 --directory /tmp/neuronet-showcase
 
 Then open <http://127.0.0.1:5500/> for the gallery or
 <http://127.0.0.1:5500/v8/> for the snapshot. The seed runs on first load and
-reloads once. If port 5500 is busy, use another port and add it to
-`ALLOWED_ORIGINS` in the snapshot's `script.js` or `src/main.js`.
+reloads once.
+
+The latest app allows local development on any loopback or private-LAN port
+and shows a `DEV BUILD` watermark linking back to the portfolio. Snapshots are
+historical and keep their original whitelist, so serve them on 5500. If a
+snapshot must use another port, add it to `ALLOWED_ORIGINS` in that snapshot's
+`script.js` or `src/main.js`.
 
 To check seeding, open DevTools → **Application** → **IndexedDB** and look for
 `neuronet-showcase-v8`. The stores should contain the demo records. The console
