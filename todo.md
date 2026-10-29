@@ -364,6 +364,7 @@ The user reported four issues while preparing to test on iPad: the graph legend 
 - Inspector Details has a full-width **Lock position / Unlock position** toggle with `aria-pressed`, plus a gold **Locked** badge in the type line.
 - Locked nodes stay hollow/filled as a shape language: unlocked nodes are hollow rings, locked nodes fill with their own colour and gain a thin gold containment ring. Locking converges a short crystal burst; unlocking releases it. No padlock glyphs.
 - A red **Unlock all** stat pill appears only when locks exist. There is deliberately no “lock all” action.
+- Graph view has a **Lock mode** toolbar toggle (next to Fit). While it is on, tapping a node locks or unlocks it directly instead of opening the inspector, which makes bulk locking practical on touch. Leaving Graph exits Lock mode; normal taps still open Details.
 - Locks are persisted in the layout record (`version: 2`, `locks` array) and pruned when nodes disappear.
 - Re-layout keeps locked nodes exactly in place, re-explodes everything else, reports how many locks were kept, and refuses with a warning when every node is locked.
 - Unlocking keeps the session pin, so the node does not immediately drift; the next Re-layout is what releases it.

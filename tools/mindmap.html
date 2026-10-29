@@ -254,6 +254,12 @@
     padding: 7px 12px;
   }
 
+  #lockModeBtn[aria-pressed="true"] {
+    border-color: rgba(255, 209, 102, 0.6);
+    background: rgba(255, 209, 102, 0.16);
+    color: #ffd166;
+  }
+
   .graph-status {
     flex: 1 1 auto;
     min-width: 0;
@@ -2139,6 +2145,7 @@
     <div id="graphToolbar" class="graph-toolbar">
       <input id="graphSearch" class="graph-search" type="search" placeholder="Find a node…" aria-label="Find a node" autocomplete="off">
       <button type="button" id="graphFitBtn" class="btn">Fit</button>
+      <button type="button" id="lockModeBtn" class="btn" aria-pressed="false" title="Tap nodes to lock or unlock several positions quickly">Lock mode</button>
       <span id="graphStatus" class="graph-status" role="status" aria-live="polite"></span>
     </div>
 

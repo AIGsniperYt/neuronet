@@ -88,6 +88,9 @@ const state = {
     collapsedDecks: new Set(),
     graphSearch: "",
     graphTypeFilter: "all",
+    // When true, tapping a node toggles its lock instead of opening the
+    // inspector. This is the fast path for locking several nodes on touch.
+    lockMode: false,
     // Named, ordered card-ID lists. Heap content lives in the cards store;
     // these records are metadata only.
     heaps: [],
@@ -127,6 +130,7 @@ const state = {
   const graphToolbar = document.getElementById("graphToolbar");
   const graphSearchInput = document.getElementById("graphSearch");
   const graphFitBtn = document.getElementById("graphFitBtn");
+  const lockModeBtn = document.getElementById("lockModeBtn");
   const graphStatus = document.getElementById("graphStatus");
   const blueprintArea = document.getElementById("blueprintArea");
   const gridView = document.getElementById("mindmapGridView");
@@ -889,6 +893,44 @@ const state = {
     updateLockControls();
     updateInspectorLockState();
     setGraphStatus(ids.length === 1 ? "Position unlocked" : `${ids.length} positions unlocked`, "success");
+  }
+
+  function setLockMode(enabled, { announce = true } = {}) {
+    state.lockMode = Boolean(enabled) && state.viewMode === "graph";
+
+    if (lockModeBtn) {
+      lockModeBtn.setAttribute("aria-pressed", String(state.lockMode));
+      lockModeBtn.textContent = state.lockMode ? "Done locking" : "Lock mode";
+      lockModeBtn.title = state.lockMode
+        ? "Stop toggling locks and return to opening node details"
+        : "Tap nodes to lock or unlock several positions quickly";
+    }
+
+    if (state.lockMode) {
+      // Lock mode owns the next canvas taps. Clear the competing tools so a
+      // tap cannot try to open a panel or finish a connection.
+      if (nodeSidebar?.classList.contains("open")) closeSidebar();
+      state.isConnecting = false;
+      state.connectingSourceId = null;
+      connectNodesBtn?.classList.remove("active");
+      connectingOverlay?.classList.remove("visible");
+    }
+
+    if (canvas) {
+      canvas.style.cursor = state.lockMode
+        ? "crosshair"
+        : state.draggingNodeId
+          ? "grabbing"
+          : "default";
+    }
+
+    if (announce) {
+      setGraphStatus(
+        state.lockMode ? "Lock mode: tap nodes to lock or unlock" : "Lock mode off",
+        state.lockMode ? "success" : "neutral",
+        { sticky: state.lockMode }
+      );
+    }
   }
 
   function updateLockControls() {
@@ -3239,6 +3281,9 @@ const state = {
     const changed = previousMode !== mode;
     state.viewMode = mode;
     updateContextualActions();
+    // Lock mode only makes sense while nodes are visible. Leaving Graph
+    // returns to normal inspection instead of leaving taps in a strange state.
+    if (mode !== "graph" && state.lockMode) setLockMode(false, { announce: false });
     if (mode !== "grid") {
       state.librarySelectMode = false;
       state.selectedCardIds.clear();
@@ -5301,6 +5346,9 @@ const state = {
         setGraphStatus("Fit to graph", "success");
       }
     });
+    lockModeBtn?.addEventListener("click", () => {
+      setLockMode(!state.lockMode);
+    });
 
     if (gridContainer) {
       gridContainer.addEventListener("click", async (e) => {
@@ -5501,6 +5549,20 @@ const state = {
           y: e.clientY - rect.top
         };
         const node = findNodeAtPosition(pos.x, pos.y);
+        if (state.lockMode) {
+          if (node) {
+            setNodeLocked(node.id, !state.lockedNodes.has(node.id), { announce: false });
+            const count = state.lockedNodes.size;
+            setGraphStatus(
+              count === 0
+                ? "Lock mode: tap nodes to lock"
+                : `${count} ${count === 1 ? "position" : "positions"} locked`,
+              "success",
+              { sticky: true }
+            );
+          }
+          return;
+        }
         if (node) {
           openNodeSidebar(node.id);
           // Trigger reactive pulse at screen coordinates
@@ -5545,7 +5607,7 @@ const state = {
           // physics tick would pull the arrangement straight back.
           state.draggingNodeId = null;
           state.isPanning = false;
-          canvas.style.cursor = "default";
+          canvas.style.cursor = state.lockMode ? "crosshair" : "default";
         }
         if (cancelled) state.hasDragged = true;
         releasePointer(e);
@@ -5630,7 +5692,7 @@ const state = {
           if (e.pointerType === "mouse") {
             const node = findNodeAtPosition(point.x, point.y);
             state.hoveredNodeId = node ? node.id : null;
-            canvas.style.cursor = node ? "pointer" : "default";
+            canvas.style.cursor = node ? "pointer" : state.lockMode ? "crosshair" : "default";
           }
           return;
         }
@@ -5695,7 +5757,7 @@ const state = {
         // Never clear drag/pan here: that was the source of stuck nodes.
         state.hoveredNodeId = null;
         if (!state.draggingNodeId && !state.isPanning) {
-          canvas.style.cursor = "default";
+          canvas.style.cursor = state.lockMode ? "crosshair" : "default";
         }
       });
 
