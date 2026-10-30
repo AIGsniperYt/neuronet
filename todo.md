@@ -72,16 +72,9 @@ The product wishlist above is untouched.
 
 1. **Real device pass** — everything below is lower priority than what the iPad
    actually shows.
-2. **Hidden nodes still exert physics.** Search and type filters change
-   visibility and hit-testing, but `computeForces()` only excludes out-of-scope
-   subjects. A large hidden cluster can still push visible nodes. Decide whether
-   filtered nodes should be excluded from forces.
-3. **Layout is browser-local.** No cross-device sync and no named snapshots.
-4. **Locks made during the opening explosion persist after the settle timer**,
+2. **Layout is browser-local.** No cross-device sync and no named snapshots.
+3. **Locks made during the opening explosion persist after the settle timer**,
    not immediately. Acceptable unless it surprises real use.
-5. **Code cleanup:** `tools/mindmap.html` still has two style blocks; grid cards
-   are a `div role="button"` containing a real button (ARIA nesting); muted
-   labels and small icon buttons have not had a 44px/contrast audit.
 
 ## Deliberately not doing (unless asked)
 
@@ -89,3 +82,6 @@ The product wishlist above is untouched.
 - A global Lock all action.
 - Redesigning the stat pills.
 - A new test framework.
+- Re-flowing the graph when search or type filters change. Filters point at
+  nodes; the current physics behaviour is accepted. Revisit only if a filter
+  visibly shoves nodes on a real device.

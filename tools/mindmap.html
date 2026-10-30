@@ -1055,11 +1055,6 @@
     box-shadow: 0 0 0 1px var(--importance-color), 0 8px 18px rgba(0, 0, 0, 0.3);
   }
 
-  .mindmap-grid-card:focus-visible {
-    outline: 2px solid rgba(44, 255, 179, 0.55);
-    outline-offset: 2px;
-  }
-
   /* The card is a container. This real button covers it for the primary
      action, so the + Heap control is not nested inside another button. */
   .mindmap-grid-open {
@@ -1984,6 +1979,34 @@
       width: 44px;
       height: 44px;
       font-size: 0.9rem;
+    }
+    /* Header and library controls used on a tablet. The view toggle and stat
+       pills stay compact but get a comfortable vertical target; search and
+       selects reach the full 44px. */
+    .view-toggle-btn {
+      min-height: 40px;
+      padding: 8px 12px;
+    }
+    .stat-pill {
+      min-height: 40px;
+      align-items: center;
+    }
+    .graph-search,
+    .library-search,
+    .library-sort,
+    .library-heap-select {
+      min-height: 44px;
+    }
+    /* The card-level heap button is visually small, so extend its hit area
+       beyond the pill instead of inflating the card header. Touch has no
+       hover, so keep it visible rather than exposing an invisible target. */
+    .mindmap-grid-heap-btn {
+      opacity: 1;
+    }
+    .mindmap-grid-heap-btn::after {
+      content: "";
+      position: absolute;
+      inset: -8px;
     }
   }
 
