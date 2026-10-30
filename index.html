@@ -977,6 +977,14 @@ canvas { position: fixed; inset:0; z-index:-1; }
   box-shadow: 0 0 0 3px rgba(44, 255, 179, 0.08);
 }
 
+/* Generic fallback: any field without its own size still clears Safari's 16px
+   auto-zoom threshold. Class rules with an intentional larger size still win. */
+:where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"])),
+textarea,
+select {
+  font-size: max(16px, 1em);
+}
+
 /* The vendored markdown editor uses a smaller size. iOS zooms the page when a
    focused field is under 16px, so keep the editor at the same threshold as the
    other form fields. */

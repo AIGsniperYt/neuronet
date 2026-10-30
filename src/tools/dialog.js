@@ -16,7 +16,7 @@ function ensureRoot() {
         box-shadow:0 20px 60px rgba(0,0,0,.5);}
       #nnDialogMsg{font-size:.95rem;color:var(--text-main);margin:0 0 6px;line-height:1.5;white-space:pre-line;}
       #nnDialogInput{width:100%;box-sizing:border-box;margin-top:10px;padding:10px 12px;border-radius:10px;border:1px solid var(--glass-border);
-        background:rgba(255,255,255,.05);color:var(--text-main);font:inherit;font-size:.9rem;}
+        background:rgba(255,255,255,.05);color:var(--text-main);font:inherit;font-size:max(16px,.9rem);}
       #nnDialogActions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;}
       .nn-dialog-btn{border:1px solid var(--glass-border);background:rgba(255,255,255,.06);color:var(--text-main);padding:8px 16px;border-radius:10px;font:inherit;font-size:.85rem;cursor:pointer;}
       .nn-dialog-btn:hover{background:rgba(255,255,255,.12);}
