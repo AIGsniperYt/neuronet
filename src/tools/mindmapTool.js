@@ -2127,13 +2127,11 @@ const state = {
              </div>`
           : availableCards.map((card, index) => `
               <div class="library-heap-item" data-heap-item-id="${escapeHtml(card.id)}">
-                <span class="heap-drag-handle" data-heap-drag-handle title="Drag to reorder" aria-hidden="true">\u2630</span>
+                <button type="button" class="heap-drag-handle" data-heap-drag-handle aria-label="Reorder ${escapeHtml(card.front || "Untitled card")}" title="Drag to reorder, or use the arrow keys">\u2630</button>
                 <div class="library-heap-item-title">${escapeHtml(card.front || "Untitled card")}</div>
                 <div class="library-heap-item-meta">${index + 1}. ${escapeHtml(card.deck || "Unsorted")}</div>
                 <div class="library-heap-item-actions">
-                  <button type="button" data-heap-action="up" data-heap-card-id="${escapeHtml(card.id)}" title="Move up" ${index === 0 ? "disabled" : ""}>\u2191</button>
-                  <button type="button" data-heap-action="down" data-heap-card-id="${escapeHtml(card.id)}" title="Move down" ${index === availableCards.length - 1 ? "disabled" : ""}>\u2193</button>
-                  <button type="button" data-heap-action="remove" data-heap-card-id="${escapeHtml(card.id)}" title="Remove from heap">\u00d7</button>
+                  <button type="button" data-heap-action="remove" data-heap-card-id="${escapeHtml(card.id)}" title="Remove from heap" aria-label="Remove ${escapeHtml(card.front || "Untitled card")} from heap">\u00d7</button>
                 </div>
               </div>
             `).join("");
@@ -2258,7 +2256,9 @@ const state = {
       const saved = await addHeap({ ...pending, updatedAt: Date.now() });
       state.heaps = (state.heaps || []).map((entry) => (entry.id === saved.id ? saved : entry));
       heapSaveBaselines.set(saved.id, [...(saved.cardIds || [])]);
-      renderHeapControls();
+      // The optimistic order is already on screen and matches what was saved.
+      // Re-rendering here would remove whatever handle has keyboard focus, so
+      // only refresh the grid's in-heap badges.
       syncGridHeapState();
     } catch (error) {
       suppressHeapDBRefresh = false;
@@ -2321,17 +2321,6 @@ const state = {
     const heap = getActiveHeap();
     if (!heap) return;
     await saveHeapCardIds(heap, (heap.cardIds || []).filter((id) => id !== cardId));
-  }
-
-  async function moveHeapCard(cardId, delta) {
-    const heap = getActiveHeap();
-    if (!heap) return;
-    const cardIds = [...(heap.cardIds || [])];
-    const index = cardIds.indexOf(cardId);
-    const nextIndex = index + delta;
-    if (index < 0 || nextIndex < 0 || nextIndex >= cardIds.length) return;
-    [cardIds[index], cardIds[nextIndex]] = [cardIds[nextIndex], cardIds[index]];
-    await saveHeapCardIds(heap, cardIds);
   }
 
   function reorderHeapCard(cardId, insertPosition) {
@@ -5526,9 +5515,7 @@ const state = {
         const cardId = actionBtn.dataset.heapCardId;
         const action = actionBtn.dataset.heapAction;
         if (!cardId) return;
-        if (action === "up") await moveHeapCard(cardId, -1);
-        else if (action === "down") await moveHeapCard(cardId, 1);
-        else if (action === "remove") await removeHeapCard(cardId);
+        if (action === "remove") await removeHeapCard(cardId);
       });
 
       // Pointer-based reorder. The list is re-rendered only once, on release,
@@ -5574,9 +5561,10 @@ const state = {
         heapDrag.dropPosition = heapDropPosition(e.clientY);
         const remaining = heapDrag.items.filter((element) => element !== heapDrag.item);
         remaining.forEach((element, index) => {
+          element.classList.toggle("drag-over-before", index === heapDrag.dropPosition);
           element.classList.toggle(
-            "drag-over",
-            index === Math.min(heapDrag.dropPosition, remaining.length - 1)
+            "drag-over-after",
+            heapDrag.dropPosition === remaining.length && index === remaining.length - 1
           );
         });
       });
@@ -5585,7 +5573,7 @@ const state = {
         if (!heapDrag || heapDrag.pointerId !== e.pointerId) return;
         const { cardId, item, items, startIndex, dropPosition } = heapDrag;
         heapDrag = null;
-        items.forEach((element) => element.classList.remove("dragging", "drag-over"));
+        items.forEach((element) => element.classList.remove("dragging", "drag-over-before", "drag-over-after"));
         item.classList.remove("dragging");
         try {
           if (item.hasPointerCapture?.(e.pointerId)) item.releasePointerCapture(e.pointerId);
@@ -5599,6 +5587,31 @@ const state = {
 
       libraryHeapItems.addEventListener("pointerup", (e) => finishHeapDrag(e));
       libraryHeapItems.addEventListener("pointercancel", (e) => finishHeapDrag(e, true));
+
+      // Keyboard reorder: the handle is a real button, so Arrow Up/Down moves
+      // the card without needing the old pair of arrow buttons.
+      libraryHeapItems.addEventListener("keydown", (e) => {
+        if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+        const target = e.target instanceof Element ? e.target : null;
+        const handle = target?.closest("[data-heap-drag-handle]");
+        const item = handle?.closest("[data-heap-item-id]");
+        const cardId = item?.dataset.heapItemId;
+        if (!cardId) return;
+        const items = Array.from(libraryHeapItems.querySelectorAll("[data-heap-item-id]"));
+        const index = items.indexOf(item);
+        const next = e.key === "ArrowUp" ? index - 1 : index + 1;
+        if (index < 0 || next < 0 || next >= items.length) return;
+        e.preventDefault();
+        reorderHeapCard(cardId, next);
+        // Re-rendering replaces the list (and removes the element that had
+        // focus). Wait for the browser's focus fix-up, then put focus back on
+        // the moved handle so arrow-key reordering stays usable.
+        setTimeout(() => {
+          libraryHeapItems
+            .querySelector(`[data-heap-item-id="${CSS.escape(cardId)}"] [data-heap-drag-handle]`)
+            ?.focus({ preventScroll: true });
+        }, 0);
+      });
     }
 
     if (canvas) {

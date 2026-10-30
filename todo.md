@@ -34,6 +34,8 @@ The product wishlist above is untouched.
 
 - One tabbed inspector: Details / Connections / Heap. A normal tap opens
   Details; Lock mode temporarily changes taps to lock/unlock.
+- Heap study order is rearranged by dragging the handle, or with Arrow Up/Down
+  while that handle is focused. There are no separate up/down buttons.
 - Layout persists per browser/owner under `nn-mindmap-layout-v1:<owner>`:
   positions, camera, view mode, type filter, focus subject, and explicit locks
   (`version: 2`).
