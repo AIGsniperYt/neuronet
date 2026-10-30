@@ -52,11 +52,17 @@ The product wishlist above is untouched.
 - Graph stat pills double as type filters (stats-only in Library and Dots).
 - Memory stats keeps the desktop drawer width on tablets; phones use a
   full-width sheet.
-- Double-tap page zoom is disabled with `touch-action: manipulation`; canvas
-  gestures use pointer events and `touch-action: none`.
+- The shell is pinned (`position: fixed`, fixed viewport height) so iPadOS cannot
+  drag or rubber-band the whole document. Page pinch zoom is disabled with
+  `touch-action: pan-x pan-y`; normal panel scrolling still works, and the
+  Mindmap canvas owns its own pinch gesture.
+- Form fields use `font-size: max(16px, …)`. iOS Safari zooms the page and
+  leaves it off-centre when a focused field is under 16px.
 
 ## Verify before calling the mindmap done
 
+- Emulated iPad (834×1194): shell height matches the viewport; every
+  input/textarea/select across all five tools computes to at least 16px.
 - Real iPad/Safari pass: double-tap zoom, pinch (including lifting one finger),
   Lock mode ergonomics and toolbar crowding, the 2-second drag-release feel.
 - `node --check src/tools/mindmapTool.js`

@@ -2471,7 +2471,9 @@
     border-radius: 10px;
     color: var(--text-main);
     font-family: inherit;
-    font-size: var(--text-base, 0.92rem);
+    /* iOS Safari zooms the page when a focused field is under 16px. That pans
+       the whole shell and can leave it off-centre after the keyboard closes. */
+    font-size: max(16px, var(--text-base, 0.92rem));
     transition: all 0.2s ease;
     box-sizing: border-box;
   }
@@ -2711,7 +2713,7 @@
     border-radius: 8px;
     color: var(--text-main);
     font-family: inherit;
-    font-size: var(--text-base, 0.92rem);
+    font-size: max(16px, var(--text-base, 0.92rem));
     transition: all 0.2s ease;
     box-sizing: border-box;
     resize: vertical;

@@ -102,6 +102,9 @@ textarea:focus-visible,
 }
 html {
   font-size: 16.5px;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 html, body {
   height: 100%;
@@ -112,11 +115,16 @@ body {
   text-rendering: optimizeLegibility;
   color: var(--text-main);
   background: radial-gradient(1200px 600px at 50% -10%, #143b2b, var(--bg-1));
+  /* The app is a fixed shell. Pinning the body stops iPadOS from dragging or
+     rubber-banding the whole document and exposing white behind the canvas.
+     touch-action still allows normal scrolling inside panels, but not pinch
+     zooming the page; the Mindmap canvas owns its own pinch gesture. */
+  position: fixed;
+  inset: 0;
+  width: 100%;
   overflow: hidden;
-  /* Keep pinch-zoom available, but stop iPadOS/Safari from treating a fast
-     double tap on a button as "zoom this page". Double-tapping Re-layout or
-     any other control should run the control twice, not zoom the app. */
-  touch-action: manipulation;
+  overscroll-behavior: none;
+  touch-action: pan-x pan-y;
 }
 /* Hide all scrollbars */
 ::-webkit-scrollbar,
@@ -163,6 +171,8 @@ canvas { position: fixed; inset:0; z-index:-1; }
 #app {
   display: flex;
   height: 100vh;
+  height: 100dvh;
+  min-height: 0;
   position: relative;
   z-index: 1;
   opacity: 1;
@@ -958,13 +968,24 @@ canvas { position: fixed; inset:0; z-index:-1; }
   color: #e6fff5;
   padding: 9px 12px;
   font: inherit;
-  font-size: var(--text-sm);
+  font-size: max(16px, var(--text-sm));
 }
 
 .inline-input:focus {
   outline: none;
   border-color: rgba(44, 255, 179, 0.45);
   box-shadow: 0 0 0 3px rgba(44, 255, 179, 0.08);
+}
+
+/* The vendored markdown editor uses a smaller size. iOS zooms the page when a
+   focused field is under 16px, so keep the editor at the same threshold as the
+   other form fields. */
+.mdedit .mdedit-editor {
+  font-size: 16px;
+}
+
+.mdedit .md {
+  font-size: 16px;
 }
 
 .icon-btn {
