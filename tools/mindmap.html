@@ -1060,6 +1060,24 @@
     outline-offset: 2px;
   }
 
+  /* The card is a container. This real button covers it for the primary
+     action, so the + Heap control is not nested inside another button. */
+  .mindmap-grid-open {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    padding: 0;
+    border: 0;
+    border-radius: inherit;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .mindmap-grid-open:focus-visible {
+    outline: 2px solid rgba(44, 255, 179, 0.55);
+    outline-offset: 2px;
+  }
+
   .mindmap-grid-card-top {
     display: flex;
     align-items: center;
@@ -1150,6 +1168,7 @@
     position: absolute;
     top: 8px;
     right: 8px;
+    z-index: 2;
     padding: 3px 8px;
     border: 1px solid rgba(34, 211, 238, 0.35);
     border-radius: 999px;

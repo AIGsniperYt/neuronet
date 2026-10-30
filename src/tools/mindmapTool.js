@@ -1913,8 +1913,17 @@ const state = {
   function syncGridSelection() {
     if (!gridContainer) return;
     gridContainer.querySelectorAll(".mindmap-grid-card").forEach((card) => {
-      card.classList.toggle("selected", card.dataset.nodeId === state.selectedNodeId);
-      card.classList.toggle("multi-selected", state.selectedCardIds.has(card.dataset.nodeId));
+      const id = card.dataset.nodeId;
+      const isMultiSelected = state.selectedCardIds.has(id);
+      card.classList.toggle("selected", id === state.selectedNodeId);
+      card.classList.toggle("multi-selected", isMultiSelected);
+      // Selection toggles only update classes, so keep the primary action's
+      // pressed state in step instead of leaving the value from the last render.
+      const openButton = card.querySelector(".mindmap-grid-open");
+      if (openButton) {
+        if (state.librarySelectMode) openButton.setAttribute("aria-pressed", String(isMultiSelected));
+        else openButton.removeAttribute("aria-pressed");
+      }
     });
     updateLibrarySelectionUI();
   }
@@ -2431,6 +2440,8 @@ const state = {
           cardIndex += 1;
           const isSelected = state.selectedNodeId === card.id;
           const isMultiSelected = state.selectedCardIds.has(card.id);
+          const cardTitle = String(card.title || "").trim() || "card";
+          const openLabel = state.librarySelectMode ? `Select ${cardTitle}` : `Open ${cardTitle}`;
           const titleAttr = [
             card.deck,
             card.priority ? `Priority ${card.priority}` : "No priority data",
@@ -2444,7 +2455,8 @@ const state = {
           ].filter(Boolean).join(" · ");
 
           return `
-            <div class="mindmap-grid-card${isSelected ? " selected" : ""}${isMultiSelected ? " multi-selected" : ""}${inHeap ? " in-heap" : ""}" role="button" tabindex="0" data-node-id="${escapeHtml(card.id)}"${state.librarySelectMode ? ` aria-pressed="${isMultiSelected}"` : ""} style="--importance-color: ${importanceColor}; animation-delay: ${delay}ms" title="${escapeHtml(titleAttr)}">
+            <div class="mindmap-grid-card${isSelected ? " selected" : ""}${isMultiSelected ? " multi-selected" : ""}${inHeap ? " in-heap" : ""}" data-node-id="${escapeHtml(card.id)}" style="--importance-color: ${importanceColor}; animation-delay: ${delay}ms" title="${escapeHtml(titleAttr)}">
+              <button type="button" class="mindmap-grid-open" aria-label="${escapeHtml(openLabel)}"${state.librarySelectMode ? ` aria-pressed="${isMultiSelected}"` : ""}></button>
               <span class="mindmap-grid-check" aria-hidden="true">\u2713</span>
               <button type="button" class="mindmap-grid-heap-btn${inHeap ? " in-heap" : ""}" data-heap-card-id="${escapeHtml(card.id)}" aria-pressed="${inHeap}" title="${inHeap ? "Remove from heap" : "Add to heap"}">${inHeap ? "\u2713 In Heap" : "+ Heap"}</button>
               <span class="mindmap-grid-card-top">
@@ -5430,7 +5442,7 @@ const state = {
           toggleLibraryCardSelection(card.dataset.nodeId);
           return;
         }
-        openNodeSidebar(card.dataset.nodeId, card);
+        openNodeSidebar(card.dataset.nodeId, card.querySelector(".mindmap-grid-open") || card);
         if (window.__neuronetCanvas?.triggerRadialPulse) {
           window.__neuronetCanvas.triggerRadialPulse(e.clientX, e.clientY, 1.0);
         }
@@ -5456,7 +5468,7 @@ const state = {
           toggleLibraryCardSelection(card.dataset.nodeId);
           return;
         }
-        openNodeSidebar(card.dataset.nodeId, card);
+        openNodeSidebar(card.dataset.nodeId, card.querySelector(".mindmap-grid-open") || card);
       });
     }
 
