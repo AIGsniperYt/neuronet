@@ -72,21 +72,14 @@ The product wishlist above is untouched.
 
 1. **Real device pass** — everything below is lower priority than what the iPad
    actually shows.
-2. **Heap reorder has no rollback.** `flushHeapSave()` alerts on failure but
-   keeps the optimistic order. Restore the last saved `cardIds` when a write
-   fails.
-3. **Heap tab header can go stale.** Switching or deleting the active heap while
-   the Heap tab is open updates the panel body but `sidebarType` can keep the
-   old heap name until the tab is reopened. Call `updateInspectorHeader()` when
-   the active heap changes.
-4. **Hidden nodes still exert physics.** Search and type filters change
+2. **Hidden nodes still exert physics.** Search and type filters change
    visibility and hit-testing, but `computeForces()` only excludes out-of-scope
    subjects. A large hidden cluster can still push visible nodes. Decide whether
    filtered nodes should be excluded from forces.
-5. **Layout is browser-local.** No cross-device sync and no named snapshots.
-6. **Locks made during the opening explosion persist after the settle timer**,
+3. **Layout is browser-local.** No cross-device sync and no named snapshots.
+4. **Locks made during the opening explosion persist after the settle timer**,
    not immediately. Acceptable unless it surprises real use.
-7. **Code cleanup:** `tools/mindmap.html` still has two style blocks; grid cards
+5. **Code cleanup:** `tools/mindmap.html` still has two style blocks; grid cards
    are a `div role="button"` containing a real button (ARIA nesting); muted
    labels and small icon buttons have not had a 44px/contrast audit.
 

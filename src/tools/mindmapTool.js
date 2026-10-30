@@ -2164,6 +2164,9 @@ const state = {
 
     renderHeapSidebar();
     updateHeapSidebarVisibility();
+    // The active heap can change while the Heap tab is already open (select,
+    // delete, create). Keep the inspector subtitle in step with the panel.
+    updateInspectorHeader();
   }
 
   async function createHeap() {
@@ -5043,6 +5046,7 @@ const state = {
     if (state.activeHeapId && !state.heaps.some((heap) => heap.id === state.activeHeapId)) {
       state.activeHeapId = null;
       state.heapSidebarOpen = false;
+      updateInspectorHeader();
     }
     state.layerNodes = computeLayerNodesFromSources(nodes);
 
