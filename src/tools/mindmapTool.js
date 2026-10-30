@@ -2202,8 +2202,15 @@ const state = {
   let heapSaveTimer = null;
   let pendingHeapSave = null;
   let suppressHeapDBRefresh = false;
+  // Last known persisted card order per heap. Optimistic edits update
+  // state.heaps immediately, so keep this so a failed write can restore the
+  // truth instead of leaving the UI showing an order the database refused.
+  const heapSaveBaselines = new Map();
 
   function applyHeapCardIds(heap, cardIds) {
+    if (!heapSaveBaselines.has(heap.id)) {
+      heapSaveBaselines.set(heap.id, [...(heap.cardIds || [])]);
+    }
     const next = { ...heap, cardIds: [...cardIds] };
     state.heaps = (state.heaps || []).map((entry) => (entry.id === heap.id ? next : entry));
     return next;
@@ -2238,11 +2245,25 @@ const state = {
       suppressHeapDBRefresh = true;
       const saved = await addHeap({ ...pending, updatedAt: Date.now() });
       state.heaps = (state.heaps || []).map((entry) => (entry.id === saved.id ? saved : entry));
+      heapSaveBaselines.set(saved.id, [...(saved.cardIds || [])]);
       renderHeapControls();
       syncGridHeapState();
     } catch (error) {
       suppressHeapDBRefresh = false;
       console.error("Failed to save heap:", error);
+      // If a newer edit for this same heap is already queued, leave it alone
+      // and let its own save decide. Otherwise put the last persisted order
+      // back so the UI and database agree.
+      if (pendingHeapSave?.id !== pending.id) {
+        const baseline = heapSaveBaselines.get(pending.id);
+        if (baseline) {
+          state.heaps = (state.heaps || []).map((entry) => (
+            entry.id === pending.id ? { ...entry, cardIds: [...baseline] } : entry
+          ));
+          renderHeapControls();
+          syncGridHeapState();
+        }
+      }
       dialog.alert("Failed to save heap: " + error.message);
     }
   }
@@ -2339,6 +2360,7 @@ const state = {
     try {
       await deleteHeap(heap.id);
       state.heaps = (state.heaps || []).filter((entry) => entry.id !== heap.id);
+      heapSaveBaselines.delete(heap.id);
       state.activeHeapId = state.heaps[0]?.id || null;
       state.heapSidebarOpen = Boolean(state.activeHeapId);
       renderHeapControls();
@@ -5007,6 +5029,17 @@ const state = {
     state.tags = tags;
     state.cards = cards || [];
     state.heaps = mergeHeapOrder(heaps);
+    const liveHeapIds = new Set(state.heaps.map((entry) => entry.id));
+    heapSaveBaselines.forEach((_, id) => {
+      if (!liveHeapIds.has(id)) heapSaveBaselines.delete(id);
+    });
+    if (!pendingHeapSave && !heapSaveTimer) {
+      // Idle refresh: the database is authoritative again, so move the
+      // rollback targets forward too.
+      state.heaps.forEach((entry) => {
+        heapSaveBaselines.set(entry.id, [...(entry.cardIds || [])]);
+      });
+    }
     if (state.activeHeapId && !state.heaps.some((heap) => heap.id === state.activeHeapId)) {
       state.activeHeapId = null;
       state.heapSidebarOpen = false;
