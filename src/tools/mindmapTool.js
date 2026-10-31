@@ -5564,9 +5564,13 @@ const state = {
       libraryHeapItems.addEventListener("pointerdown", (e) => {
         const target = e.target instanceof Element ? e.target : null;
         const handle = target?.closest("[data-heap-drag-handle]");
-        const item = handle?.closest("[data-heap-item-id]");
+        // With a mouse the whole row is a drag surface. Touch and pen keep the
+        // handle so a finger swipe still scrolls the list.
+        const fromRow = e.pointerType === "mouse" && !target?.closest("[data-heap-action]");
+        const item = (handle || (fromRow ? target : null))?.closest("[data-heap-item-id]");
         if (!item || !libraryHeapItems.contains(item) || !getActiveHeap()) return;
         if (e.button !== 0) return;
+        const captureEl = handle || item;
         const items = Array.from(libraryHeapItems.querySelectorAll("[data-heap-item-id]"));
         const startRect = item.getBoundingClientRect();
         heapDrag = {
@@ -5581,15 +5585,15 @@ const state = {
           listRect: libraryHeapItems.getBoundingClientRect(),
           startScrollTop: libraryHeapItems.scrollTop,
           rects: new Map(items.map((element) => [element, element.getBoundingClientRect()])),
-          captureEl: handle
+          captureEl
         };
         item.classList.add("dragging");
         libraryHeapItems.classList.add("heap-dragging");
         // preventDefault stops text selection/native drag, but it also blocks
         // the button's default focus, so focus it explicitly.
-        handle.focus({ preventScroll: true });
+        handle?.focus({ preventScroll: true });
         try {
-          handle.setPointerCapture?.(e.pointerId);
+          captureEl.setPointerCapture?.(e.pointerId);
         } catch (_) {
           // Synthetic events have no active pointer to capture.
         }

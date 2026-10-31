@@ -1320,6 +1320,16 @@
     user-select: none;
   }
 
+  @media (pointer: fine) {
+    .library-heap-item {
+      cursor: grab;
+    }
+
+    .library-heap-item.dragging {
+      cursor: grabbing;
+    }
+  }
+
   .library-heap-item.dragging {
     position: relative;
     z-index: 2;
