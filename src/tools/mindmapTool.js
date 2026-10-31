@@ -5518,19 +5518,47 @@ const state = {
         if (action === "remove") await removeHeapCard(cardId);
       });
 
-      // Pointer-based reorder. The list is re-rendered only once, on release,
-      // so the dragged element is never destroyed mid-gesture.
+      // Pointer-based reorder. The dragged row follows the pointer, the other
+      // rows slide aside to open a gap, and the list is re-rendered only once,
+      // on release, so the dragged element is never destroyed mid-gesture.
       let heapDrag = null;
 
       const heapDropPosition = (clientY) => {
+        const scrollDelta = libraryHeapItems.scrollTop - heapDrag.startScrollTop;
         const remaining = heapDrag.items.filter((element) => element !== heapDrag.item);
         let position = 0;
         for (const element of remaining) {
-          const rect = element.getBoundingClientRect();
-          if (clientY > rect.top + rect.height / 2) position += 1;
+          // Use the rects captured at drag start: the live rects include the
+          // transforms that are shifting rows around.
+          const rect = heapDrag.rects.get(element);
+          if (clientY > rect.top - scrollDelta + rect.height / 2) position += 1;
           else break;
         }
         return position;
+      };
+
+      const shiftHeapItems = (dropPosition) => {
+        const { items, item, startIndex } = heapDrag;
+        const span = item.offsetHeight + 6;
+        // Indexes are into the list without the dragged row, which is the same
+        // numbering heapDropPosition uses.
+        items
+          .filter((element) => element !== item)
+          .forEach((element, index) => {
+            let shift = 0;
+            if (startIndex < dropPosition && index >= startIndex && index < dropPosition) shift = -span;
+            else if (startIndex > dropPosition && index >= dropPosition && index < startIndex) shift = span;
+            element.style.transform = shift ? `translateY(${shift}px)` : "";
+          });
+      };
+
+      const clearHeapDraft = () => {
+        if (!heapDrag) return;
+        heapDrag.items.forEach((element) => {
+          element.classList.remove("dragging");
+          element.style.transform = "";
+        });
+        libraryHeapItems.classList.remove("heap-dragging");
       };
 
       libraryHeapItems.addEventListener("pointerdown", (e) => {
@@ -5538,45 +5566,61 @@ const state = {
         const handle = target?.closest("[data-heap-drag-handle]");
         const item = handle?.closest("[data-heap-item-id]");
         if (!item || !libraryHeapItems.contains(item) || !getActiveHeap()) return;
+        if (e.button !== 0) return;
         const items = Array.from(libraryHeapItems.querySelectorAll("[data-heap-item-id]"));
+        const startRect = item.getBoundingClientRect();
         heapDrag = {
           pointerId: e.pointerId,
           cardId: item.dataset.heapItemId,
           item,
           items,
           startIndex: items.indexOf(item),
-          dropPosition: items.indexOf(item)
+          dropPosition: items.indexOf(item),
+          startY: e.clientY,
+          startRect,
+          listRect: libraryHeapItems.getBoundingClientRect(),
+          startScrollTop: libraryHeapItems.scrollTop,
+          rects: new Map(items.map((element) => [element, element.getBoundingClientRect()])),
+          captureEl: handle
         };
         item.classList.add("dragging");
-        handle.setPointerCapture?.(e.pointerId);
+        libraryHeapItems.classList.add("heap-dragging");
+        // preventDefault stops text selection/native drag, but it also blocks
+        // the button's default focus, so focus it explicitly.
+        handle.focus({ preventScroll: true });
+        try {
+          handle.setPointerCapture?.(e.pointerId);
+        } catch (_) {
+          // Synthetic events have no active pointer to capture.
+        }
         e.preventDefault();
       });
 
       libraryHeapItems.addEventListener("pointermove", (e) => {
         if (!heapDrag || heapDrag.pointerId !== e.pointerId) return;
-        const rect = libraryHeapItems.getBoundingClientRect();
-        if (e.clientY < rect.top + 36) libraryHeapItems.scrollTop -= 10;
-        else if (e.clientY > rect.bottom - 36) libraryHeapItems.scrollTop += 10;
+        e.preventDefault();
+        const { listRect, startRect } = heapDrag;
+        if (e.clientY < listRect.top + 36) libraryHeapItems.scrollTop -= 12;
+        else if (e.clientY > listRect.bottom - 36) libraryHeapItems.scrollTop += 12;
+
+        // Follow the pointer, including any scrolling the list did mid-drag.
+        const scrollDelta = libraryHeapItems.scrollTop - heapDrag.startScrollTop;
+        const min = listRect.top - startRect.top + scrollDelta + 4;
+        const max = listRect.bottom - startRect.bottom + scrollDelta - 4;
+        const offset = Math.max(min, Math.min(max, e.clientY - heapDrag.startY + scrollDelta));
+        heapDrag.item.style.transform = `translateY(${offset}px)`;
 
         heapDrag.dropPosition = heapDropPosition(e.clientY);
-        const remaining = heapDrag.items.filter((element) => element !== heapDrag.item);
-        remaining.forEach((element, index) => {
-          element.classList.toggle("drag-over-before", index === heapDrag.dropPosition);
-          element.classList.toggle(
-            "drag-over-after",
-            heapDrag.dropPosition === remaining.length && index === remaining.length - 1
-          );
-        });
+        shiftHeapItems(heapDrag.dropPosition);
       });
 
       const finishHeapDrag = (e, cancelled = false) => {
         if (!heapDrag || heapDrag.pointerId !== e.pointerId) return;
-        const { cardId, item, items, startIndex, dropPosition } = heapDrag;
+        const { cardId, startIndex, dropPosition, captureEl } = heapDrag;
+        clearHeapDraft();
         heapDrag = null;
-        items.forEach((element) => element.classList.remove("dragging", "drag-over-before", "drag-over-after"));
-        item.classList.remove("dragging");
         try {
-          if (item.hasPointerCapture?.(e.pointerId)) item.releasePointerCapture(e.pointerId);
+          if (captureEl?.hasPointerCapture?.(e.pointerId)) captureEl.releasePointerCapture(e.pointerId);
         } catch (_) {
           // Already released.
         }

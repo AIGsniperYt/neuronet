@@ -1308,25 +1308,30 @@
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 9px;
     background: rgba(255, 255, 255, 0.025);
+    transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease,
+      background-color 140ms ease;
   }
 
   .library-heap-item + .library-heap-item {
     margin-top: 6px;
   }
 
+  .library-heap-items.heap-dragging {
+    user-select: none;
+  }
+
   .library-heap-item.dragging {
-    opacity: 0.55;
-    border-color: rgba(34, 211, 238, 0.5);
+    position: relative;
+    z-index: 2;
+    transition: none;
+    border-color: rgba(34, 211, 238, 0.55);
+    background: rgba(34, 211, 238, 0.08);
+    box-shadow: 0 12px 26px rgba(0, 0, 0, 0.45);
   }
 
-  .library-heap-item.drag-over-before {
-    border-color: rgba(34, 211, 238, 0.65);
-    box-shadow: inset 0 2px 0 rgba(34, 211, 238, 0.65);
-  }
-
-  .library-heap-item.drag-over-after {
-    border-color: rgba(34, 211, 238, 0.65);
-    box-shadow: inset 0 -2px 0 rgba(34, 211, 238, 0.65);
+  .library-heap-item.dragging .heap-drag-handle {
+    cursor: grabbing;
+    color: var(--text-main);
   }
 
   .heap-drag-handle {
