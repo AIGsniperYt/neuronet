@@ -402,9 +402,98 @@ export async function initMemoryTool(deps, context = {}) {
     manualStudyHeapBtn = document.getElementById("manualStudyHeapBtn");
   }
 
+  let activeModal = null;
+  let lastModalFocus = null;
+
+  function setStatsOpen(open) {
+    if (!memoryStats) return;
+    memoryStats.classList.toggle("open", !!open);
+    memoryStats.toggleAttribute("inert", !open);
+    memoryStats.setAttribute("aria-hidden", String(!open));
+  }
+
+  function setBackgroundInert(isInert) {
+    for (const id of ["mainContent", "sidebar"]) {
+      const el = document.getElementById(id);
+      if (el) el.toggleAttribute("inert", isInert);
+    }
+  }
+
+  function showModal(modalEl) {
+    if (!modalEl) return;
+    if (!activeModal) lastModalFocus = document.activeElement;
+    activeModal = modalEl;
+    modalEl.style.display = "flex";
+    modalEl.removeAttribute("inert");
+    modalEl.setAttribute("aria-hidden", "false");
+    setBackgroundInert(true);
+  }
+
+  function hideModal(modalEl) {
+    if (!modalEl) return;
+    modalEl.style.display = "none";
+    modalEl.setAttribute("aria-hidden", "true");
+    if (activeModal !== modalEl) return;
+    activeModal = null;
+    setBackgroundInert(false);
+    if (lastModalFocus && document.contains(lastModalFocus)) {
+      lastModalFocus.focus({ preventScroll: true });
+    }
+    lastModalFocus = null;
+  }
+
+  function portalModals() {
+    // #mainContent has a backdrop-filter, which makes position:fixed children
+    // resolve against it instead of the viewport. Move the modals to <body> so
+    // they actually cover the whole shell, and remove them on tool teardown.
+    [deckBuilderModal, quickAddModal].forEach((modalEl) => {
+      if (modalEl && modalEl.parentNode !== document.body) {
+        document.body.appendChild(modalEl);
+      }
+    });
+  }
+
+  function trapModalFocus(modalEl) {
+    if (!modalEl || modalEl.dataset.focusTrap === "1") return;
+    modalEl.dataset.focusTrap = "1";
+    modalEl.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !e.defaultPrevented) {
+        e.preventDefault();
+        if (modalEl === deckBuilderModal) closeDeckBuilder();
+        else if (modalEl === quickAddModal) closeQuickAdd();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const focusable = Array.from(modalEl.querySelectorAll(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )).filter((el) => el.offsetParent !== null);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    });
+  }
+
+  function isInteractiveTarget(target) {
+    if (!(target instanceof Element)) return false;
+    if (target.isContentEditable) return true;
+    const tag = target.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT"
+      || Boolean(target.closest("button, a, [role='button'], [contenteditable='true']"));
+  }
+
   async function initialize() {
     try {
       getDOMElements();
+      portalModals();
+      trapModalFocus(deckBuilderModal);
+      trapModalFocus(quickAddModal);
       await loadLaunchpad();
       await loadManualHeaps();
       if (contextHeapId) {
@@ -504,46 +593,19 @@ export async function initMemoryTool(deps, context = {}) {
     }
 
     if (statsBtn) {
-      let statsInterval = null;
-
-      const openStats = () => {
-        renderSidebar();
-        updateSystemThought();
-        if (memoryStats) memoryStats.classList.add("open");
-        if (!statsInterval) {
-          statsInterval = setInterval(() => {
-            if (memoryStats && memoryStats.classList.contains("open")) {
-              renderSidebar();  // was renderStats()
-            } else {
-              clearInterval(statsInterval);
-              statsInterval = null;
-            }
-          }, 1000);
-        }
-      };
-
-      const closeStats = () => {
-        if (memoryStats) memoryStats.classList.remove("open");
-        clearInterval(statsInterval);
-        statsInterval = null;
-      };
-
       statsBtn.addEventListener("click", () => {
         if (memoryStats && memoryStats.classList.contains("open")) {
-          closeStats();
+          setStatsOpen(false);
         } else {
-          openStats();
+          renderSidebar();
+          updateSystemThought();
+          setStatsOpen(true);
         }
       });
 
       if (closeStatsBtn) {
-        closeStatsBtn.addEventListener("click", closeStats);
+        closeStatsBtn.addEventListener("click", () => setStatsOpen(false));
       }
-
-      window.__neuronetStatsCleanup = () => {
-        clearInterval(statsInterval);
-        statsInterval = null;
-      };
     }
 
 
@@ -673,9 +735,7 @@ export async function initMemoryTool(deps, context = {}) {
 
     if (closeStatsBtn && !closeStatsBtn.dataset.bound) {
       closeStatsBtn.dataset.bound = "1";
-      closeStatsBtn.addEventListener("click", () => {
-        if (memoryStats) memoryStats.classList.remove("open");
-      });
+      closeStatsBtn.addEventListener("click", () => setStatsOpen(false));
     }
 
     if (flashcard) {
@@ -3285,6 +3345,10 @@ export async function initMemoryTool(deps, context = {}) {
     }
 
     renderRoundProgress();
+
+    // Stats used to poll every second, which rebuilt the panel and stole
+    // focus. Refresh it only when the study state actually changes.
+    if (memoryStats?.classList.contains("open")) renderSidebar();
   }
 
   function renderRoundProgress() {
@@ -4049,9 +4113,8 @@ export async function initMemoryTool(deps, context = {}) {
     if (!cardId) return;
     state.inspectedCardId = cardId;
     setSidebarMode(SIDEBAR_MODES.INSPECT);
-    const memoryStats = document.getElementById("memoryStats");
     if (memoryStats && !memoryStats.classList.contains("open")) {
-      memoryStats.classList.add("open");
+      setStatsOpen(true);
     }
   }
 
@@ -4543,7 +4606,7 @@ export async function initMemoryTool(deps, context = {}) {
   function openDeckBuilder() {
     resetDeckBuilderState();
     if (builderTitle) builderTitle.textContent = "Create New Deck";
-    if (deckBuilderModal) deckBuilderModal.style.display = "flex";
+    showModal(deckBuilderModal);
     showDeckBuilderStep(1);
     // A quick-action launch should be ready to type immediately.
     requestAnimationFrame(() => deckNameInput?.focus());
@@ -4615,12 +4678,12 @@ export async function initMemoryTool(deps, context = {}) {
 
     renderFlashcardList();
     if (finishDeckBtn) finishDeckBtn.textContent = "Save Changes";
-    if (deckBuilderModal) deckBuilderModal.style.display = "flex";
+    showModal(deckBuilderModal);
     showDeckBuilderStep(2);
   }
 
   function closeDeckBuilder() {
-    if (deckBuilderModal) deckBuilderModal.style.display = "none";
+    hideModal(deckBuilderModal);
     resetDeckBuilderState();
   }
 
@@ -5077,7 +5140,7 @@ export async function initMemoryTool(deps, context = {}) {
     quickAddState.priority = 3;
     quickAddState.nextOrders.clear();
 
-    quickAddModal.style.display = "flex";
+    showModal(quickAddModal);
     await populateQuickAddDeckOptions();
 
     const presetDeck = String(deck || contextSubject || quickAddState.lastDeck || "").trim();
@@ -5103,7 +5166,7 @@ export async function initMemoryTool(deps, context = {}) {
     if (!quickAddState.isOpen) return;
     quickAddState.isOpen = false;
     setQuickAddBusy(false);
-    if (quickAddModal) quickAddModal.style.display = "none";
+    hideModal(quickAddModal);
 
     // Deck counts and new decks only need to refresh once the modal closes;
     // per-card db-change events are suppressed while it is open.
@@ -6031,7 +6094,13 @@ export async function initMemoryTool(deps, context = {}) {
   window.__neuronetMemoryCleanup = () => {
     document.removeEventListener("db-change", handleDBChange);
     document.removeEventListener("keydown", handleKeyDown);
-    if (window.__neuronetStatsCleanup) window.__neuronetStatsCleanup();
+    if (activeModal) {
+      activeModal = null;
+      setBackgroundInert(false);
+    }
+    // These were moved to <body> so they could cover the fixed shell.
+    deckBuilderModal?.remove();
+    quickAddModal?.remove();
   };
 
   await initialize();

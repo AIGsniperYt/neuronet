@@ -29,12 +29,12 @@
   </div>
 
   <!-- Deck Builder Modal -->
-  <div id="deckBuilderModal" class="deck-builder-modal" style="display: none;">
+  <div id="deckBuilderModal" class="deck-builder-modal" role="dialog" aria-modal="true" aria-labelledby="builderTitle" aria-hidden="true" style="display: none;">
     <div class="deck-builder-overlay"></div>
     <div class="deck-builder-container">
       <div class="deck-builder-header">
         <h2 id="builderTitle">Create New Deck</h2>
-        <button id="closeDeckBuilderBtn" class="close-btn">&times;</button>
+        <button id="closeDeckBuilderBtn" class="close-btn" type="button" aria-label="Close">&times;</button>
       </div>
 
       <div class="deck-builder-content">
@@ -153,12 +153,12 @@
   </div>
 
   <!-- Quick Add Modal: capture cards without a source/quote/analysis pipeline -->
-  <div id="quickAddModal" class="deck-builder-modal" style="display: none;">
+  <div id="quickAddModal" class="deck-builder-modal" role="dialog" aria-modal="true" aria-labelledby="quickAddTitle" aria-hidden="true" style="display: none;">
     <div class="deck-builder-overlay" id="quickAddOverlay"></div>
     <div class="deck-builder-container quick-add-container">
       <div class="deck-builder-header">
         <div>
-          <h2>Add Cards</h2>
+          <h2 id="quickAddTitle">Add Cards</h2>
           <p class="quick-add-subtitle">Capture a card directly. Link it to material later, or never.</p>
         </div>
         <button id="closeQuickAddBtn" class="close-btn" type="button" aria-label="Close">&times;</button>
@@ -345,7 +345,7 @@
   </div>
 
   <!-- Stats Panel - Right Sidebar -->
-  <div id="memoryStats">
+  <div id="memoryStats" inert aria-hidden="true">
     <div class="stats-header">
       <span id="sidebarHeaderTitle">Focus</span>
       <div style="display: flex; gap: 8px; align-items: center;">
@@ -1223,13 +1223,32 @@
     display: flex;
     flex-direction: column;
     transform: translateX(100%);
-    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    visibility: hidden;
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s linear 0.3s;
     z-index: 20;
     box-shadow: -8px 0 32px rgba(0,0,0,0.3);
   }
 
   #memoryStats.open {
     transform: translateX(0);
+    visibility: visible;
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  #closeStatsBtn,
+  #resetMemoryBtn {
+    min-height: 44px;
+  }
+
+  /* .memory-btn transitions `all`, which made the close/reset buttons inherit
+     the panel's visibility change over 200ms. They were untappable for that
+     window every time the drawer opened. Transition only the visual bits. */
+  #memoryStats .memory-btn {
+    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+  }
+
+  #closeStatsBtn {
+    min-width: 44px;
   }
 
   .stats-header {
@@ -2201,7 +2220,8 @@
 .deck-builder-container {
   position: relative;
   z-index: 10001;
-  background: var(--panel-bg);
+  /* Solid, not translucent: deck cards must not bleed through the sheet. */
+  background: var(--bg-1);
   border: 1px solid rgba(44,255,179,0.25);
   border-radius: 20px;
   box-shadow:
