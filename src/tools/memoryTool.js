@@ -194,6 +194,8 @@ export async function initMemoryTool(deps, context = {}) {
     explorerPage: 0,
     explorerCards: [],
     explorerLoading: false,
+    explorerLoaded: false,
+    explorerSubject: null,
     routerDebug: {
       startType: null,
       heapSize: 0,
@@ -1074,7 +1076,9 @@ export async function initMemoryTool(deps, context = {}) {
   }
 
   async function handleKeyDown(e) {
-    if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+    // Study shortcuts belong to the card surface. If a button, link, select,
+    // editable field or open modal has focus, let the control handle the key.
+    if (activeModal || isInteractiveTarget(e.target)) return;
 
     // Priority shortcut: Ctrl+1-5 to set quote priority
     if (e.ctrlKey && e.key >= "1" && e.key <= "5") {
@@ -1742,27 +1746,6 @@ export async function initMemoryTool(deps, context = {}) {
     if (kind === "analysis") return 8000;
     if (kind === "blurt") return 15000;
     return 4000;
-  }
-
-  function getMemoryStateFromMeta(meta = {}, kind) {
-    return {
-      S: clampNumber(Number(meta.S ?? 1.0), 0.1, 1000),
-      D: clampNumber(Number(meta.D ?? 1.0), 0.1, 1000),
-      U: clampNumber(Number(meta.U ?? 0.5), 0, 1),
-      interval: clampNumber(Number(meta.interval ?? 0.1), 0.1, 365),
-      nextReview: Number.isFinite(Number(meta.nextReview)) ? Number(meta.nextReview) : 0,
-      lastReview: Number.isFinite(Number(meta.lastReview)) ? Number(meta.lastReview) : null,
-      reviewCount: Number.isFinite(Number(meta.reviewCount)) ? meta.reviewCount : 0,
-      expectedTime: clampNumber(Number(meta.expectedTime ?? (getExpectedTimeMs(kind) / 1000)), 1, 120),
-      avgTime: clampNumber(Number(meta.avgTime ?? (getExpectedTimeMs(kind) / 1000)), 0.2, 240),
-      timeVariance: clampNumber(Number(meta.timeVariance ?? 0.7), 0, 1000),
-      consistency: clampNumber(Number(meta.consistency ?? 0.7), 0, 1),
-      confidence: clampNumber(Number(meta.confidence ?? 0.7), 0, 1),
-      L_phase: meta.L_phase || null,
-      easyStreak: Number.isFinite(Number(meta.easyStreak)) ? Number(meta.easyStreak) : 0,
-      recentGrades: Array.isArray(meta.recentGrades) ? meta.recentGrades.slice(-6) : [],
-      lastGrade: meta.lastGrade || null
-    };
   }
 
   function mergeMemoryStateIntoMeta(existingMeta = {}, memoryState) {
@@ -3085,6 +3068,7 @@ export async function initMemoryTool(deps, context = {}) {
       && window.matchMedia("(max-width: 1000px)").matches;
     studyContextRail.classList.toggle("collapsed", collapsed);
     studyContextRail.setAttribute("aria-hidden", collapsed && narrow ? "true" : "false");
+    studyContextRail.toggleAttribute("inert", collapsed && narrow);
 
     if (contextToggleBtn) {
       contextToggleBtn.classList.toggle("active", !collapsed);
@@ -4137,23 +4121,6 @@ export async function initMemoryTool(deps, context = {}) {
     return allCards;
   }
 
-  function computeBasePriority(card) {
-    return (card.memoryState?.priority || 0);
-  }
-
-  function computeOverdueBoost(card) {
-    const now = Date.now();
-    const nextReview = card.memoryState?.nextReview || now;
-    const overdueDays = (now - nextReview) / 86400000;
-    return Math.max(0, overdueDays);
-  }
-
-  function computePhaseBoost(card) {
-    const phase = card.meta?.L_phase || "new";
-    const boosts = { new: 0.5, warming: 0.3, stabilising: 0.1, stable: 0, mastered: -0.3 };
-    return boosts[phase] || 0;
-  }
-
   function getMemoryStateFromMeta(meta = {}, kind = "quote") {
     return {
       S: Number(meta?.S || 1),
@@ -4167,39 +4134,61 @@ export async function initMemoryTool(deps, context = {}) {
   }
 
   async function loadExplorerCards() {
-    if (!state.currentSubject) { state.explorerCards = []; return; }
+    const subject = state.currentSubject;
+    if (!subject) {
+      state.explorerCards = [];
+      state.explorerLoaded = true;
+      return;
+    }
     state.explorerLoading = true;
+    state.explorerLoaded = false;
     try {
       const [cards, analyses] = await Promise.all([
-        getCardsForDeck(state.currentSubject),
-        getAnalysisNodesForSubject(state.currentSubject)
+        getCardsForDeck(subject),
+        getAnalysisNodesForSubject(subject)
       ]);
+      if (subject !== state.currentSubject) return;
       const deckCards = (cards || []).map(card => ({
         id: card.id,
         kind: "card",
         text: card.back || card.front || "",
-        subject: card.deck || state.currentSubject,
+        subject: card.deck || subject,
         layers: (card.deckPath || []).slice(1, 4).filter(Boolean),
         tags: card.tags || [],
         priority: card.priority,
         ms: getMemoryStateFromMeta(card.meta || {}, "card")
       }));
       const analysisCards = (analyses || []).map(a => ({
-        id: a.id, kind: "analysis", text: a.analysis || "", subject: a.subject || state.currentSubject,
+        id: a.id, kind: "analysis", text: a.analysis || "", subject: a.subject || subject,
         layers: (a.meta?.hierarchyPath || []).slice(1, 4).filter(Boolean),
         tags: a.tags || [], priority: null,
         ms: getMemoryStateFromMeta(a.meta || {}, "analysis")
       }));
       state.explorerCards = [...deckCards, ...analysisCards];
     } catch (e) {
-      console.warn("Explorer load error:", e);
-      state.explorerCards = [];
+      if (subject === state.currentSubject) {
+        console.warn("Explorer load error:", e);
+        state.explorerCards = [];
+      }
+    } finally {
+      // A newer subject may have started loading while this request was in
+      // flight; only the current subject may clear the flags.
+      if (subject === state.currentSubject) {
+        state.explorerLoading = false;
+        state.explorerLoaded = true;
+      }
     }
-    state.explorerLoading = false;
   }
 
   function renderExploreMode() {
     if (!statsContent) return;
+    if (state.explorerSubject !== state.currentSubject) {
+      state.explorerSubject = state.currentSubject || "";
+      state.explorerLoaded = false;
+      state.explorerLoading = false;
+      state.explorerCards = [];
+      state.explorerPage = 0;
+    }
     if (!state.currentSubject) {
       statsContent.innerHTML = `
         <div class="inspect-placeholder">
@@ -4213,6 +4202,14 @@ export async function initMemoryTool(deps, context = {}) {
       return;
     }
     if (state.explorerCards.length === 0) {
+      if (state.explorerLoaded) {
+        statsContent.innerHTML = `
+          <div class="inspect-placeholder">
+            <div class="inspect-placeholder-icon">\uD83D\uDDC2</div>
+            <div>No cards in this deck yet.<br>Add cards from the Memory library.</div>
+          </div>`;
+        return;
+      }
       loadExplorerCards().then(() => renderSidebar());
       statsContent.innerHTML = `<div class="inspect-placeholder"><div style="color:var(--accent);">Loading cards\u2026</div></div>`;
       return;
@@ -4698,6 +4695,15 @@ export async function initMemoryTool(deps, context = {}) {
     if (deckNameInput) deckNameInput.value = "";
     if (deckDescriptionInput) deckDescriptionInput.value = "";
     if (finishDeckBtn) finishDeckBtn.textContent = "Finish Deck";
+    updateDeckBuilderFinishState();
+  }
+
+  function updateDeckBuilderFinishState() {
+    if (!finishDeckBtn) return;
+    const empty = deckBuilderState.cards.length === 0;
+    finishDeckBtn.disabled = empty;
+    finishDeckBtn.title = empty ? "Add at least one card first" : "";
+    if (cardCountDisplay) cardCountDisplay.textContent = deckBuilderState.cards.length;
   }
 
   function showDeckBuilderStep(step) {
@@ -4718,6 +4724,7 @@ export async function initMemoryTool(deps, context = {}) {
       renderPriorityPills();
       clearForm();
     }
+    updateDeckBuilderFinishState();
   }
 
   function renderPriorityPills() {
@@ -4871,6 +4878,7 @@ export async function initMemoryTool(deps, context = {}) {
     if (!flashcardList) return;
 
     if (cardCount) cardCount.textContent = deckBuilderState.cards.length;
+    updateDeckBuilderFinishState();
     flashcardList.innerHTML = "";
 
     deckBuilderState.cards.forEach((card, realIndex) => {
