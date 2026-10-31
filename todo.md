@@ -24,64 +24,153 @@ remove layers to replace with tags, cus cant they do everything layers do but be
 
 ---
 
-# Mindmap: current state and next steps
+# Audit briefs for fresh agents
 
-Last updated 2026-10-30. The earlier audit and implementation logs were cleared
-from this file; they remain available in git history (`git log -p -- todo.md`).
-The product wishlist above is untouched.
+Read-only audits: investigate, critique, and return a spec. The agent must not
+modify, commit, or push code, and should keep scripts/screenshots in
+`/tmp/opencode`.
 
-## Working behaviour
+## Shared preamble
 
-- One tabbed inspector: Details / Connections / Heap. A normal tap opens
-  Details; Lock mode temporarily changes taps to lock/unlock.
-- Heap study order is rearranged by dragging the handle, or with Arrow Up/Down
-  while that handle is focused. There are no separate up/down buttons.
-- Layout persists per browser/owner under `nn-mindmap-layout-v1:<owner>`:
-  positions, camera, view mode, type filter, focus subject, and explicit locks
-  (`version: 2`).
-- Restored layouts are pinned so physics keeps the saved arrangement.
-  Re-layout unpins, re-explodes, reframes the camera, and keeps locks fixed.
-- `pinnedNodes` is an invisible session hold (restored layouts, drag grace).
-  `lockedNodes` is an explicit, persisted user lock.
-- Dragging moves a node. On drop it is held about 2 seconds so neighbours can
-  settle, then physics reclaims it. Lock position / Lock mode hold it
-  indefinitely.
-- Lock visuals use node colour only: unlocked nodes are hollow, locked nodes
-  fill and gain a brighter ring. Locking pulses one fading ring; unlocking
-  shatters into particles. No padlocks.
-- A red Unlock all pill appears only when locks exist. There is no lock-all by
-  design; physics settles the map naturally.
-- Graph stat pills double as type filters (stats-only in Library and Dots).
-- Memory stats keeps the desktop drawer width on tablets; phones use a
-  full-width sheet.
-- The shell is pinned (`position: fixed`, fixed viewport height) so iPadOS cannot
-  drag or rubber-band the whole document. Page pinch zoom is disabled with
-  `touch-action: pan-x pan-y`; normal panel scrolling still works, and the
-  Mindmap canvas owns its own pinch gesture.
-- Form fields use `font-size: max(16px, …)`. iOS Safari zooms the page and
-  leaves it off-centre when a focused field is under 16px.
+```text
+You are a senior frontend/UX engineer doing a read-only product and code audit.
+Do not modify, commit, or push anything. Do not install dependencies. Your job is
+a critical, evidence-backed report, not an implementation.
 
-## Verify before calling the mindmap done
+Repository: /home/aigsniper/Documents/website/neuronet/frontend
+Product: NeuroNet, a local-first study app. Vanilla JS, no framework. Each tool is
+an HTML fragment loaded into index.html. IndexedDB lives in src/db.js. Demo data
+is demo-data.json. Tests: node tests/run.mjs.
 
-- Emulated iPad (834×1194): shell height matches the viewport; every
-  input/textarea/select across all five tools computes to at least 16px.
-- Real iPad/Safari pass: double-tap zoom, pinch (including lifting one finger),
-  Lock mode ergonomics and toolbar crowding, the 2-second drag-release feel.
-- `node --check src/tools/mindmapTool.js`
-- `node tests/run.mjs` (88 existing assertions)
+HOW TO RUN
+  cd /home/aigsniper/Documents/website/neuronet/frontend
+  python3 -m http.server 5500
+  open http://127.0.0.1:5500/index.html
+Click the profile card (bottom left) -> Import Demo Data, then open the tool.
+puppeteer-core is in node_modules; Chrome is /usr/bin/google-chrome. Emulate an
+iPad at 834x1194 with touch. Put scripts/screenshots in /tmp/opencode and leave
+the repo untouched.
 
-## Known open issues, priority order
+CONTEXT YOU MUST RESPECT
+- iPad/Safari is the primary device. Touch behaviour matters more than desktop.
+- The app shell is intentionally fixed (no page drag/zoom). Do not propose
+  restoring page scrolling or pinch-zooming the shell.
+- No new frameworks or dependencies. Prefer deleting and merging over adding.
 
-1. **Real device pass** — everything below is lower priority than what the iPad
-   actually shows.
-2. **Layout is browser-local.** No cross-device sync and no named snapshots.
-3. **Locks made during the opening explosion persist after the settle timer**,
-   not immediately. Acceptable unless it surprises real use.
+DELIVERABLE (markdown, in chat)
+- Verdict: 3-5 blunt sentences.
+- Evidence: screenshots and/or code references (file:line) for major claims.
+- Ranked findings: user impact, confidence, effort (S/M/L), and whether each is
+  delete / merge / rework / add.
+- Target model: a simple description or ASCII sketch of the intended screen,
+  including what gets removed.
+- Phased plan: 3-5 independently shippable slices. Slice 1 must be small.
+- Open questions for the owner.
+- Explicit "do not do" list: tempting changes that would add bloat.
+
+RULES
+No generic UX advice. No framework migration. No vague "improve consistency".
+Every recommendation must name what to remove or merge, not just what to add.
+If something is already fine, say so.
+```
+
+## Memory tool (recommended first)
+
+Scope: `tools/memory.html`, `src/tools/memoryTool.js`, and their integration
+with `index.html` and `src/db.js`.
+
+```text
+SCOPE: the Memory tool (flashcards).
+
+AUDIT QUESTIONS
+1. What is the Memory screen's primary job at each moment (create, organise,
+   study, browse), and does the layout actually support it?
+2. Inventory every view mode, panel, rail, and drawer. Which earn their space,
+   which are redundant, which should be deleted or merged?
+3. Is the context rail useful, or should it become part of a unified sidebar?
+   What content genuinely belongs there?
+4. How do decks, subjects, tags, and cards relate in the UI and the data model?
+   Where does the user's mental model break?
+5. Is the stats/Explore surface a duplicate library? What should happen to it?
+6. iPad ergonomics: reachability, scroll traps, focus/keyboard behaviour, tap
+   targets, visual density.
+7. Code health: duplicated render paths, dead markup/CSS, state that fights
+   itself. Cite file:line.
+8. What is the smallest first slice that makes the screen feel coherent without
+   a rewrite?
+
+OWNER'S CURRENT COMPLAINTS (verify, do not assume)
+- The context rail feels "garbage".
+- The top-right view modes feel bloated and redundant.
+- The stats "Explore" panel may duplicate the library.
+```
+
+## Mindmap interaction
+
+Scope: `tools/mindmap.html` and `src/tools/mindmapTool.js`.
+
+```text
+SCOPE: Mindmap interaction. Do not propose a graph-engine rewrite.
+
+AUDIT QUESTIONS
+1. The double sidebar is the owner's biggest complaint. What is each sidebar
+   for, where do they overlap, and what is the single-sidebar target?
+2. Assess the heap drag-and-drop feel on touch: floating row vs drop line,
+   gap/insertion feedback, release, auto-scroll, accidental drags.
+3. Inspector vs library split: what belongs in Details / Connections / Heap,
+   and what should disappear?
+4. Lock ergonomics (per-node locks only; no branch or global lock-all). Is Lock
+   mode discoverable, and does it fight normal selection?
+5. Search, filters and view modes on an iPad: which controls are redundant or
+   badly placed?
+6. Touch targets, scroll traps, focus/keyboard behaviour, toolbar crowding.
+7. Code health around these interactions. Cite file:line.
+8. Smallest first slice that removes the double-sidebar smell without a rewrite.
+
+OWNER'S CURRENT COMPLAINTS (verify, do not assume)
+- The double sidebar is a "red flag and a big no no".
+- Heap reordering feels "super clunky rather than modern intuitive".
+- Styling and usability need QoL work; functionality is sufficient.
+```
+
+## Flashcard creation
+
+Scope: the create / quick-add / mass-edit paths in `tools/memory.html` and
+`src/tools/memoryTool.js`.
+
+```text
+SCOPE: flashcard creation flow.
+
+AUDIT QUESTIONS
+1. Measure time-to-first-save for a single card. Where does the flow add
+   friction before the card exists?
+2. Should saving happen first and organising after? Design that flow.
+3. Decks vs subjects vs tags vs layers: what is the intended hierarchy, where
+   does the UI contradict the data model, and what should be removed?
+4. What does the builder force on the user that could be optional or deferred?
+5. Bulk entry and mass edit: what is missing or overbuilt?
+6. iPad ergonomics for typing-heavy flows: keyboard, focus, scrolling, tap
+   targets.
+7. Code health in these paths. Cite file:line.
+8. Smallest first slice that makes creating a card feel fast.
+
+OWNER'S CURRENT COMPLAINTS (verify, do not assume)
+- Creating cards should save them immediately as unlisted, then offer to
+  organise them into a subject/topic.
+- A "deck" may be a topic rather than a subject; large sets need hierarchy.
+```
+
+## Compact open issues
+
+- Real iPad/Safari pass still pending: double-tap zoom, pinch, Lock mode
+  ergonomics, toolbar crowding, heap drag-release feel.
+- Mindmap layout is browser-local: no cross-device sync, no named snapshots.
+- Locks made during the opening explosion persist after the settle timer, not
+  immediately.
 
 ## Deliberately not doing (unless asked)
 
-- Branch or subject locking.
-- A global Lock all action.
+- Branch or subject locking, or a global Lock all action.
 - Redesigning the stat pills.
 - A new test framework.
 - Re-flowing the graph when search or type filters change. Filters point at
