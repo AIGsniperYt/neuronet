@@ -7,6 +7,7 @@ import { run as runDiscovery } from "./examdata/discovery.mjs";
 import { run as runAcquisition } from "./examdata/acquisition.mjs";
 import { run as runCourses } from "./examdata/courses.mjs";
 import { run as runTrackerViewModel } from "./examdata/tracker-view-model.mjs";
+import { run as runDecks } from "./decks.mjs";
 
 async function main() {
   console.log("==================================================");
@@ -22,7 +23,8 @@ async function main() {
     { name: "discovery", fn: runDiscovery },
     { name: "acquisition", fn: runAcquisition },
     { name: "courses", fn: runCourses },
-    { name: "tracker-view-model", fn: runTrackerViewModel }
+    { name: "tracker-view-model", fn: runTrackerViewModel },
+    { name: "decks", fn: runDecks }
   ];
 
   for (const suite of suites) {
