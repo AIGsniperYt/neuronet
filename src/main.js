@@ -1,4 +1,4 @@
-import { initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, addSubject, deleteSubject, renameSubject, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, clearTags, addHeap, addHeaps, getAllHeaps, getHeap, deleteHeap, clearHeaps } from "./db.js";
+import { initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, addSubject, deleteSubject, renameSubject, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForDeckId, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, clearTags, addDeck, addDecks, getAllDecks, getDeck, getDecksForSubject, deleteDeckRecord, clearDecks, ensureDeckMembership, addHeap, addHeaps, getAllHeaps, getHeap, deleteHeap, clearHeaps } from "./db.js";
 import { syncLocalWithCloud, syncToCloud, deleteCloudNode, deleteCloudQuote, deleteCloudCue, fetchCloudNodes, fetchCloudQuotes, fetchCloudCues } from "./sync.js";
 import { initAnalysisToolV2 } from "./tools/analysisTool.js";
 import { dialog } from "./tools/dialog.js";
@@ -695,12 +695,13 @@ async function fetchDemoPayload() {
 }
 
 async function exportDatabaseJson() {
-  const [nodes, quotes, cues, cards, heaps] = await Promise.all([
+  const [nodes, quotes, cues, cards, heaps, decks] = await Promise.all([
     getAllNodes(),
     getAllQuotes(),
     getAllCues(),
     getAllCards(),
-    getAllHeaps()
+    getAllHeaps(),
+    getAllDecks()
   ]);
   const payload = {
     schemaVersion: SCHEMA_VERSION,
@@ -709,7 +710,8 @@ async function exportDatabaseJson() {
     quotes,
     cues,
     cards,
-    heaps
+    heaps,
+    decks
   };
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
@@ -780,6 +782,7 @@ async function importPayload(payload) {
   const cues = Array.isArray(dataset?.cues) ? dataset.cues : [];
   const cards = Array.isArray(dataset?.cards) ? dataset.cards : [];
   const heaps = Array.isArray(dataset?.heaps) ? dataset.heaps : [];
+  const decks = Array.isArray(dataset?.decks) ? dataset.decks : [];
 
   await clearNodes();
   await clearQuotes();
@@ -787,10 +790,13 @@ async function importPayload(payload) {
   await clearCards();
   await clearTags();
   await clearHeaps();
+  await clearDecks();
   await addNodes(nodes);
   await addQuotes(quotes);
   await addCues(cues);
+  await addDecks(decks);
   await addCards(cards);
+  await ensureDeckMembership();
   await addHeaps(heaps);
   // Rebuild the derived tag index from the final imported records. This also
   // removes stale tags from the DB the import replaced.
@@ -968,6 +974,7 @@ async function wipeDatabase() {
   await clearCards();
   await clearTags();
   await clearHeaps();
+  await clearDecks();
   if (USE_BACKEND && window.currentUser) {
     try {
       const [cloudNodes, cloudQuotes, cloudCues] = await Promise.all([
@@ -1843,6 +1850,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   // (idempotent, cheap no-op when nothing is legacy). Runs in both demo and
   // cloud modes so old local DBs self-heal without a manual re-import.
   await upgradeStoredDatabaseIfNeeded();
+
+  // Every card needs a canonical deck home. This is idempotent and backfills
+  // pre-deck databases into an Unsorted deck per subject.
+  try {
+    await ensureDeckMembership();
+  } catch (error) {
+    console.error("[DECKS] membership backfill failed:", error);
+  }
 
   if (!window.DEMO_MODE) {
     await performMigration(getAllNodes, addNode, addQuote);

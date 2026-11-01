@@ -1,6 +1,11 @@
 let db;
 
-const DB_VERSION = 10;
+const DB_VERSION = 11;
+
+// Decks are canonical folders inside a subject. Cards point at one deck via
+// deckId; the legacy `card.deck` string remains the subject owner until the
+// UI move is complete. Heaps are a separate, non-owning study layer.
+export const UNSORTED_DECK_NAME = "Unsorted";
 
 function getDBName() {
   return window.DEMO_MODE ? `neuronet-${window.APP_VERSION}` : "neuronet";
@@ -81,14 +86,42 @@ export function initDB() {
         tagStore.createIndex("title", "title", { unique: true });
       }
 
+      const ensureCardIndexes = (cardStore) => {
+        if (!cardStore.indexNames.contains("deck")) {
+          cardStore.createIndex("deck", "deck", { unique: false });
+        }
+        if (!cardStore.indexNames.contains("deckId")) {
+          cardStore.createIndex("deckId", "deckId", { unique: false });
+        }
+        if (!cardStore.indexNames.contains("nextReview")) {
+          cardStore.createIndex("nextReview", "meta.nextReview", { unique: false });
+        }
+        if (!cardStore.indexNames.contains("deckNextReview")) {
+          cardStore.createIndex("deckNextReview", ["deck", "meta.nextReview"], { unique: false });
+        }
+        if (!cardStore.indexNames.contains("quoteId")) {
+          cardStore.createIndex("quoteId", "links.quoteId", { unique: false });
+        }
+        if (!cardStore.indexNames.contains("order")) {
+          cardStore.createIndex("order", "order", { unique: false });
+        }
+        if (!cardStore.indexNames.contains("createdAt")) {
+          cardStore.createIndex("createdAt", "createdAt", { unique: false });
+        }
+      };
+
       if (!db.objectStoreNames.contains("cards")) {
         const cardStore = db.createObjectStore("cards", { keyPath: "id" });
-        cardStore.createIndex("deck", "deck", { unique: false });
-        cardStore.createIndex("nextReview", "meta.nextReview", { unique: false });
-        cardStore.createIndex("deckNextReview", ["deck", "meta.nextReview"], { unique: false });
-        cardStore.createIndex("quoteId", "links.quoteId", { unique: false });
-        cardStore.createIndex("order", "order", { unique: false });
-        cardStore.createIndex("createdAt", "createdAt", { unique: false });
+        ensureCardIndexes(cardStore);
+      } else if (tx) {
+        ensureCardIndexes(tx.objectStore("cards"));
+      }
+
+      if (!db.objectStoreNames.contains("decks")) {
+        const deckStore = db.createObjectStore("decks", { keyPath: "id" });
+        deckStore.createIndex("subject", "subject", { unique: false });
+        deckStore.createIndex("parentId", "parentId", { unique: false });
+        deckStore.createIndex("createdAt", "createdAt", { unique: false });
       }
 
       if (!db.objectStoreNames.contains("heaps")) {
@@ -976,6 +1009,9 @@ function normalizeCardRecord(card = {}) {
     front: String(card.front || "").trim(),
     back: String(card.back || "").trim(),
     deck,
+    // Canonical folder. `deck` above is the subject string and is kept for
+    // legacy readers until the deck UI ships.
+    deckId: card.deckId ? String(card.deckId) : null,
     deckPath,
     tags,
     priority,
@@ -988,19 +1024,18 @@ function normalizeCardRecord(card = {}) {
   };
 }
 
-export function addCard(card) {
+export async function addCard(card) {
+  if (!db || !cardStoreExists()) {
+    throw new Error("Cards store not available");
+  }
+
+  const record = normalizeCardRecord(card);
+  if (!record.front || !record.back) {
+    throw new Error("Card requires both a front and a back");
+  }
+  await assignDeckIdsToCards([record]);
+
   return new Promise((resolve, reject) => {
-    if (!db || !cardStoreExists()) {
-      reject(new Error("Cards store not available"));
-      return;
-    }
-
-    const record = normalizeCardRecord(card);
-    if (!record.front || !record.back) {
-      reject(new Error("Card requires both a front and a back"));
-      return;
-    }
-
     const tx = db.transaction("cards", "readwrite");
     const req = tx.objectStore("cards").put(record);
     req.onerror = () => reject(req.error);
@@ -1013,22 +1048,21 @@ export function addCard(card) {
   });
 }
 
-export function addCards(cards) {
+export async function addCards(cards) {
+  if (!db || !cardStoreExists()) {
+    return [];
+  }
+
+  const records = (cards || [])
+    .map(normalizeCardRecord)
+    .filter((record) => record.front && record.back);
+
+  if (records.length === 0) {
+    return [];
+  }
+  await assignDeckIdsToCards(records);
+
   return new Promise((resolve, reject) => {
-    if (!db || !cardStoreExists()) {
-      resolve([]);
-      return;
-    }
-
-    const records = (cards || [])
-      .map(normalizeCardRecord)
-      .filter((record) => record.front && record.back);
-
-    if (records.length === 0) {
-      resolve([]);
-      return;
-    }
-
     const tx = db.transaction("cards", "readwrite");
     const store = tx.objectStore("cards");
     for (const record of records) store.put(record);
@@ -1192,6 +1226,339 @@ export function clearCards() {
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error);
   });
+}
+
+export function getCardsForDeckId(deckId) {
+  return new Promise((resolve, reject) => {
+    if (!db || !cardStoreExists()) {
+      resolve([]);
+      return;
+    }
+
+    const tx = db.transaction("cards", "readonly");
+    const req = tx.objectStore("cards").index("deckId").getAll(deckId);
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// ========== DECKS ==========
+//
+// A deck is a canonical, nestable folder inside a subject. It owns cards by
+// reference (`card.deckId`); cards are never copied into decks. Heaps are a
+// separate, non-owning study layer.
+//
+// The legacy `card.deck` string still carries the subject name. During the
+// transition, cards without a deckId are collected into an "Unsorted" deck for
+// their subject so navigation has a home for every card.
+
+function deckStoreExists() {
+  return db && db.objectStoreNames.contains("decks");
+}
+
+function normalizeDeckRecord(deck = {}) {
+  const now = Date.now();
+  const id = deck.id ? String(deck.id) : crypto.randomUUID();
+  const parentId = deck.parentId && String(deck.parentId) !== id
+    ? String(deck.parentId)
+    : null;
+  return {
+    ...deck,
+    id,
+    type: "deck",
+    name: String(deck.name || "").trim() || "Untitled Deck",
+    subject: String(deck.subject || "").trim(),
+    parentId,
+    createdAt: Number(deck.createdAt) || now,
+    updatedAt: Number(deck.updatedAt) || now
+  };
+}
+
+export function addDeck(deck) {
+  return new Promise((resolve, reject) => {
+    if (!db || !deckStoreExists()) {
+      reject(new Error("Decks store not available"));
+      return;
+    }
+
+    const record = normalizeDeckRecord(deck);
+    const tx = db.transaction("decks", "readwrite");
+    const req = tx.objectStore("decks").put(record);
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => {
+      emitDBChange({ type: "upsert-deck", ids: [record.id] });
+      resolve(record);
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export function addDecks(decks) {
+  return new Promise((resolve, reject) => {
+    if (!db || !deckStoreExists()) {
+      resolve([]);
+      return;
+    }
+
+    const records = (decks || []).map(normalizeDeckRecord);
+    if (records.length === 0) {
+      resolve([]);
+      return;
+    }
+
+    const tx = db.transaction("decks", "readwrite");
+    const store = tx.objectStore("decks");
+    for (const record of records) store.put(record);
+
+    tx.oncomplete = () => {
+      emitDBChange({ type: "bulk-upsert-deck", ids: records.map((record) => record.id) });
+      resolve(records);
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export function getAllDecks() {
+  return new Promise((resolve, reject) => {
+    if (!db || !deckStoreExists()) {
+      resolve([]);
+      return;
+    }
+
+    const tx = db.transaction("decks", "readonly");
+    const req = tx.objectStore("decks").getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export function getDeck(id) {
+  return new Promise((resolve, reject) => {
+    if (!db || !deckStoreExists()) {
+      resolve(null);
+      return;
+    }
+
+    const tx = db.transaction("decks", "readonly");
+    const req = tx.objectStore("decks").get(id);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export function getDecksForSubject(subject) {
+  return new Promise((resolve, reject) => {
+    if (!db || !deckStoreExists()) {
+      resolve([]);
+      return;
+    }
+
+    const tx = db.transaction("decks", "readonly");
+    const req = tx.objectStore("decks").index("subject").getAll(String(subject || "").trim());
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export function deleteDeckRecord(id) {
+  return new Promise((resolve, reject) => {
+    if (!db || !deckStoreExists()) {
+      resolve(id);
+      return;
+    }
+
+    const tx = db.transaction("decks", "readwrite");
+    const req = tx.objectStore("decks").delete(id);
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => {
+      emitDBChange({ type: "delete-deck", ids: [id] });
+      resolve(id);
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export function clearDecks() {
+  return new Promise((resolve, reject) => {
+    if (!db || !deckStoreExists()) {
+      resolve();
+      return;
+    }
+
+    const tx = db.transaction("decks", "readwrite");
+    const req = tx.objectStore("decks").clear();
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => {
+      emitDBChange({ type: "clear", store: "decks" });
+      resolve();
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+async function findOrCreateUnsortedDeck(subject) {
+  const normalizedSubject = String(subject || "").trim();
+  const decks = await getAllDecks().catch(() => []);
+  const existing = decks.find((deck) => (
+    !deck.parentId
+    && deck.name === UNSORTED_DECK_NAME
+    && String(deck.subject || "").trim() === normalizedSubject
+  ));
+  if (existing) return existing;
+
+  return addDeck({
+    name: UNSORTED_DECK_NAME,
+    subject: normalizedSubject,
+    parentId: null
+  });
+}
+
+async function assignDeckIdsToCards(cards) {
+  if (!cards.length) return;
+  const decks = await getAllDecks().catch(() => []);
+  const knownDeckIds = new Set(decks.map((deck) => deck.id));
+  const unsortedBySubject = new Map();
+  for (const deck of decks) {
+    if (!deck.parentId && deck.name === UNSORTED_DECK_NAME) {
+      unsortedBySubject.set(String(deck.subject || "").trim(), deck.id);
+    }
+  }
+
+  for (const card of cards) {
+    if (card.deckId && knownDeckIds.has(card.deckId)) continue;
+    const subject = String(card.deck || "").trim();
+    let deckId = unsortedBySubject.get(subject);
+    if (!deckId) {
+      try {
+        const created = await findOrCreateUnsortedDeck(subject);
+        deckId = created.id;
+        knownDeckIds.add(deckId);
+        unsortedBySubject.set(subject, deckId);
+      } catch (error) {
+        console.warn("[DECKS] could not assign an Unsorted deck:", error);
+        deckId = null;
+      }
+    }
+    card.deckId = deckId || null;
+  }
+}
+
+// Backfill deck membership for cards written before decks existed. Idempotent:
+// cards with a live deckId are left untouched.
+export async function ensureDeckMembership() {
+  const cards = await getAllCards();
+  const missingIds = new Set(cards.filter((card) => !card.deckId).map((card) => card.id));
+  if (!missingIds.size) return { cardsAssigned: 0, decksCreated: 0 };
+
+  const deckCountBefore = (await getAllDecks().catch(() => [])).length;
+  await assignDeckIdsToCards(cards);
+  const changed = cards.filter((card) => missingIds.has(card.id) && card.deckId);
+  if (changed.length) await addCards(changed);
+  const deckCountAfter = (await getAllDecks().catch(() => [])).length;
+  return { cardsAssigned: changed.length, decksCreated: deckCountAfter - deckCountBefore };
+}
+
+// Pure tree helpers. Kept in this module so every surface (Library, Memory,
+// Mindmap) builds the same forest from the same records.
+
+export function sortDecksByCreated(decks = [], direction = "desc") {
+  const sign = direction === "asc" ? 1 : -1;
+  return [...decks].sort((a, b) => {
+    const createdDiff = (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0);
+    if (createdDiff !== 0) return createdDiff * sign;
+    return String(a.name || "").localeCompare(String(b.name || ""));
+  });
+}
+
+export function buildDeckForest(decks = [], { direction = "desc" } = {}) {
+  const nodes = sortDecksByCreated(decks, direction).map((deck) => ({
+    ...deck,
+    children: []
+  }));
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+
+  // Break cycles before attaching. A malformed parent chain must not swallow
+  // every deck in the subject.
+  for (const node of nodes) {
+    let parentId = node.parentId;
+    const seen = new Set([node.id]);
+    while (parentId && byId.has(parentId)) {
+      if (seen.has(parentId)) {
+        node.parentId = null;
+        break;
+      }
+      seen.add(parentId);
+      parentId = byId.get(parentId).parentId;
+    }
+  }
+
+  const roots = [];
+  for (const node of nodes) {
+    const parent = node.parentId ? byId.get(node.parentId) : null;
+    if (parent && parent !== node) parent.children.push(node);
+    else roots.push(node);
+  }
+  return roots;
+}
+
+export function flattenDeckTree(forest = []) {
+  const out = [];
+  const walk = (nodes, depth) => {
+    for (const node of nodes) {
+      out.push({ ...node, depth });
+      walk(node.children || [], depth + 1);
+    }
+  };
+  walk(forest, 0);
+  return out;
+}
+
+export function getDeckDescendantIds(decks = [], deckId) {
+  const id = String(deckId || "");
+  if (!id) return [];
+  // A deck that is not in the store has no descendants. Without this guard a
+  // missing id would be echoed back with any decks whose parentId matches it.
+  if (!decks.some((deck) => String(deck.id) === id)) return [];
+  const childMap = new Map();
+  for (const deck of decks) {
+    const parentId = deck.parentId ? String(deck.parentId) : "";
+    if (!parentId) continue;
+    if (!childMap.has(parentId)) childMap.set(parentId, []);
+    childMap.get(parentId).push(deck.id);
+  }
+  const out = [];
+  const seen = new Set();
+  const walk = (current) => {
+    if (seen.has(current)) return;
+    seen.add(current);
+    out.push(current);
+    for (const child of childMap.get(current) || []) walk(child);
+  };
+  walk(id);
+  return out;
+}
+
+export function groupDecksBySubject(decks = [], { direction = "desc" } = {}) {
+  const groups = new Map();
+  for (const deck of decks) {
+    const subject = String(deck.subject || "").trim();
+    if (!groups.has(subject)) groups.set(subject, []);
+    groups.get(subject).push(deck);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([subject, groupDecks]) => ({
+      subject,
+      decks: buildDeckForest(groupDecks, { direction })
+    }));
 }
 
 // ========== HEAPS ==========
@@ -1487,19 +1854,29 @@ export async function addSubject(name) {
     createdAt: Date.now(),
     updatedAt: Date.now()
   };
-  return addNode(subjectNode);
+  const node = await addNode(subjectNode);
+  try {
+    await findOrCreateUnsortedDeck(name);
+  } catch (error) {
+    console.warn("[DECKS] could not create Unsorted deck for subject:", error);
+  }
+  return node;
 }
 
 export async function deleteSubject(subjectName) {
   const allNodes = await getAllNodes();
   const allQuotes = await getAllQuotes();
   const subjectCards = await getCardsForDeck(subjectName);
+  const subjectDecks = await getDecksForSubject(subjectName).catch(() => []);
 
   const subjectNodes = allNodes.filter(n => n.subject === subjectName);
   const subjectQuotes = allQuotes.filter(q => q.subject === subjectName);
 
   for (const card of subjectCards) {
     await deleteCard(card.id);
+  }
+  for (const deck of subjectDecks) {
+    await deleteDeckRecord(deck.id);
   }
   for (const node of subjectNodes) {
     await deleteNode(node.id);
@@ -1515,6 +1892,7 @@ export async function renameSubject(oldName, newName) {
   const allNodes = await getAllNodes();
   const allQuotes = await getAllQuotes();
   const allCards = await getAllCards();
+  const subjectDecks = await getDecksForSubject(oldName).catch(() => []);
   const now = Date.now();
 
   const subjectNodes = allNodes.filter(n => n.subject === oldName);
@@ -1523,6 +1901,13 @@ export async function renameSubject(oldName, newName) {
     card.deck === oldName || (card.deckPath || []).includes(oldName)
   ));
 
+  for (const deck of subjectDecks) {
+    await addDeck({
+      ...deck,
+      subject: newName,
+      updatedAt: now
+    });
+  }
   for (const card of subjectCards) {
     await addCard({
       ...card,
