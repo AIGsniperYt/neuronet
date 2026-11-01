@@ -1,4 +1,4 @@
-import { initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, addSubject, deleteSubject, renameSubject, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForDeckId, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, clearTags, addDeck, addDecks, getAllDecks, getDeck, getDecksForSubject, deleteDeckRecord, clearDecks, ensureDeckMembership, addHeap, addHeaps, getAllHeaps, getHeap, deleteHeap, clearHeaps } from "./db.js";
+import { initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, addSubject, deleteSubject, renameSubject, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForDeckId, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, clearTags, addDeck, addDecks, getAllDecks, getDeck, getDecksForSubject, deleteDeckRecord, deleteDeck, clearDecks, ensureDeckMembership, sortDecksByCreated, buildDeckForest, flattenDeckTree, getDeckDescendantIds, groupDecksBySubject, getDeckPath, describeDeckDeletion, UNSORTED_DECK_NAME, addHeap, addHeaps, getAllHeaps, getHeap, deleteHeap, clearHeaps } from "./db.js";
 import { syncLocalWithCloud, syncToCloud, deleteCloudNode, deleteCloudQuote, deleteCloudCue, fetchCloudNodes, fetchCloudQuotes, fetchCloudCues } from "./sync.js";
 import { initAnalysisToolV2 } from "./tools/analysisTool.js";
 import { dialog } from "./tools/dialog.js";
@@ -106,11 +106,27 @@ const tools = {
       resolveQuoteInSource,
       escapeHtml,
       addCard,
+      addCards,
       getAllCards,
       getCard,
       getCardsForDeck,
+      getCardsForDeckId,
       getCardsForQuote,
       deleteCard,
+      addDeck,
+      getAllDecks,
+      getDeck,
+      getDecksForSubject,
+      deleteDeckRecord,
+      deleteDeck,
+      sortDecksByCreated,
+      buildDeckForest,
+      flattenDeckTree,
+      getDeckDescendantIds,
+      groupDecksBySubject,
+      getDeckPath,
+      describeDeckDeletion,
+      UNSORTED_DECK_NAME,
       addHeap,
       getAllHeaps,
       getHeap,

@@ -28,11 +28,27 @@ export async function initMemoryTool(deps, context = {}) {
     resolveQuoteInSource,
     escapeHtml,
     addCard,
+    addCards,
     getAllCards,
     getCard,
     getCardsForDeck,
+    getCardsForDeckId,
     getCardsForQuote,
     deleteCard,
+    addDeck,
+    getAllDecks,
+    getDeck,
+    getDecksForSubject,
+    deleteDeckRecord,
+    deleteDeck,
+    sortDecksByCreated,
+    buildDeckForest,
+    flattenDeckTree,
+    getDeckDescendantIds,
+    groupDecksBySubject,
+    getDeckPath,
+    describeDeckDeletion,
+    UNSORTED_DECK_NAME,
     addHeap,
     getAllHeaps,
     getHeap,
@@ -136,6 +152,11 @@ export async function initMemoryTool(deps, context = {}) {
   const state = {
     view: contextSubject ? "study" : "launchpad",
     currentSubject: contextSubject || "",
+    // A deck is a folder inside a subject. Empty means "whole subject", which
+    // is how legacy subject-level study still behaves.
+    currentDeckId: "",
+    currentDeckName: "",
+    directCardsOnly: false,
     currentMode: "card-learning",
     // Manual heaps are named, ordered card-ID lists. They are independent of
     // the SRS session heap in state.session.heap.
@@ -196,6 +217,7 @@ export async function initMemoryTool(deps, context = {}) {
     explorerLoading: false,
     explorerLoaded: false,
     explorerSubject: null,
+    explorerDeckId: null,
     routerDebug: {
       startType: null,
       heapSize: 0,
@@ -215,6 +237,56 @@ export async function initMemoryTool(deps, context = {}) {
     contextRailToken: 0
   };
 
+  // ========== DECK SCOPE HELPERS ==========
+  //
+  // Cards live in exactly one deck (`card.deckId`) and that deck belongs to one
+  // subject (`card.deck`). Any surface that reads "the current study scope"
+  // goes through `loadScopedCards`, so deck study, filters, Explore, and stats
+  // cannot drift apart.
+
+  async function loadScopedCards() {
+    if (!state.currentDeckId) {
+      return (await getCardsForDeck(state.currentSubject)) || [];
+    }
+    const [allCards, decks] = await Promise.all([getAllCards(), getAllDecks()]);
+    const scopeIds = new Set(
+      state.directCardsOnly
+        ? [state.currentDeckId]
+        : getDeckDescendantIds(decks, state.currentDeckId)
+    );
+    return (allCards || []).filter((card) => (
+      scopeIds.has(String(card.deckId || ""))
+      || (!card.deckId && card.deck === state.currentSubject)
+    ));
+  }
+
+  function deckLabel(deck, decks = []) {
+    if (!deck) return "";
+    const path = getDeckPath(decks, deck.id);
+    const subject = String(deck.subject || "").trim();
+    const name = path.length ? path.join(" / ") : String(deck.name || "");
+    return subject ? `${subject} / ${name}` : name;
+  }
+
+  function setDeckScope(deck) {
+    if (!deck) {
+      state.currentDeckId = "";
+      state.currentDeckName = "";
+      state.directCardsOnly = false;
+      return;
+    }
+    state.currentSubject = String(deck.subject || "").trim();
+    state.currentDeckId = String(deck.id || "");
+    state.currentDeckName = String(deck.name || "");
+    state.directCardsOnly = false;
+  }
+
+  function clearDeckScope() {
+    state.currentDeckId = "";
+    state.currentDeckName = "";
+    state.directCardsOnly = false;
+  }
+
   let memoryTool, modeSelect, newSessionBtn, statsBtn, backToDecksBtn;
   let memoryLaunchpad, deckList, memoryContent, editDecksBtn, manualHeapsBtn;
   let manualHeapPanel, manualHeapList, manualNewHeapBtn, manualOpenLibraryBtn, manualStudyHeapBtn;
@@ -225,7 +297,10 @@ export async function initMemoryTool(deps, context = {}) {
   let systemThinkingText;
   let studyContextRail, studyContextBody, studyContextCollapseBtn, contextToggleBtn;
   // Deck builder elements
-  let deckBuilderModal, deckNameInput, deckDescriptionInput, deckCardTags, createDeckBtn, closeDeckBuilderBtn;
+  let deckBuilderModal, deckNameInput, deckSubjectInput, deckSubjectOptions, deckParentHint, deckDescriptionInput, deckCardTags, createDeckBtn, closeDeckBuilderBtn;
+  let deckDeleteModal, deckDeleteSummary, deckDeleteMoveHint, deckDeleteSubtreeHint;
+  let closeDeckDeleteBtn, cancelDeckDeleteBtn, confirmDeckDeleteBtn;
+  let deckDeleteTargetId = "";
   let step1DeckInfo, step2Flashcards, step3Success;
   let cueInput, quoteInput, priorityPills, saveCardBtn, cancelCardBtn, clearFormBtn, deleteCardBtn;
   let nextToDeckBtn, addNewCardBtn, backToDeckInfoBtn, finishDeckBtn;
@@ -252,10 +327,12 @@ export async function initMemoryTool(deps, context = {}) {
     // fields; legacy quote/cue records are never created or rewritten here.
     cards: [], // Array of {cardId, front, back, priority, tags, isExisting}
     deckName: "",
+    deckSubject: "",
+    parentId: null,
+    editingDeckId: null,
     deckDescription: "",
     currentCardIndex: -1,
     isEditingCard: false,
-    editingSubject: null,
     deletedCardIds: [], // Track deleted card IDs for editing
     isMassEditMode: false, // Track if we're in mass edit mode
     massEditData: null // Deep copy of cards for mass edit
@@ -269,6 +346,8 @@ export async function initMemoryTool(deps, context = {}) {
     activeTab: "single",
     priority: 3,
     lastDeck: "",
+    lastDeckId: "",
+    deckTargets: new Map(),
     savedCount: 0,
     nextOrders: new Map()
   };
@@ -311,6 +390,9 @@ export async function initMemoryTool(deps, context = {}) {
     // Deck builder elements
     deckBuilderModal = document.getElementById("deckBuilderModal");
     deckNameInput = document.getElementById("deckNameInput");
+    deckSubjectInput = document.getElementById("deckSubjectInput");
+    deckSubjectOptions = document.getElementById("deckSubjectOptions");
+    deckParentHint = document.getElementById("deckParentHint");
     deckDescriptionInput = document.getElementById("deckDescriptionInput");
     deckCardTags = document.getElementById("deckCardTags");
     createDeckBtn = document.getElementById("createDeckBtn");
@@ -337,6 +419,14 @@ export async function initMemoryTool(deps, context = {}) {
     deckNameDisplay = document.getElementById("deckNameDisplay");
     cardCountDisplay = document.getElementById("cardCountDisplay");
     builderTitle = document.getElementById("builderTitle");
+    // Deck delete modal
+    deckDeleteModal = document.getElementById("deckDeleteModal");
+    deckDeleteSummary = document.getElementById("deckDeleteSummary");
+    deckDeleteMoveHint = document.getElementById("deckDeleteMoveHint");
+    deckDeleteSubtreeHint = document.getElementById("deckDeleteSubtreeHint");
+    closeDeckDeleteBtn = document.getElementById("closeDeckDeleteBtn");
+    cancelDeckDeleteBtn = document.getElementById("cancelDeckDeleteBtn");
+    confirmDeckDeleteBtn = document.getElementById("confirmDeckDeleteBtn");
     // Layer row elements (dynamically rendered, accessed via getElementById in render functions)
     // Import elements
     importToggleBtn = document.getElementById("importToggleBtn");
@@ -448,7 +538,7 @@ export async function initMemoryTool(deps, context = {}) {
     // #mainContent has a backdrop-filter, which makes position:fixed children
     // resolve against it instead of the viewport. Move the modals to <body> so
     // they actually cover the whole shell, and remove them on tool teardown.
-    [deckBuilderModal, quickAddModal].forEach((modalEl) => {
+    [deckBuilderModal, quickAddModal, deckDeleteModal].forEach((modalEl) => {
       if (modalEl && modalEl.parentNode !== document.body) {
         document.body.appendChild(modalEl);
       }
@@ -463,6 +553,7 @@ export async function initMemoryTool(deps, context = {}) {
         e.preventDefault();
         if (modalEl === deckBuilderModal) closeDeckBuilder();
         else if (modalEl === quickAddModal) closeQuickAdd();
+        else if (modalEl === deckDeleteModal) closeDeckDelete();
         return;
       }
       if (e.key !== "Tab") return;
@@ -496,6 +587,7 @@ export async function initMemoryTool(deps, context = {}) {
       portalModals();
       trapModalFocus(deckBuilderModal);
       trapModalFocus(quickAddModal);
+      trapModalFocus(deckDeleteModal);
       await loadLaunchpad();
       await loadManualHeaps();
       if (contextHeapId) {
@@ -506,6 +598,7 @@ export async function initMemoryTool(deps, context = {}) {
           state.manualHeapId = heap.id;
           state.currentMode = "manual";
           state.currentSubject = "";
+          clearDeckScope();
           state.view = "study";
           await loadFlashcards();
         }
@@ -515,7 +608,12 @@ export async function initMemoryTool(deps, context = {}) {
           // Opening a card from Mindmap should land on that card, not merely
           // on its deck. Keep the deck scope and force the card to the front
           // of the study queue.
-          state.currentSubject = card.deck || contextSubject || "";
+          const deck = card.deckId ? await getDeck(card.deckId).catch(() => null) : null;
+          if (deck) setDeckScope(deck);
+          else {
+            state.currentSubject = card.deck || contextSubject || "";
+            clearDeckScope();
+          }
           state.currentMode = "card-learning";
           state.view = "study";
           await loadFlashcards({ focusCardId: contextCardId });
@@ -547,6 +645,7 @@ export async function initMemoryTool(deps, context = {}) {
       backToDecksBtn.addEventListener("click", async () => {
         state.view = "launchpad";
         state.currentSubject = "";
+        clearDeckScope();
         state.sessionFilter = null;
         await loadLaunchpad();
         renderUI();
@@ -665,6 +764,7 @@ export async function initMemoryTool(deps, context = {}) {
           const subject = studyBtn.dataset.studySubject || "";
           if (!subject) return;
           state.currentSubject = subject;
+          clearDeckScope();
           state.currentMode = "card-learning";
           state.sessionFilter = null;
           state.view = "study";
@@ -756,6 +856,7 @@ export async function initMemoryTool(deps, context = {}) {
       manualHeapsBtn.addEventListener("click", async () => {
         state.currentMode = "manual";
         state.currentSubject = "";
+        clearDeckScope();
         state.view = "middle-ui";
         await loadManualHeaps();
         await loadMiddleUIData();
@@ -775,12 +876,30 @@ export async function initMemoryTool(deps, context = {}) {
       });
     }
 
+    if (closeDeckDeleteBtn) closeDeckDeleteBtn.addEventListener("click", closeDeckDelete);
+    if (cancelDeckDeleteBtn) cancelDeckDeleteBtn.addEventListener("click", closeDeckDelete);
+    if (deckDeleteModal) {
+      deckDeleteModal.addEventListener("click", (e) => {
+        if (e.target === deckDeleteModal) closeDeckDelete();
+      });
+    }
+    if (confirmDeckDeleteBtn) {
+      confirmDeckDeleteBtn.addEventListener("click", performDeckDelete);
+    }
+
     if (nextToDeckBtn) {
       nextToDeckBtn.addEventListener("click", () => {
         deckBuilderState.deckName = deckNameInput?.value?.trim() || "";
+        deckBuilderState.deckSubject = deckSubjectInput?.value?.trim() || "";
         deckBuilderState.deckDescription = deckDescriptionInput?.value?.trim() || "";
+        if (!deckBuilderState.deckSubject) {
+          dialog.alert("Please enter a subject for this deck");
+          deckSubjectInput?.focus();
+          return;
+        }
         if (!deckBuilderState.deckName) {
           dialog.alert("Please enter a deck name");
+          deckNameInput?.focus();
           return;
         }
         showDeckBuilderStep(2);
@@ -910,11 +1029,19 @@ export async function initMemoryTool(deps, context = {}) {
 
     if (studyNewDeckBtn) {
       studyNewDeckBtn.addEventListener("click", async () => {
-        state.currentSubject = deckBuilderState.deckName;
+        const deckId = deckBuilderState.editingDeckId;
+        const subject = deckBuilderState.deckSubject;
+        const deck = deckId ? await getDeck(deckId).catch(() => null) : null;
+        if (deck) setDeckScope(deck);
+        else {
+          state.currentSubject = subject;
+          clearDeckScope();
+        }
+        state.currentMode = "card-learning";
         state.view = "study";
+        closeDeckBuilder();
         await loadFlashcards();
         renderUI();
-        closeDeckBuilder();
       });
     }
 
@@ -979,6 +1106,7 @@ export async function initMemoryTool(deps, context = {}) {
       middleBackBtn.addEventListener("click", async () => {
         state.view = "launchpad";
         state.currentSubject = "";
+        clearDeckScope();
         state.sessionFilter = null;
         await loadLaunchpad();
         renderUI();
@@ -1378,73 +1506,118 @@ export async function initMemoryTool(deps, context = {}) {
   }
 
   async function loadLaunchpad() {
-    const [subjects, allCards] = await Promise.all([getSubjects(), getAllCards()]);
+    const [decks, allCards] = await Promise.all([getAllDecks(), getAllCards()]);
     if (!deckList) return;
 
     deckList.innerHTML = "";
-    if (subjects.length === 0) {
-      deckList.innerHTML = `<div style="color: var(--text-muted);">No decks yet. Add a card to start one — no source or analysis needed.</div>`;
+    const cards = allCards || [];
+    if (!decks || decks.length === 0) {
+      deckList.innerHTML = `<div style="color: var(--text-muted);">No decks yet. Build a deck, or add a card to start one.</div>`;
       return;
     }
 
-    const cardCountByDeck = new Map();
-    (allCards || []).forEach((card) => {
-      if (!card?.deck) return;
-      cardCountByDeck.set(card.deck, (cardCountByDeck.get(card.deck) || 0) + 1);
-    });
+    const directCountByDeck = new Map();
+    for (const card of cards) {
+      const deckId = String(card?.deckId || "");
+      if (!deckId) continue;
+      directCountByDeck.set(deckId, (directCountByDeck.get(deckId) || 0) + 1);
+    }
 
-    for (const subject of subjects) {
-      const cardCount = cardCountByDeck.get(subject) || 0;
-      const analyses = await getAnalysisNodesForSubject(subject) || [];
-      const total = cardCount + analyses.length;
+    const groups = groupDecksBySubject(decks);
+    for (const group of groups) {
+      const subjectDecks = flattenDeckTree(group.decks);
+      const allIds = new Set(subjectDecks.map((deck) => String(deck.id)));
+      const subjectCards = cards.filter((card) => allIds.has(String(card.deckId || "")));
+      const analysisCount = (await getAnalysisNodesForSubject(group.subject))?.length || 0;
 
-       const card = document.createElement("div");
-      card.className = "card";
-      card.innerHTML = `
-        <div class="card-title">${escapeHtml(subject)}</div>
-        <button class="card-btn deck-study-btn" data-subject="${escapeHtml(subject)}">Study</button>
-        <div class="card-meta deck-stats">${total} items</div>
-        <button class="deck-add-btn" data-subject="${escapeHtml(subject)}" title="Add a card to this deck" aria-label="Add a card to ${escapeHtml(subject)}">+</button>
-        ${state.editMode ? `<button class="deck-edit-btn" data-subject="${escapeHtml(subject)}">✎</button>` : ""}
+      const section = document.createElement("div");
+      section.className = "card deck-subject";
+      section.innerHTML = `
+        <div class="deck-subject-header">
+          <div class="card-title">${escapeHtml(group.subject || "Unsorted")}</div>
+          <div class="card-meta deck-stats">${subjectCards.length} cards${analysisCount ? ` · ${analysisCount} analysis` : ""}</div>
+        </div>
+        <div class="deck-tree" role="tree" aria-label="${escapeHtml(group.subject || "Unsorted")} decks"></div>
       `;
 
-      const addCardBtn = card.querySelector(".deck-add-btn");
-      addCardBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        openQuickAdd({ deck: subject });
-      });
+      const tree = section.querySelector(".deck-tree");
+      for (const deck of subjectDecks) {
+        const descendantIds = new Set(getDeckDescendantIds(decks, deck.id));
+        const totalCards = cards.filter((card) => descendantIds.has(String(card.deckId || ""))).length;
+        const directCards = directCountByDeck.get(String(deck.id)) || 0;
+        const meta = descendantIds.size > 1
+          ? `${directCards} direct · ${totalCards} with subdecks`
+          : `${directCards} card${directCards === 1 ? "" : "s"}`;
 
-      if (state.editMode) {
-        const editBtn = card.querySelector(".deck-edit-btn");
-        editBtn.addEventListener("click", async (e) => {
-          e.stopPropagation();
-          await openDeckEditor(subject);
+        const row = document.createElement("div");
+        row.className = "deck-row";
+        row.dataset.deckId = deck.id;
+        row.style.setProperty("--deck-depth", String(deck.depth || 0));
+        row.setAttribute("role", "treeitem");
+        row.innerHTML = `
+          <button type="button" class="deck-row-main" title="Open ${escapeHtml(deck.name)}">
+            <span class="deck-row-name">${escapeHtml(deck.name)}</span>
+            <span class="deck-row-meta">${escapeHtml(meta)}</span>
+          </button>
+          <div class="deck-row-actions">
+            <button type="button" class="card-btn deck-study-btn" data-deck-id="${escapeHtml(deck.id)}">Study</button>
+            <button type="button" class="deck-add-btn" data-deck-id="${escapeHtml(deck.id)}" title="Add a card to ${escapeHtml(deck.name)}" aria-label="Add a card to ${escapeHtml(deck.name)}">+</button>
+            ${state.editMode ? `
+              ${deck.name === UNSORTED_DECK_NAME && !deck.parentId ? "" : `
+                <button type="button" class="deck-edit-btn" data-deck-id="${escapeHtml(deck.id)}" title="Edit ${escapeHtml(deck.name)}" aria-label="Edit ${escapeHtml(deck.name)}">✎</button>
+              `}
+              <button type="button" class="deck-subdeck-btn" data-deck-id="${escapeHtml(deck.id)}" title="New subdeck" aria-label="New subdeck in ${escapeHtml(deck.name)}">+ Deck</button>
+              ${deck.name === UNSORTED_DECK_NAME && !deck.parentId ? "" : `
+                <button type="button" class="deck-delete-btn" data-deck-id="${escapeHtml(deck.id)}" title="Delete ${escapeHtml(deck.name)}" aria-label="Delete ${escapeHtml(deck.name)}">Delete</button>
+              `}
+            ` : ""}
+          </div>
+        `;
+
+        row.querySelector(".deck-row-main").addEventListener("click", async () => {
+          if (state.editMode) return;
+          setDeckScope(deck);
+          state.currentMode = "card-learning";
+          state.sessionFilter = null;
+          state.view = "middle-ui";
+          await loadMiddleUIData();
+          renderUI();
         });
+
+        row.querySelector(".deck-study-btn").addEventListener("click", async (e) => {
+          e.stopPropagation();
+          setDeckScope(deck);
+          state.currentMode = "card-learning";
+          state.sessionFilter = null;
+          state.view = "study";
+          await loadFlashcards();
+          renderUI();
+        });
+
+        row.querySelector(".deck-add-btn").addEventListener("click", (e) => {
+          e.stopPropagation();
+          openQuickAdd({ deckId: deck.id });
+        });
+
+        if (state.editMode) {
+          row.querySelector(".deck-edit-btn")?.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            await openDeckEditor(deck.id);
+          });
+          row.querySelector(".deck-subdeck-btn").addEventListener("click", (e) => {
+            e.stopPropagation();
+            openDeckBuilder({ subject: deck.subject, parentId: deck.id });
+          });
+          row.querySelector(".deck-delete-btn")?.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            await confirmDeleteDeck(deck.id);
+          });
+        }
+
+        tree.appendChild(row);
       }
 
-      // Study button - quick study with no filters
-      const studyBtn = card.querySelector(".deck-study-btn");
-      studyBtn.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        state.currentSubject = subject;
-        state.currentMode = "card-learning";
-        state.sessionFilter = null;
-        state.view = "study";
-        await loadFlashcards();
-        renderUI();
-      });
-
-      // Card click - go to middle UI for filters. Cards are the primary mode.
-      card.addEventListener("click", async () => {
-        if (state.editMode) return;
-        state.currentSubject = subject;
-        state.currentMode = "card-learning";
-        state.view = "middle-ui";
-        await loadMiddleUIData();
-        renderUI();
-      });
-
-      deckList.appendChild(card);
+      deckList.appendChild(section);
     }
   }
 
@@ -2657,7 +2830,7 @@ export async function initMemoryTool(deps, context = {}) {
 
   async function buildCardLearningQueue(focusCardId = null) {
     const nowMs = Date.now();
-    const deckCards = await getCardsForDeck(state.currentSubject);
+    const deckCards = await loadScopedCards();
     const ordered = [...(deckCards || [])].sort((a, b) => {
       const orderDiff = (Number(a.order) || 0) - (Number(b.order) || 0);
       if (orderDiff !== 0) return orderDiff;
@@ -2968,7 +3141,7 @@ export async function initMemoryTool(deps, context = {}) {
     const [quotes, analyses, cards] = await Promise.all([
       getQuotesForSubject(state.currentSubject),
       getAnalysisNodesForSubject(state.currentSubject),
-      getCardsForDeck(state.currentSubject)
+      loadScopedCards()
     ]);
 
     const srsKeys = ["S", "D", "U", "interval", "nextReview", "lastReview", "reviewCount", "expectedTime", "avgTime", "timeVariance", "consistency", "confidence", "lastGrade"];
@@ -4135,6 +4308,7 @@ export async function initMemoryTool(deps, context = {}) {
 
   async function loadExplorerCards() {
     const subject = state.currentSubject;
+    const deckId = state.currentDeckId;
     if (!subject) {
       state.explorerCards = [];
       state.explorerLoaded = true;
@@ -4144,10 +4318,10 @@ export async function initMemoryTool(deps, context = {}) {
     state.explorerLoaded = false;
     try {
       const [cards, analyses] = await Promise.all([
-        getCardsForDeck(subject),
+        loadScopedCards(),
         getAnalysisNodesForSubject(subject)
       ]);
-      if (subject !== state.currentSubject) return;
+      if (subject !== state.currentSubject || deckId !== state.currentDeckId) return;
       const deckCards = (cards || []).map(card => ({
         id: card.id,
         kind: "card",
@@ -4166,14 +4340,14 @@ export async function initMemoryTool(deps, context = {}) {
       }));
       state.explorerCards = [...deckCards, ...analysisCards];
     } catch (e) {
-      if (subject === state.currentSubject) {
+      if (subject === state.currentSubject && deckId === state.currentDeckId) {
         console.warn("Explorer load error:", e);
         state.explorerCards = [];
       }
     } finally {
-      // A newer subject may have started loading while this request was in
-      // flight; only the current subject may clear the flags.
-      if (subject === state.currentSubject) {
+      // A newer subject or deck may have started loading while this request was
+      // in flight; only the current scope may clear the flags.
+      if (subject === state.currentSubject && deckId === state.currentDeckId) {
         state.explorerLoading = false;
         state.explorerLoaded = true;
       }
@@ -4182,8 +4356,9 @@ export async function initMemoryTool(deps, context = {}) {
 
   function renderExploreMode() {
     if (!statsContent) return;
-    if (state.explorerSubject !== state.currentSubject) {
+    if (state.explorerSubject !== state.currentSubject || state.explorerDeckId !== state.currentDeckId) {
       state.explorerSubject = state.currentSubject || "";
+      state.explorerDeckId = state.currentDeckId || "";
       state.explorerLoaded = false;
       state.explorerLoading = false;
       state.explorerCards = [];
@@ -4600,77 +4775,195 @@ export async function initMemoryTool(deps, context = {}) {
 
   // ========== DECK BUILDER FUNCTIONS ==========
 
-  function openDeckBuilder() {
+  function populateDeckSubjectOptions(selected = "") {
+    if (!deckSubjectOptions) return;
+    const names = new Set();
+    getSubjects()
+      .then((subjects) => {
+        (subjects || []).forEach((name) => names.add(String(name || "").trim()));
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (selected) names.add(selected);
+        if (deckSubjectOptions) {
+          deckSubjectOptions.innerHTML = [...names]
+            .filter(Boolean)
+            .sort((a, b) => a.localeCompare(b))
+            .map((name) => `<option value="${escapeHtml(name)}"></option>`)
+            .join("");
+        }
+      });
+    if (selected) names.add(selected);
+    deckSubjectOptions.innerHTML = [...names]
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b))
+      .map((name) => `<option value="${escapeHtml(name)}"></option>`)
+      .join("");
+  }
+
+  function closeDeckDelete() {
+    hideModal(deckDeleteModal);
+    deckDeleteTargetId = "";
+  }
+
+  async function confirmDeleteDeck(deckId) {
+    const [decks, cards] = await Promise.all([getAllDecks(), getAllCards()]);
+    const plan = describeDeckDeletion(decks, cards, deckId);
+    if (!plan) {
+      dialog.alert("That deck no longer exists.");
+      await loadLaunchpad();
+      return;
+    }
+
+    deckDeleteTargetId = String(deckId);
+    const { counts, deck, parent } = plan;
+    const parentLabel = parent ? parent.name : UNSORTED_DECK_NAME;
+    if (deckDeleteSummary) {
+      deckDeleteSummary.textContent =
+        `Delete “${deck.name}” from ${deck.subject}? ` +
+        `It has ${counts.directCards} direct card${counts.directCards === 1 ? "" : "s"} ` +
+        `and ${counts.childDecks} direct subdeck${counts.childDecks === 1 ? "" : "s"}.`;
+    }
+    if (deckDeleteMoveHint) {
+      deckDeleteMoveHint.textContent = parent
+        ? `${counts.directCards} card${counts.directCards === 1 ? "" : "s"} and ${counts.childDecks} subdeck${counts.childDecks === 1 ? "" : "s"} move to ${parentLabel}.`
+        : `${counts.directCards} card${counts.directCards === 1 ? "" : "s"} move to ${UNSORTED_DECK_NAME}; ${counts.childDecks} subdeck${counts.childDecks === 1 ? "" : "s"} become top-level decks.`;
+    }
+    if (deckDeleteSubtreeHint) {
+      deckDeleteSubtreeHint.textContent =
+        `${counts.subtreeCards} card${counts.subtreeCards === 1 ? "" : "s"} and ` +
+        `${counts.decks} deck${counts.decks === 1 ? "" : "s"} will be permanently deleted.`;
+    }
+    deckDeleteModal?.querySelectorAll('input[name="deckDeleteMode"]').forEach((input) => {
+      input.checked = input.value === "move";
+    });
+    showModal(deckDeleteModal);
+    requestAnimationFrame(() => confirmDeckDeleteBtn?.focus());
+  }
+
+  async function performDeckDelete() {
+    if (!deckDeleteTargetId) return;
+    const modeInput = deckDeleteModal?.querySelector('input[name="deckDeleteMode"]:checked');
+    const mode = modeInput?.value === "delete" ? "delete" : "move";
+    const deckId = deckDeleteTargetId;
+
+    const [decks, cards] = await Promise.all([getAllDecks(), getAllCards()]);
+    const plan = describeDeckDeletion(decks, cards, deckId);
+    if (!plan) {
+      closeDeckDelete();
+      await loadLaunchpad();
+      return;
+    }
+
+    // The shared dialog sits below the deck modal in the stacking order, so
+    // step the choice modal aside while the second confirmation is open.
+    hideModal(deckDeleteModal);
+    const confirmed = await dialog.confirm(
+      mode === "delete"
+        ? `Permanently delete “${plan.deck.name}”, ${plan.counts.decks} deck${plan.counts.decks === 1 ? "" : "s"}, and ${plan.counts.subtreeCards} card${plan.counts.subtreeCards === 1 ? "" : "s"}? This cannot be undone.`
+        : `Delete “${plan.deck.name}”? ${plan.counts.directCards} card${plan.counts.directCards === 1 ? "" : "s"} will move to ${plan.parent ? plan.parent.name : UNSORTED_DECK_NAME}.`,
+      mode === "delete" ? "Delete forever" : "Delete deck",
+      "danger"
+    );
+    if (!confirmed) {
+      // Put the choice back in front of the user; the dialog is layered above
+      // ordinary panels, so the deck modal must step aside while it is open.
+      showModal(deckDeleteModal);
+      return;
+    }
+
+    try {
+      await deleteDeck(deckId, { mode });
+      if (String(state.currentDeckId) === String(deckId)) {
+        state.view = "launchpad";
+        state.currentSubject = "";
+        clearDeckScope();
+      }
+      closeDeckDelete();
+      await loadLaunchpad();
+      renderUI();
+    } catch (error) {
+      console.error("Could not delete deck:", error);
+      dialog.alert("Could not delete deck: " + error.message);
+    }
+  }
+
+  async function openDeckBuilder({ subject = "", parentId = null } = {}) {
     resetDeckBuilderState();
-    if (builderTitle) builderTitle.textContent = "Create New Deck";
+    deckBuilderState.deckSubject = String(subject || state.currentSubject || "").trim();
+    deckBuilderState.parentId = parentId ? String(parentId) : null;
+    if (builderTitle) {
+      builderTitle.textContent = deckBuilderState.parentId ? "Create New Subdeck" : "Create New Deck";
+    }
+    populateDeckSubjectOptions(deckBuilderState.deckSubject);
+    if (deckSubjectInput) {
+      deckSubjectInput.disabled = false;
+      deckSubjectInput.value = deckBuilderState.deckSubject;
+    }
+    if (deckParentHint) {
+      if (deckBuilderState.parentId) {
+        const parent = await getDeck(deckBuilderState.parentId).catch(() => null);
+        deckParentHint.textContent = parent ? `Inside ${parent.name}` : "Inside a deck";
+      } else {
+        deckParentHint.textContent = "";
+      }
+    }
     showModal(deckBuilderModal);
     showDeckBuilderStep(1);
     // A quick-action launch should be ready to type immediately.
-    requestAnimationFrame(() => deckNameInput?.focus());
+    requestAnimationFrame(() => {
+      if (!deckBuilderState.deckSubject) deckSubjectInput?.focus();
+      else deckNameInput?.focus();
+    });
   }
 
-  async function openDeckEditor(subject) {
+  async function openDeckEditor(deckId) {
+    const deck = await getDeck(deckId).catch(() => null);
+    if (!deck) {
+      dialog.alert("That deck no longer exists.");
+      await loadLaunchpad();
+      return;
+    }
     resetDeckBuilderState();
     if (builderTitle) builderTitle.textContent = "Edit Deck";
 
-    deckBuilderState.deckName = subject;
-    deckBuilderState.editingSubject = subject;
+    deckBuilderState.deckName = deck.name;
+    deckBuilderState.deckSubject = deck.subject;
+    deckBuilderState.parentId = deck.parentId || null;
+    deckBuilderState.editingDeckId = deck.id;
 
-    if (deckNameInput) deckNameInput.value = subject;
+    populateDeckSubjectOptions(deck.subject);
+    if (deckSubjectInput) {
+      deckSubjectInput.value = deck.subject;
+      // Deck moves are within a subject in v1.
+      deckSubjectInput.disabled = true;
+    }
+    if (deckNameInput) deckNameInput.value = deck.name;
+    if (deckParentHint) {
+      const parent = deck.parentId ? await getDeck(deck.parentId).catch(() => null) : null;
+      deckParentHint.textContent = parent ? `Subdeck of ${parent.name}` : deck.parentId ? "Subdeck" : "";
+    }
 
-    const cards = await getCardsForDeck(subject) || [];
+    const cards = await getCardsForDeckId(deck.id) || [];
 
-    if (cards.length > 0) {
-      const orderedCards = [...cards].sort((a, b) => {
-        const orderDiff = (Number(a.order) || 0) - (Number(b.order) || 0);
-        if (orderDiff !== 0) return orderDiff;
-        return (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0);
+    const orderedCards = [...cards].sort((a, b) => {
+      const orderDiff = (Number(a.order) || 0) - (Number(b.order) || 0);
+      if (orderDiff !== 0) return orderDiff;
+      return (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0);
+    });
+    for (const card of orderedCards) {
+      deckBuilderState.cards.push({
+        cardId: card.id,
+        front: card.front,
+        back: card.back,
+        priority: card.priority || 3,
+        tags: [...(card.tags || [])],
+        isExisting: true,
+        meta: card.meta || {},
+        createdAt: card.createdAt,
+        origin: card.origin,
+        links: card.links || {}
       });
-      for (const card of orderedCards) {
-        deckBuilderState.cards.push({
-          cardId: card.id,
-          front: card.front,
-          back: card.back,
-          priority: card.priority || 3,
-          tags: [...(card.tags || [])],
-          isExisting: true,
-          meta: card.meta || {},
-          createdAt: card.createdAt,
-          origin: card.origin,
-          links: card.links || {}
-        });
-      }
-    } else {
-      // Last-resort fallback for a deck whose legacy pairs were never
-      // backfilled. It is read-only context: saving creates a card that links
-      // to the pair, but never writes the quote or cue again.
-      const quotes = await getQuotesForSubject(subject) || [];
-      const cues = await getCuesForSubject(subject) || [];
-      const orderedQuotes = [...quotes].sort((a, b) => {
-        const orderDiff = (Number(a.meta?.deckOrder) || 0) - (Number(b.meta?.deckOrder) || 0);
-        if (orderDiff !== 0) return orderDiff;
-        return (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0);
-      });
-
-      for (const quote of orderedQuotes) {
-        const cardCues = cues.filter(c => c.quoteId === quote.id);
-        const cue = cardCues.length > 0 ? cardCues[0] : null;
-
-        deckBuilderState.cards.push({
-          cardId: null,
-          front: cue?.cue || quote.quote,
-          back: quote.quote,
-          priority: quote.priority || 3,
-          tags: quote.meta?.tags || [],
-          isExisting: false,
-          meta: quote.meta || {},
-          createdAt: quote.createdAt,
-          origin: "legacy",
-          links: { quoteId: quote.id, cueId: cue?.id },
-          legacyQuoteId: quote.id,
-          legacyCueId: cue?.id || null
-        });
-      }
     }
 
     renderFlashcardList();
@@ -4687,12 +4980,19 @@ export async function initMemoryTool(deps, context = {}) {
   function resetDeckBuilderState() {
     deckBuilderState.cards = [];
     deckBuilderState.deckName = "";
+    deckBuilderState.deckSubject = "";
+    deckBuilderState.parentId = null;
+    deckBuilderState.editingDeckId = null;
     deckBuilderState.deckDescription = "";
     deckBuilderState.currentCardIndex = -1;
     deckBuilderState.isEditingCard = false;
-    deckBuilderState.editingSubject = null;
     deckBuilderState.deletedCardIds = [];
     if (deckNameInput) deckNameInput.value = "";
+    if (deckSubjectInput) {
+      deckSubjectInput.value = "";
+      deckSubjectInput.disabled = false;
+    }
+    if (deckParentHint) deckParentHint.textContent = "";
     if (deckDescriptionInput) deckDescriptionInput.value = "";
     if (finishDeckBtn) finishDeckBtn.textContent = "Finish Deck";
     updateDeckBuilderFinishState();
@@ -4927,12 +5227,40 @@ export async function initMemoryTool(deps, context = {}) {
     });
   }
 
-  async function persistDeckCards() {
-    const subjectName = deckBuilderState.deckName;
-    const isEditing = !!deckBuilderState.editingSubject;
+  async function ensureSubjectExists(subject) {
+    const name = String(subject || "").trim();
+    if (!name) throw new Error("Subject is required");
+    const subjects = await getSubjects().catch(() => []);
+    if (!(subjects || []).some((item) => String(item || "").trim() === name)) {
+      await addSubject(name);
+    }
+    return name;
+  }
 
-    if (isEditing && deckBuilderState.editingSubject !== subjectName) {
-      await renameSubject(deckBuilderState.editingSubject, subjectName);
+  async function persistDeckCards() {
+    const subjectName = await ensureSubjectExists(deckBuilderState.deckSubject);
+    const deckName = String(deckBuilderState.deckName || "").trim();
+    const isEditing = !!deckBuilderState.editingDeckId;
+
+    let deckId = deckBuilderState.editingDeckId || "";
+    if (isEditing) {
+      const existingDeck = await getDeck(deckId);
+      if (!existingDeck) throw new Error("Deck not found");
+      await addDeck({
+        ...existingDeck,
+        name: deckName,
+        subject: subjectName,
+        parentId: existingDeck.parentId || null,
+        updatedAt: Date.now()
+      });
+    } else {
+      const created = await addDeck({
+        name: deckName,
+        subject: subjectName,
+        parentId: deckBuilderState.parentId || null
+      });
+      deckId = created.id;
+      deckBuilderState.editingDeckId = created.id;
     }
 
     // Delete only the card records removed from the builder. Linked quotes
@@ -4943,7 +5271,10 @@ export async function initMemoryTool(deps, context = {}) {
     }
     deckBuilderState.deletedCardIds = [];
 
-    const deckCards = await getCardsForDeck(subjectName) || [];
+    const allDecks = await getAllDecks().catch(() => []);
+    const path = getDeckPath(allDecks, deckId);
+    const deckPath = [subjectName, ...path.filter((part, index) => !(index === 0 && part === subjectName))];
+    const deckCards = await getCardsForDeckId(deckId) || [];
     let nextOrder = deckCards.reduce(
       (max, existing) => Math.max(max, Number(existing.order) || 0),
       -1
@@ -4955,12 +5286,7 @@ export async function initMemoryTool(deps, context = {}) {
       const order = Number.isFinite(Number(existingCard?.order))
         ? Number(existingCard.order)
         : nextOrder++;
-      const deckPath = Array.isArray(existingCard?.deckPath) && existingCard.deckPath.length
-        ? existingCard.deckPath
-        : [subjectName];
       const links = { ...(existingCard?.links || card.links || {}) };
-      // A legacy fallback pair is linked once so its context still appears in
-      // the sidebar. The pair itself is never rewritten.
       if (!links.quoteId && card.legacyQuoteId) links.quoteId = card.legacyQuoteId;
       if (!links.cueId && card.legacyCueId) links.cueId = card.legacyCueId;
       const cardId = existingCard?.id || card.cardId || crypto.randomUUID();
@@ -4981,6 +5307,7 @@ export async function initMemoryTool(deps, context = {}) {
         front: card.front,
         back: card.back,
         deck: subjectName,
+        deckId,
         deckPath,
         tags,
         priority: card.priority,
@@ -5001,10 +5328,14 @@ export async function initMemoryTool(deps, context = {}) {
       card.tags = tags;
     }
 
-    return { subjectName, isEditing };
+    return { subjectName, deckId, deckName, isEditing };
   }
 
   async function saveDeckToDB() {
+    if (!deckBuilderState.deckSubject) {
+      dialog.alert("Subject is required");
+      return;
+    }
     if (!deckBuilderState.deckName) {
       dialog.alert("Deck name is required");
       return;
@@ -5016,7 +5347,8 @@ export async function initMemoryTool(deps, context = {}) {
     }
 
     try {
-      const { isEditing } = await persistDeckCards();
+      const result = await persistDeckCards();
+      const isEditing = result.isEditing;
 
       // Show success screen (or close modal if editing)
       if (isEditing) {
@@ -5024,6 +5356,7 @@ export async function initMemoryTool(deps, context = {}) {
         state.editMode = false;
         if (editDecksBtn) editDecksBtn.classList.remove("active");
       } else {
+        deckBuilderState.editingDeckId = result.deckId;
         if (deckNameDisplay) deckNameDisplay.textContent = deckBuilderState.deckName;
         if (cardCountDisplay) cardCountDisplay.textContent = deckBuilderState.cards.length;
         showDeckBuilderStep(3);
@@ -5062,29 +5395,68 @@ export async function initMemoryTool(deps, context = {}) {
 
   function addQuickAddDeckOption(deck) {
     if (!quickAddDeckOptions || !deck) return;
+    const label = typeof deck === "string" ? deck : deck.label;
+    if (!label) return;
     const exists = Array.from(quickAddDeckOptions.options || [])
-      .some((option) => option.value === deck);
+      .some((option) => option.value === label);
     if (exists) return;
     const option = document.createElement("option");
-    option.value = deck;
+    option.value = label;
     quickAddDeckOptions.appendChild(option);
   }
 
   async function populateQuickAddDeckOptions() {
     if (!quickAddDeckOptions) return;
-    let subjects = [];
+    quickAddDeckOptions.innerHTML = "";
+    quickAddState.deckTargets.clear();
+
+    let decks = [];
     try {
-      subjects = await getSubjects() || [];
+      decks = await getAllDecks() || [];
     } catch (error) {
       console.warn("Could not load decks for Quick Add:", error);
     }
-    quickAddDeckOptions.innerHTML = "";
-    const decks = [...new Set([
-      ...subjects,
-      contextSubject,
-      quickAddState.lastDeck
-    ].filter(Boolean))];
-    decks.forEach((deck) => addQuickAddDeckOption(deck));
+
+    for (const deck of sortDecksByCreated(decks, "asc")) {
+      const label = deckLabel(deck, decks);
+      const deckPath = [String(deck.subject || "").trim(), ...getDeckPath(decks, deck.id)]
+        .filter(Boolean);
+      quickAddState.deckTargets.set(label, { ...deck, label, deckPath });
+      addQuickAddDeckOption(label);
+    }
+
+    if (quickAddState.lastDeck && !quickAddState.deckTargets.has(quickAddState.lastDeck)) {
+      addQuickAddDeckOption(quickAddState.lastDeck);
+    }
+  }
+
+  async function resolveQuickAddTarget(rawDeck) {
+    const label = String(rawDeck || "").trim();
+    if (!label) return null;
+
+    if (quickAddState.deckTargets.has(label)) {
+      return quickAddState.deckTargets.get(label);
+    }
+
+    const known = [...quickAddState.deckTargets.values()];
+    const byId = known.find((deck) => String(deck.id) === label);
+    if (byId) return byId;
+    const byName = known.filter((deck) => String(deck.name || "") === label);
+    if (byName.length === 1) return byName[0];
+
+    // A typed name that is not in the tree becomes a new root deck inside the
+    // current subject (or the Unsorted subject when there is no context).
+    const subject = String(state.currentSubject || contextSubject || "").trim() || "Unsorted";
+    const created = await addDeck({ name: label, subject, parentId: null });
+    const decks = await getAllDecks().catch(() => []);
+    const target = {
+      ...created,
+      label: deckLabel(created, decks),
+      deckPath: [subject, ...getDeckPath(decks, created.id)].filter(Boolean)
+    };
+    quickAddState.deckTargets.set(target.label, target);
+    addQuickAddDeckOption(target.label);
+    return target;
   }
 
   function renderQuickAddPriorityPills() {
@@ -5138,7 +5510,7 @@ export async function initMemoryTool(deps, context = {}) {
     });
   }
 
-  async function openQuickAdd({ deck = "" } = {}) {
+  async function openQuickAdd({ deck = "", deckId = "" } = {}) {
     if (!quickAddModal) getDOMElements();
     if (!quickAddModal) return;
 
@@ -5151,7 +5523,27 @@ export async function initMemoryTool(deps, context = {}) {
     showModal(quickAddModal);
     await populateQuickAddDeckOptions();
 
-    const presetDeck = String(deck || contextSubject || quickAddState.lastDeck || "").trim();
+    const targets = [...quickAddState.deckTargets.values()];
+    const requested = deckId
+      ? targets.find((target) => String(target.id) === String(deckId))
+      : deck
+        ? targets.find((target) => (
+          target.label === deck
+          || String(target.id) === String(deck)
+          || String(target.name || "") === String(deck)
+        ))
+        : null;
+    const currentTarget = state.currentDeckId
+      ? targets.find((target) => String(target.id) === String(state.currentDeckId))
+      : null;
+    const presetDeck = String(
+      requested?.label
+      || (deck && !requested ? deck : "")
+      || currentTarget?.label
+      || quickAddState.lastDeck
+      || contextSubject
+      || ""
+    ).trim();
     if (quickAddDeckInput) quickAddDeckInput.value = presetDeck;
     if (quickAddFront) quickAddFront.value = "";
     if (quickAddBack) quickAddBack.value = "";
@@ -5185,13 +5577,16 @@ export async function initMemoryTool(deps, context = {}) {
     }
   }
 
-  async function getNextDeckOrder(deck) {
-    const cached = quickAddState.nextOrders.get(deck);
+  async function getNextDeckOrder(target, fallbackDeck = "") {
+    const key = target?.id || fallbackDeck;
+    const cached = quickAddState.nextOrders.get(key);
     if (Number.isFinite(cached)) return cached;
 
     let cards = [];
     try {
-      cards = await getCardsForDeck(deck) || [];
+      cards = target
+        ? await getCardsForDeckId(target.id) || []
+        : await getCardsForDeck(fallbackDeck) || [];
     } catch (error) {
       console.warn("Could not read deck order:", error);
     }
@@ -5202,24 +5597,28 @@ export async function initMemoryTool(deps, context = {}) {
       if (Number.isFinite(order)) maxOrder = Math.max(maxOrder, order);
     });
     const nextOrder = maxOrder >= 0 ? maxOrder + 1 : cards.length;
-    quickAddState.nextOrders.set(deck, nextOrder);
+    quickAddState.nextOrders.set(key, nextOrder);
     return nextOrder;
   }
 
-  async function persistQuickAddCard({ deck, front, back, priority, tags, initialConfidence = 0.8 }) {
+  async function persistQuickAddCard({ deck, target = null, front, back, priority, tags, initialConfidence = 0.8 }) {
     // A card can always be saved. If the deck field is blank, it lands in the
-    // default Unsorted deck and can be organised later.
-    deck = String(deck || "").trim() || "Unsorted";
+    // current subject's Unsorted deck and can be organised later.
+    const rawDeck = String(deck || "").trim();
+    const subject = String(target?.subject || state.currentSubject || "").trim()
+      || (rawDeck && rawDeck !== UNSORTED_DECK_NAME ? rawDeck : UNSORTED_DECK_NAME);
+    const deckName = target?.name || rawDeck || UNSORTED_DECK_NAME;
     const now = Date.now();
-    const deckOrder = await getNextDeckOrder(deck);
+    const deckOrder = await getNextDeckOrder(target, rawDeck || UNSORTED_DECK_NAME);
     const confidence = clampNumber(Number(initialConfidence ?? 0.8), 0, 1);
 
     const card = {
       id: crypto.randomUUID(),
       front,
       back,
-      deck,
-      deckPath: [deck],
+      deck: subject,
+      deckId: target?.id || null,
+      deckPath: target?.deckPath || [subject, deckName].filter(Boolean),
       tags: [...new Set((tags || []).filter(Boolean))],
       priority,
       order: deckOrder,
@@ -5237,14 +5636,14 @@ export async function initMemoryTool(deps, context = {}) {
     };
 
     await addCard(card);
-    quickAddState.nextOrders.set(deck, deckOrder + 1);
+    quickAddState.nextOrders.set(target?.id || rawDeck || UNSORTED_DECK_NAME, deckOrder + 1);
     return { card, deckOrder };
   }
 
   async function quickAddSaveCard({ allowEmptyClose = false } = {}) {
     if (quickAddState.saving) return false;
 
-    const deck = quickAddDeckInput?.value?.trim() || "Unsorted";
+    const deck = quickAddDeckInput?.value?.trim() || "";
     const front = quickAddFront?.value?.trim() || "";
     const back = quickAddBack?.value?.trim() || "";
 
@@ -5258,23 +5657,28 @@ export async function initMemoryTool(deps, context = {}) {
 
     setQuickAddBusy(true);
     try {
+      const target = await resolveQuickAddTarget(deck);
+      const label = target?.label || deck || UNSORTED_DECK_NAME;
       await persistQuickAddCard({
         deck,
+        target,
         front,
         back,
         priority: quickAddState.priority || 3,
         tags: parseQuickAddTags(quickAddTags?.value)
       });
 
-      quickAddState.lastDeck = deck;
+      quickAddState.lastDeck = label;
+      quickAddState.lastDeckId = target?.id || "";
       quickAddState.savedCount += 1;
       if (quickAddFront) quickAddFront.value = "";
       if (quickAddBack) quickAddBack.value = "";
-      addQuickAddDeckOption(deck);
+      addQuickAddDeckOption(label);
+      if (quickAddDeckInput) quickAddDeckInput.value = label;
       const count = quickAddState.savedCount;
       setQuickAddStatus(
         quickAddStatus,
-        `Saved ${count} card${count === 1 ? "" : "s"} to ${deck}`,
+        `Saved ${count} card${count === 1 ? "" : "s"} to ${label}`,
         "success"
       );
       quickAddFront?.focus();
@@ -5317,7 +5721,7 @@ export async function initMemoryTool(deps, context = {}) {
   async function quickAddBulkImport() {
     if (quickAddState.saving) return;
 
-    const deck = quickAddDeckInput?.value?.trim() || "Unsorted";
+    const deck = quickAddDeckInput?.value?.trim() || "";
 
     const { cards, skipped } = parseAnkiCards(quickAddBulkInput?.value);
     if (!cards.length) {
@@ -5336,9 +5740,16 @@ export async function initMemoryTool(deps, context = {}) {
     let failed = 0;
 
     setQuickAddBusy(true);
+    let target = null;
+    try {
+      target = await resolveQuickAddTarget(deck);
+    } catch (error) {
+      console.error("Could not resolve Quick Add deck:", error);
+    }
+    const label = target?.label || deck || UNSORTED_DECK_NAME;
     for (const card of cards) {
       try {
-        await persistQuickAddCard({ deck, ...card, priority, tags, initialConfidence });
+        await persistQuickAddCard({ deck, target, ...card, priority, tags, initialConfidence });
         imported += 1;
       } catch (error) {
         failed += 1;
@@ -5349,11 +5760,13 @@ export async function initMemoryTool(deps, context = {}) {
 
     quickAddState.savedCount += imported;
     if (imported > 0) {
-      quickAddState.lastDeck = deck;
-      addQuickAddDeckOption(deck);
+      quickAddState.lastDeck = label;
+      quickAddState.lastDeckId = target?.id || "";
+      addQuickAddDeckOption(label);
+      if (quickAddDeckInput) quickAddDeckInput.value = label;
       if (quickAddBulkInput) quickAddBulkInput.value = "";
     }
-    const summary = `Imported ${imported} card${imported === 1 ? "" : "s"} to ${deck}`;
+    const summary = `Imported ${imported} card${imported === 1 ? "" : "s"} to ${label}`;
     const skippedCount = skipped + failed;
     setQuickAddStatus(
       quickAddBulkStatus,
@@ -5746,9 +6159,9 @@ export async function initMemoryTool(deps, context = {}) {
     }
     if (!state.currentSubject) return;
 
-    // Get all cards and analyses for this deck/topic.
+    // Get the cards in the current subject or deck, plus subject analyses.
     const [cards, analyses] = await Promise.all([
-      getCardsForDeck(state.currentSubject),
+      loadScopedCards(),
       getAnalysisNodesForSubject(state.currentSubject)
     ]);
 
@@ -5859,7 +6272,9 @@ export async function initMemoryTool(deps, context = {}) {
     const isManual = state.currentMode === "manual";
     middleSubjectName.textContent = isManual
       ? (state.currentSubject ? `Manual · ${state.currentSubject}` : "Manual Heaps")
-      : state.currentSubject;
+      : (state.currentDeckName
+        ? `${state.currentSubject} / ${state.currentDeckName}`
+        : state.currentSubject);
 
     // Keep the mode pills in sync with the actual study mode. Opening a deck
     // resets to Cards, so a stale Quotes/Analysis pill must not stay active.
@@ -6109,6 +6524,7 @@ export async function initMemoryTool(deps, context = {}) {
     // These were moved to <body> so they could cover the fixed shell.
     deckBuilderModal?.remove();
     quickAddModal?.remove();
+    deckDeleteModal?.remove();
   };
 
   await initialize();

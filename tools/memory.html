@@ -44,6 +44,12 @@
         <div id="step1-deckInfo" class="builder-step active">
           <h3>Deck Information</h3>
           <div class="form-group">
+            <label for="deckSubjectInput">Subject</label>
+            <input type="text" id="deckSubjectInput" class="builder-input" list="deckSubjectOptions" placeholder="e.g., Biology" autocomplete="off">
+            <datalist id="deckSubjectOptions"></datalist>
+            <p id="deckParentHint" class="quick-add-hint"></p>
+          </div>
+          <div class="form-group">
             <label for="deckNameInput">Deck Name</label>
             <input type="text" id="deckNameInput" class="builder-input" placeholder="e.g., French Vocabulary, Biology Concepts">
           </div>
@@ -153,6 +159,42 @@
   </div>
 
   <!-- Quick Add Modal: capture cards without a source/quote/analysis pipeline -->
+  <!-- Deck delete confirmation: the choice is explicit, counts are shown, and
+       the destructive action still asks a second time before running. -->
+  <div id="deckDeleteModal" class="deck-builder-modal" role="dialog" aria-modal="true" aria-labelledby="deckDeleteTitle" aria-hidden="true" style="display: none;">
+    <div class="deck-builder-overlay"></div>
+    <div class="deck-builder-container deck-delete-container">
+      <div class="deck-builder-header">
+        <h2 id="deckDeleteTitle">Delete Deck</h2>
+        <button id="closeDeckDeleteBtn" class="close-btn" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="deck-builder-content">
+        <p id="deckDeleteSummary" class="deck-delete-summary"></p>
+        <fieldset class="deck-delete-options">
+          <legend>What should happen to the contents?</legend>
+          <label class="deck-delete-option">
+            <input type="radio" name="deckDeleteMode" value="move" checked>
+            <span>
+              <strong>Move contents to the parent</strong>
+              <span id="deckDeleteMoveHint" class="deck-delete-hint"></span>
+            </span>
+          </label>
+          <label class="deck-delete-option">
+            <input type="radio" name="deckDeleteMode" value="delete">
+            <span>
+              <strong>Delete this deck, its subdecks, and their cards</strong>
+              <span id="deckDeleteSubtreeHint" class="deck-delete-hint"></span>
+            </span>
+          </label>
+        </fieldset>
+        <div class="builder-actions">
+          <button id="cancelDeckDeleteBtn" class="memory-btn" type="button">Cancel</button>
+          <button id="confirmDeckDeleteBtn" class="memory-btn deck-delete-confirm" type="button">Continue</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="quickAddModal" class="deck-builder-modal" role="dialog" aria-modal="true" aria-labelledby="quickAddTitle" aria-hidden="true" style="display: none;">
     <div class="deck-builder-overlay" id="quickAddOverlay"></div>
     <div class="deck-builder-container quick-add-container">
@@ -168,7 +210,7 @@
         <div class="quick-add-toolbar">
           <div class="form-group quick-add-deck-group">
             <label for="quickAddDeckInput">Deck <span class="quick-add-optional">optional</span></label>
-            <input id="quickAddDeckInput" class="builder-input" list="quickAddDeckOptions" placeholder="Leave blank for Unsorted, or type a new deck" autocomplete="off" />
+            <input id="quickAddDeckInput" class="builder-input" list="quickAddDeckOptions" placeholder="Choose a deck, or leave blank for Unsorted" autocomplete="off" />
             <datalist id="quickAddDeckOptions"></datalist>
           </div>
           <div class="quick-add-tabs" role="tablist" aria-label="Add mode">
@@ -1624,6 +1666,166 @@
     background: rgba(255,255,255,0.05);
     border-radius: 999px;
     border: 1px solid rgba(255,255,255,0.08);
+  }
+
+  /* Subject → Deck tree. Sections span the launchpad grid; deck rows are
+     buttons so touch selects the row without a hover-only affordance. */
+  .deck-subject {
+    grid-column: 1 / -1;
+    text-align: left;
+    align-items: stretch;
+    gap: 12px;
+    padding: 18px;
+  }
+  .deck-subject:hover {
+    transform: none;
+    border-color: rgba(255,255,255,0.08);
+  }
+  .deck-subject-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .deck-tree {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .deck-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: calc(var(--deck-depth, 0) * 18px);
+    padding: 6px 8px;
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.025);
+  }
+  .deck-row::before {
+    content: "";
+    width: 10px;
+    height: 10px;
+    flex: 0 0 auto;
+    border-left: 1px solid rgba(44,255,179,0.35);
+    border-bottom: 1px solid rgba(44,255,179,0.35);
+    transform: rotate(45deg) translateY(-2px);
+    opacity: calc(1 - min(var(--deck-depth, 0), 1));
+  }
+  .deck-row-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    min-height: 44px;
+    padding: 6px 4px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .deck-row-name {
+    color: var(--text-main);
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  .deck-row-meta {
+    color: var(--text-muted);
+    font-size: var(--text-xs, 0.82rem);
+  }
+  .deck-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .deck-row-actions .card-btn,
+  .deck-row-actions .deck-add-btn,
+  .deck-row-actions .deck-edit-btn,
+  .deck-row-actions .deck-subdeck-btn,
+  .deck-row-actions .deck-delete-btn {
+    position: static;
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0 12px;
+    border-radius: 10px;
+    font-size: var(--text-sm, 0.87rem);
+  }
+  .deck-row-actions .deck-add-btn {
+    font-size: 1.1rem;
+  }
+  .deck-subdeck-btn,
+  .deck-delete-btn {
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.05);
+    color: var(--text-main);
+    cursor: pointer;
+  }
+  .deck-delete-btn {
+    border-color: rgba(255,140,140,0.4);
+    color: #ffb3b3;
+    background: rgba(255,140,140,0.08);
+  }
+  .deck-delete-btn:hover {
+    background: rgba(255,140,140,0.16);
+  }
+  .deck-delete-container {
+    max-width: 560px;
+  }
+  .deck-delete-summary {
+    color: var(--text-main);
+    line-height: 1.55;
+    margin: 0 0 14px;
+  }
+  .deck-delete-options {
+    border: 0;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .deck-delete-options legend {
+    color: var(--text-muted);
+    font-size: var(--text-sm, 0.87rem);
+    margin-bottom: 8px;
+  }
+  .deck-delete-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px;
+    min-height: 44px;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.03);
+    cursor: pointer;
+  }
+  .deck-delete-option input {
+    margin-top: 3px;
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent);
+  }
+  .deck-delete-option span {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .deck-delete-hint {
+    color: var(--text-muted);
+    font-size: var(--text-xs, 0.82rem);
+  }
+  .deck-delete-confirm {
+    border-color: rgba(255,140,140,0.55) !important;
+    color: #ffb3b3 !important;
   }
   .deck-edit-btn {
     position: absolute;
