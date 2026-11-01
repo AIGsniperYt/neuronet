@@ -4,7 +4,9 @@ import {
   buildDeckForest,
   flattenDeckTree,
   getDeckDescendantIds,
-  groupDecksBySubject
+  groupDecksBySubject,
+  getDeckPath,
+  describeDeckDeletion
 } from "../src/db.js";
 
 let passed = 0;
@@ -65,6 +67,25 @@ const groups = groupDecksBySubject(decks);
 eq("groups are sorted by subject", groups.map((g) => g.subject), ["Biology", "Macbeth"]);
 eq("subject keeps one forest", groups[0].decks.map((d) => d.id), ["root-new", "root-old", "orphan", "cycle-b"]);
 eq("macbeth group root", groups[1].decks.map((d) => d.id), ["macbeth"]);
+
+// ---- Paths and deletion planning -------------------------------------------
+eq("path walks to the root", getDeckPath(decks, "grand"), ["Old", "Child A", "Grand"]);
+eq("path for a root is itself", getDeckPath(decks, "root-old"), ["Old"]);
+eq("path for a missing deck is empty", getDeckPath(decks, "missing"), []);
+
+const deletionCards = [
+  { id: "c1", deckId: "root-old" },
+  { id: "c2", deckId: "child-a" },
+  { id: "c3", deckId: "grand" },
+  { id: "c4", deckId: "root-new" }
+];
+const plan = describeDeckDeletion(decks, deletionCards, "root-old");
+eq("deletion plan keeps one deck", plan.counts.decks, 4);
+eq("deletion plan counts subtree cards", plan.counts.subtreeCards, 3);
+eq("deletion plan counts direct cards", plan.counts.directCards, 1);
+eq("deletion plan counts direct subdecks", plan.counts.childDecks, 2);
+eq("deletion plan has no parent for a root", plan.parent, null);
+check("deletion plan for a missing deck is null", describeDeckDeletion(decks, deletionCards, "missing") === null);
 
 return { passed, failed };
 }

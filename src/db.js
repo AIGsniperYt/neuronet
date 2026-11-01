@@ -1561,6 +1561,108 @@ export function groupDecksBySubject(decks = [], { direction = "desc" } = {}) {
     }));
 }
 
+// ========== DECK DELETION ==========
+//
+// Deleting a deck is never silent. The caller confirms one of two modes:
+//   move   - cards move to the parent deck (or the subject's Unsorted deck when
+//            the deck is a root). Direct subdecks are reparented, so the subtree
+//            survives.
+//   delete - the whole subtree and every card inside it are removed.
+//
+// `describeDeckDeletion` is pure so the confirmation copy and the destructive
+// operation always agree on the counts.
+
+export function getDeckPath(decks = [], deckId) {
+  const id = String(deckId || "");
+  if (!id) return [];
+  const byId = new Map(decks.map((deck) => [String(deck.id), deck]));
+  const path = [];
+  const seen = new Set();
+  let current = byId.get(id);
+  while (current && !seen.has(String(current.id))) {
+    seen.add(String(current.id));
+    path.unshift(String(current.name || ""));
+    current = current.parentId ? byId.get(String(current.parentId)) : null;
+  }
+  return path;
+}
+
+export function describeDeckDeletion(decks = [], cards = [], deckId) {
+  const id = String(deckId || "");
+  const deck = decks.find((item) => String(item.id) === id);
+  if (!deck) return null;
+
+  const descendantDeckIds = getDeckDescendantIds(decks, id);
+  const subtreeIds = new Set(descendantDeckIds);
+  const subtreeCards = cards.filter((card) => subtreeIds.has(String(card.deckId || "")));
+  const directCards = cards.filter((card) => String(card.deckId || "") === id);
+  const childDecks = decks.filter((item) => String(item.parentId || "") === id);
+  const parent = deck.parentId
+    ? decks.find((item) => String(item.id) === String(deck.parentId)) || null
+    : null;
+
+  return {
+    deck,
+    parent,
+    childDecks,
+    directCards,
+    subtreeCards,
+    descendantDeckIds,
+    counts: {
+      directCards: directCards.length,
+      subtreeCards: subtreeCards.length,
+      childDecks: childDecks.length,
+      decks: descendantDeckIds.length
+    }
+  };
+}
+
+export async function deleteDeck(deckId, { mode = "move" } = {}) {
+  const id = String(deckId || "");
+  if (!id) throw new Error("Deck id is required");
+
+  const [decks, cards] = await Promise.all([getAllDecks(), getAllCards()]);
+  const plan = describeDeckDeletion(decks, cards, id);
+  if (!plan) throw new Error("Deck not found");
+  if (plan.deck.name === UNSORTED_DECK_NAME && !plan.deck.parentId) {
+    throw new Error("The Unsorted deck cannot be deleted");
+  }
+
+  if (mode === "delete") {
+    for (const card of plan.subtreeCards) {
+      await deleteCard(card.id);
+    }
+    for (const deck of [...plan.descendantDeckIds].reverse()) {
+      await deleteDeckRecord(deck);
+    }
+    return { mode, deletedCards: plan.subtreeCards.length, deletedDecks: plan.descendantDeckIds.length };
+  }
+
+  const target = plan.parent || await findOrCreateUnsortedDeck(plan.deck.subject);
+  const targetPath = getDeckPath(decks, target.id);
+  const now = Date.now();
+
+  for (const child of plan.childDecks) {
+    await addDeck({
+      ...child,
+      parentId: plan.parent ? target.id : null,
+      updatedAt: now
+    });
+  }
+
+  if (plan.directCards.length) {
+    await addCards(plan.directCards.map((card) => ({
+      ...card,
+      deckId: target.id,
+      deckPath: targetPath.length ? targetPath : [plan.deck.subject, target.name].filter(Boolean),
+      updatedAt: now
+    })));
+  }
+
+  await deleteDeckRecord(id);
+  return { mode, movedCards: plan.directCards.length, movedDecks: plan.childDecks.length };
+}
+
 // ========== HEAPS ==========
 //
 // A heap is metadata only: a named, ordered list of card IDs. It is not a
