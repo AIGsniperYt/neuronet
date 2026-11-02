@@ -4106,7 +4106,7 @@ export async function initMemoryTool(deps, context = {}) {
       statsContent.innerHTML = `
         <div class="inspect-placeholder">
           <div class="inspect-placeholder-icon">\uD83D\uDD0D</div>
-          <div>No card selected.<br>Click a heap item or tap Inspect on the flashcard.</div>
+          <div>No card selected.<br>Open a card to inspect its memory state and linked context.</div>
         </div>`;
       return;
     }
