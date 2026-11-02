@@ -157,6 +157,8 @@ export async function initMemoryTool(deps, context = {}) {
     currentDeckId: "",
     currentDeckName: "",
     directCardsOnly: false,
+    deckSortDirection: "desc",
+    deckSearch: "",
     currentMode: "card-learning",
     // Manual heaps are named, ordered card-ID lists. They are independent of
     // the SRS session heap in state.session.heap.
@@ -287,7 +289,7 @@ export async function initMemoryTool(deps, context = {}) {
     state.directCardsOnly = false;
   }
 
-  let memoryTool, modeSelect, newSessionBtn, statsBtn, backToDecksBtn;
+  let memoryTool, modeSelect, newSessionBtn, statsBtn, backToDecksBtn, deckSearchInput, deckSortBtn;
   let memoryLaunchpad, deckList, memoryContent, editDecksBtn, manualHeapsBtn;
   let manualHeapPanel, manualHeapList, manualNewHeapBtn, manualOpenLibraryBtn, manualStudyHeapBtn;
   let flashcardContainer, flashcard, flashcardContent, flashcardBackContent;
@@ -316,7 +318,7 @@ export async function initMemoryTool(deps, context = {}) {
   let quickAddTags, quickAddStatus, quickAddSaveCloseBtn, quickAddSaveNextBtn;
   let quickAddBulkInput, quickAddBulkStatus, quickAddBulkImportBtn, quickAddBulkConfidence, quickAddLaunchBtn, quickAddHeaderBtn;
   // Middle UI elements
-  let middleUI, middleHeader, middleBackBtn, middleSubjectName, middleStudyBtn;
+  let middleUI, middleHeader, middleBackBtn, middleSubjectName, middleStudyBtn, deckScopeToggle;
   let middleModeSelector, andFilterBtn, orFilterBtn, filterModeHint;
   let prioritySection, priorityCheckboxes, tagsSection, tagsCheckboxes, layersSection, layersCheckboxes;
   let cardCount;
@@ -358,6 +360,8 @@ export async function initMemoryTool(deps, context = {}) {
     newSessionBtn = document.getElementById("newSessionBtn");
     statsBtn = document.getElementById("statsBtn");
     backToDecksBtn = document.getElementById("backToDecksBtn");
+    deckSearchInput = document.getElementById("deckSearchInput");
+    deckSortBtn = document.getElementById("deckSortBtn");
     memoryLaunchpad = document.getElementById("memoryLaunchpad");
     deckList = document.getElementById("deckList");
     memoryContent = document.getElementById("memoryContent");
@@ -477,6 +481,7 @@ export async function initMemoryTool(deps, context = {}) {
     middleBackBtn = document.getElementById("middleBackBtn");
     middleSubjectName = document.getElementById("middleSubjectName");
     middleStudyBtn = document.getElementById("middleStudyBtn");
+    deckScopeToggle = document.getElementById("deckScopeToggle");
     middleModeSelector = document.getElementById("middleModeSelector");
     andFilterBtn = document.getElementById("andFilterBtn");
     orFilterBtn = document.getElementById("orFilterBtn");
@@ -656,6 +661,21 @@ export async function initMemoryTool(deps, context = {}) {
       editDecksBtn.addEventListener("click", async () => {
         state.editMode = !state.editMode;
         editDecksBtn.classList.toggle("active", state.editMode);
+        await loadLaunchpad();
+        renderUI();
+      });
+    }
+
+    if (deckSearchInput) {
+      deckSearchInput.addEventListener("input", () => {
+        state.deckSearch = deckSearchInput.value || "";
+        loadLaunchpad().then(renderUI).catch((error) => console.error("Deck search failed:", error));
+      });
+    }
+
+    if (deckSortBtn) {
+      deckSortBtn.addEventListener("click", async () => {
+        state.deckSortDirection = state.deckSortDirection === "desc" ? "asc" : "desc";
         await loadLaunchpad();
         renderUI();
       });
@@ -1113,6 +1133,18 @@ export async function initMemoryTool(deps, context = {}) {
       });
     }
 
+    if (deckScopeToggle) {
+      deckScopeToggle.addEventListener("click", async () => {
+        state.directCardsOnly = !state.directCardsOnly;
+        // Paint the toggle before the reload so the tap always feels instant.
+        deckScopeToggle.textContent = state.directCardsOnly ? "Direct only" : "Include subdecks";
+        deckScopeToggle.setAttribute("aria-pressed", state.directCardsOnly ? "true" : "false");
+        deckScopeToggle.classList.toggle("active", state.directCardsOnly);
+        await loadMiddleUIData();
+        renderMiddleUI();
+      });
+    }
+
     if (middleStudyBtn) {
       middleStudyBtn.addEventListener("click", async () => {
         if (state.currentMode === "manual") {
@@ -1506,13 +1538,43 @@ export async function initMemoryTool(deps, context = {}) {
   }
 
   async function loadLaunchpad() {
-    const [decks, allCards] = await Promise.all([getAllDecks(), getAllCards()]);
+    const [allDecks, allCards] = await Promise.all([getAllDecks(), getAllCards()]);
     if (!deckList) return;
+
+    if (deckSortBtn) {
+      deckSortBtn.textContent = state.deckSortDirection === "desc" ? "Newest" : "Oldest";
+      deckSortBtn.setAttribute("aria-pressed", state.deckSortDirection === "desc" ? "true" : "false");
+    }
+
+    let decks = allDecks || [];
+    const query = String(state.deckSearch || "").trim().toLowerCase();
+    if (query && decks.length) {
+      const byId = new Map(decks.map((deck) => [String(deck.id), deck]));
+      const matched = new Set();
+      for (const deck of decks) {
+        if (`${deck.subject} ${deck.name}`.toLowerCase().includes(query)) {
+          matched.add(String(deck.id));
+        }
+      }
+      // Keep ancestors so a matching child still renders with its context.
+      for (const id of [...matched]) {
+        let current = byId.get(id);
+        while (current?.parentId) {
+          const parentId = String(current.parentId);
+          if (matched.has(parentId)) break;
+          matched.add(parentId);
+          current = byId.get(parentId);
+        }
+      }
+      decks = decks.filter((deck) => matched.has(String(deck.id)));
+    }
 
     deckList.innerHTML = "";
     const cards = allCards || [];
     if (!decks || decks.length === 0) {
-      deckList.innerHTML = `<div style="color: var(--text-muted);">No decks yet. Build a deck, or add a card to start one.</div>`;
+      deckList.innerHTML = query
+        ? `<div style="color: var(--text-muted);">No decks match “${escapeHtml(state.deckSearch)}”.</div>`
+        : `<div style="color: var(--text-muted);">No decks yet. Build a deck, or add a card to start one.</div>`;
       return;
     }
 
@@ -1523,7 +1585,7 @@ export async function initMemoryTool(deps, context = {}) {
       directCountByDeck.set(deckId, (directCountByDeck.get(deckId) || 0) + 1);
     }
 
-    const groups = groupDecksBySubject(decks);
+    const groups = groupDecksBySubject(decks, { direction: state.deckSortDirection });
     for (const group of groups) {
       const subjectDecks = flattenDeckTree(group.decks);
       const allIds = new Set(subjectDecks.map((deck) => String(deck.id)));
@@ -1542,7 +1604,7 @@ export async function initMemoryTool(deps, context = {}) {
 
       const tree = section.querySelector(".deck-tree");
       for (const deck of subjectDecks) {
-        const descendantIds = new Set(getDeckDescendantIds(decks, deck.id));
+        const descendantIds = new Set(getDeckDescendantIds(allDecks, deck.id));
         const totalCards = cards.filter((card) => descendantIds.has(String(card.deckId || ""))).length;
         const directCards = directCountByDeck.get(String(deck.id)) || 0;
         const meta = descendantIds.size > 1
@@ -6286,6 +6348,16 @@ export async function initMemoryTool(deps, context = {}) {
 
     if (middleStudyBtn) {
       middleStudyBtn.textContent = isManual ? "Study Heap" : "Study";
+    }
+    if (deckScopeToggle) {
+      const showScopeToggle = !!state.currentDeckId && !isManual;
+      deckScopeToggle.style.display = showScopeToggle ? "" : "none";
+      deckScopeToggle.textContent = state.directCardsOnly ? "Direct only" : "Include subdecks";
+      deckScopeToggle.title = state.directCardsOnly
+        ? "Only cards in this deck"
+        : "Include cards from subdecks";
+      deckScopeToggle.setAttribute("aria-pressed", state.directCardsOnly ? "true" : "false");
+      deckScopeToggle.classList.toggle("active", state.directCardsOnly);
     }
     if (manualHeapPanel) manualHeapPanel.style.display = isManual ? "block" : "none";
     const filterModeToggle = document.getElementById("filterModeToggle");

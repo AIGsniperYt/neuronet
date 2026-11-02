@@ -22,6 +22,8 @@
       <button id="manualHeapsBtn" class="memory-btn">Heaps</button>
       <button id="createDeckBtn" class="memory-btn">Build Deck</button>
       <button id="editDecksBtn" class="memory-btn">Edit</button>
+      <input id="deckSearchInput" class="builder-input deck-search-input" type="search" placeholder="Search decks" autocomplete="off" aria-label="Search decks">
+      <button id="deckSortBtn" class="memory-btn" title="Toggle deck order" aria-label="Toggle deck order">Newest</button>
     </div>
     <div id="deckList" class="deck-list">
       <!-- Deck cards will be dynamically inserted here -->
@@ -280,6 +282,7 @@
     <div id="middleHeader">
       <button id="middleBackBtn" class="memory-btn">&larr; Back to Decks</button>
       <h2 id="middleSubjectName" style="margin: 0 16px; flex: 1; text-align: center;"></h2>
+      <button id="deckScopeToggle" class="memory-btn" style="display: none;" title="Include cards from subdecks">Subdecks</button>
       <button id="middleStudyBtn" class="memory-btn primary">Study</button>
     </div>
     <div id="middleModeSelector" aria-label="Study mode">
@@ -2888,6 +2891,13 @@
     display: flex;
     gap: 12px;
     flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .deck-search-input {
+    width: min(220px, 100%);
+    min-height: 44px;
+    margin: 0;
   }
 
   /* Mass Edit Mode Styles */
