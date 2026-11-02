@@ -301,6 +301,8 @@ export async function initMemoryTool(deps, context = {}) {
   let quickAddSingleView, quickAddBulkView, quickAddFront, quickAddBack, quickAddPriorityPills;
   let quickAddTags, quickAddStatus, quickAddSaveCloseBtn, quickAddSaveNextBtn;
   let quickAddBulkInput, quickAddBulkStatus, quickAddBulkImportBtn, quickAddBulkConfidence, quickAddLaunchBtn, quickAddHeaderBtn;
+  // Temporary card peek
+  let cardPeekModal, closeCardPeekBtn, cardPeekOverlay, cardPeekSubject, cardPeekFront, cardPeekBack, cardPeekBackSection;
   // Middle UI elements
   let middleUI, middleHeader, middleBackBtn, middleSubjectName, middleStudyBtn, deckScopeToggle;
   let middleModeSelector, andFilterBtn, orFilterBtn, filterModeHint;
@@ -453,6 +455,14 @@ export async function initMemoryTool(deps, context = {}) {
     quickAddBulkConfidence = document.getElementById("quickAddBulkConfidence");
     quickAddLaunchBtn = document.getElementById("quickAddLaunchBtn");
     quickAddHeaderBtn = document.getElementById("quickAddHeaderBtn");
+    // Temporary card peek
+    cardPeekModal = document.getElementById("cardPeekModal");
+    cardPeekOverlay = document.getElementById("cardPeekOverlay");
+    closeCardPeekBtn = document.getElementById("closeCardPeekBtn");
+    cardPeekSubject = document.getElementById("cardPeekSubject");
+    cardPeekFront = document.getElementById("cardPeekFront");
+    cardPeekBack = document.getElementById("cardPeekBack");
+    cardPeekBackSection = document.getElementById("cardPeekBackSection");
 
     // Middle UI elements
     middleUI = document.getElementById("middleUI");
@@ -480,6 +490,10 @@ export async function initMemoryTool(deps, context = {}) {
 
   let activeModal = null;
   let lastModalFocus = null;
+  // Heap rows hold ids only. This cache keeps the exact card object from the
+  // render the row came from, so a peek still works if the queue shifts.
+  const peekCardCache = new Map();
+  let peekTriggerEl = null;
 
   function setStatsOpen(open) {
     if (!memoryStats) return;
@@ -518,11 +532,61 @@ export async function initMemoryTool(deps, context = {}) {
     lastModalFocus = null;
   }
 
+  function getPeekDisplayContent(card) {
+    const record = getCardRecord(card) || {};
+    return {
+      front: String(
+        card?.front?.content
+        || record.front
+        || record.title
+        || record.cue
+        || card?.cue?.cue
+        || ""
+      ).trim(),
+      back: String(
+        card?.back?.content
+        || card?.back?.targetContent
+        || record.back
+        || record.analysis
+        || ""
+      ).trim()
+    };
+  }
+
+  // A peek is deliberately read-only: no queue movement, no grading, no SRS.
+  function openCardPeek(cardId, triggerEl = null) {
+    if (!cardPeekModal || !cardId) return;
+    const card = peekCardCache.get(cardId) || findCardById(cardId);
+    if (!card) return;
+
+    peekTriggerEl = triggerEl instanceof Element ? triggerEl : null;
+    const { front, back } = getPeekDisplayContent(card);
+    if (cardPeekSubject) {
+      const parts = [getCardSubject(card), ...getCardLayers(card)].filter(Boolean);
+      cardPeekSubject.textContent = parts.join(" \u203A ");
+    }
+    if (cardPeekFront) cardPeekFront.textContent = front;
+    if (cardPeekBack) cardPeekBack.textContent = back;
+    if (cardPeekBackSection) cardPeekBackSection.hidden = !back;
+
+    showModal(cardPeekModal);
+    closeCardPeekBtn?.focus({ preventScroll: true });
+  }
+
+  function closeCardPeek() {
+    const trigger = peekTriggerEl;
+    peekTriggerEl = null;
+    hideModal(cardPeekModal);
+    if (trigger && document.contains(trigger)) {
+      trigger.focus({ preventScroll: true });
+    }
+  }
+
   function portalModals() {
     // #mainContent has a backdrop-filter, which makes position:fixed children
     // resolve against it instead of the viewport. Move the modals to <body> so
     // they actually cover the whole shell, and remove them on tool teardown.
-    [deckBuilderModal, quickAddModal, deckDeleteModal].forEach((modalEl) => {
+    [deckBuilderModal, quickAddModal, deckDeleteModal, cardPeekModal].forEach((modalEl) => {
       if (modalEl && modalEl.parentNode !== document.body) {
         document.body.appendChild(modalEl);
       }
@@ -538,6 +602,7 @@ export async function initMemoryTool(deps, context = {}) {
         if (modalEl === deckBuilderModal) closeDeckBuilder();
         else if (modalEl === quickAddModal) closeQuickAdd();
         else if (modalEl === deckDeleteModal) closeDeckDelete();
+        else if (modalEl === cardPeekModal) closeCardPeek();
         return;
       }
       if (e.key !== "Tab") return;
@@ -572,6 +637,7 @@ export async function initMemoryTool(deps, context = {}) {
       trapModalFocus(deckBuilderModal);
       trapModalFocus(quickAddModal);
       trapModalFocus(deckDeleteModal);
+      trapModalFocus(cardPeekModal);
       await loadLaunchpad();
       await loadManualHeaps();
       if (contextHeapId) {
@@ -718,6 +784,11 @@ export async function initMemoryTool(deps, context = {}) {
     if (statsContent && !statsContent.dataset.sidebarBound) {
       statsContent.dataset.sidebarBound = "1";
       statsContent.addEventListener("click", async (event) => {
+        const peekBtn = event.target.closest("[data-peek-card]");
+        if (peekBtn) {
+          openCardPeek(peekBtn.dataset.peekCard, peekBtn);
+          return;
+        }
         const inspectBtn = event.target.closest("[data-inspect-card]");
         if (inspectBtn) {
           inspectCard(inspectBtn.dataset.inspectCard);
@@ -737,6 +808,13 @@ export async function initMemoryTool(deps, context = {}) {
           renderUI();
           renderSidebar();
         }
+      });
+      statsContent.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        const peekBtn = event.target.closest("[data-peek-card]");
+        if (!peekBtn) return;
+        event.preventDefault();
+        openCardPeek(peekBtn.dataset.peekCard, peekBtn);
       });
     }
 
@@ -849,6 +927,13 @@ export async function initMemoryTool(deps, context = {}) {
     }
     if (confirmDeckDeleteBtn) {
       confirmDeckDeleteBtn.addEventListener("click", performDeckDelete);
+    }
+
+    if (closeCardPeekBtn) closeCardPeekBtn.addEventListener("click", closeCardPeek);
+    if (cardPeekModal) {
+      cardPeekModal.addEventListener("click", (e) => {
+        if (e.target === cardPeekModal || e.target === cardPeekOverlay) closeCardPeek();
+      });
     }
 
     if (nextToDeckBtn) {
@@ -3817,6 +3902,12 @@ export async function initMemoryTool(deps, context = {}) {
       ? [...state.session.heap.items].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
       : [];
 
+    peekCardCache.clear();
+    [...(state.flashcards || []), ...heapItems.map((item) => item.card)].forEach((card) => {
+      const id = getSidebarCardId(card);
+      if (id) peekCardCache.set(id, card);
+    });
+
     const gradeIcon = g => g === "easy" ? "🟢" : g === "kinda" ? "🟡" : g === "didnt_know" ? "🔴" : "⚪";
     const fmtInterval = ms => {
       if (!ms) return "–";
@@ -3841,9 +3932,13 @@ export async function initMemoryTool(deps, context = {}) {
       // Get quote priority if available
       const quotePriority = card?.record?.priority ?? card?.targetRecord?.priority ?? null;
       const priorityStars = quotePriority ? [1,2,3,4,5].map(v => v <= quotePriority ? "★" : "☆").join("") : null;
+      const peekId = getSidebarCardId(card);
+      const peekAttrs = peekId
+        ? ` data-peek-card="${escapeHtml(peekId)}" role="button" tabindex="0" title="Quick look at this card" aria-label="Quick look: ${escapeHtml(label)}"`
+        : "";
 
       return `
-        <div class="heap-item${isCurrent ? " heap-item-current" : ""}">
+        <div class="heap-item${isCurrent ? " heap-item-current" : ""}"${peekAttrs}>
           <div class="heap-item-rank">${isCurrent ? "▶" : `#${rank}`}</div>
           <div class="heap-item-body">
             <div class="heap-item-label">${escapeHtml(label)}${isCurrent ? " <span class=\"heap-current-tag\">on screen</span>" : ""}</div>
@@ -6317,6 +6412,7 @@ export async function initMemoryTool(deps, context = {}) {
     deckBuilderModal?.remove();
     quickAddModal?.remove();
     deckDeleteModal?.remove();
+    cardPeekModal?.remove();
   };
 
   await initialize();

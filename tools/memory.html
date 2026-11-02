@@ -195,6 +195,30 @@
     </div>
   </div>
 
+  <div id="cardPeekModal" class="deck-builder-modal" role="dialog" aria-modal="true" aria-labelledby="cardPeekTitle" aria-hidden="true" style="display: none;">
+    <div class="deck-builder-overlay" id="cardPeekOverlay"></div>
+    <div class="deck-builder-container card-peek-container">
+      <div class="deck-builder-header">
+        <div>
+          <h2 id="cardPeekTitle">Quick look</h2>
+          <p id="cardPeekSubject" class="card-peek-subject"></p>
+        </div>
+        <button id="closeCardPeekBtn" class="close-btn" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="deck-builder-content card-peek-content">
+        <section class="card-peek-face">
+          <div class="card-peek-label">Front</div>
+          <div id="cardPeekFront" class="card-peek-text"></div>
+        </section>
+        <section id="cardPeekBackSection" class="card-peek-face card-peek-back">
+          <div class="card-peek-label">Back</div>
+          <div id="cardPeekBack" class="card-peek-text"></div>
+        </section>
+        <p class="card-peek-hint">Preview only — nothing is graded or scheduled.</p>
+      </div>
+    </div>
+  </div>
+
   <div id="quickAddModal" class="deck-builder-modal" role="dialog" aria-modal="true" aria-labelledby="quickAddTitle" aria-hidden="true" style="display: none;">
     <div class="deck-builder-overlay" id="quickAddOverlay"></div>
     <div class="deck-builder-container quick-add-container">
@@ -1396,6 +1420,23 @@
     background: rgba(44,255,179,0.05);
   }
 
+  /* Heap rows are a temporary look, not navigation. Cursor and focus only. */
+  .heap-item[data-peek-card] {
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+
+  .heap-item[data-peek-card]:hover,
+  .heap-item[data-peek-card]:focus-visible {
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(44,255,179,0.25);
+  }
+
+  .heap-item[data-peek-card]:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
   .heap-current-tag {
     display: inline-block;
     font-size: var(--text-xs, 0.82rem);
@@ -2315,6 +2356,65 @@
       opacity: 1;
       transform: translateY(0);
     }
+  }
+
+  /* Temporary card peek. Reuses the deck-builder sheet so it feels native,
+     but reads as a preview rather than a session: no grading controls. */
+  .card-peek-container {
+    max-width: 640px;
+  }
+
+  .card-peek-subject {
+    margin: 4px 0 0;
+    color: var(--text-muted);
+    font-size: var(--text-sm, 0.87rem);
+  }
+
+  .deck-builder-content.card-peek-content {
+    gap: 14px;
+    overflow-y: auto;
+    padding: 20px 24px 24px;
+  }
+
+  .card-peek-face {
+    padding: 14px 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.07);
+    background: rgba(255,255,255,0.03);
+  }
+
+  .card-peek-back {
+    border-color: rgba(44,255,179,0.22);
+    background: rgba(44,255,179,0.05);
+  }
+
+  .card-peek-label {
+    margin-bottom: 8px;
+    font-size: var(--text-xs, 0.82rem);
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  .card-peek-text {
+    color: var(--text-main);
+    font-size: var(--text-md, 1.03rem);
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .card-peek-text:empty::before {
+    content: "—";
+    color: var(--text-muted);
+  }
+
+  .card-peek-hint {
+    margin: 0;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: var(--text-xs, 0.82rem);
   }
 
   .deck-builder-header {
