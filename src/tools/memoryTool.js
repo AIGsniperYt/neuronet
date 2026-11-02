@@ -60,12 +60,10 @@ export async function initMemoryTool(deps, context = {}) {
   const SIDEBAR_MODES = {
     FOCUS: "focus",
     ROUTER: "router",
-    INSPECT: "inspect",
-    EXPLORE: "explore"
+    INSPECT: "inspect"
   };
 
   const ROUTER_DEBUG_MAX_STEPS = 20;
-  const EXPLORER_PAGE_SIZE = 30;
 
   if (typeof window.__neuronetMemoryCleanup === "function") {
     window.__neuronetMemoryCleanup();
@@ -213,13 +211,7 @@ export async function initMemoryTool(deps, context = {}) {
     // Sidebar mode system
     sidebarMode: SIDEBAR_MODES.FOCUS,
     inspectedCardId: null,
-    explorerFilter: null,
-    explorerPage: 0,
-    explorerCards: [],
-    explorerLoading: false,
-    explorerLoaded: false,
-    explorerSubject: null,
-    explorerDeckId: null,
+    inspectContextToken: 0,
     routerDebug: {
       startType: null,
       heapSize: 0,
@@ -229,21 +221,14 @@ export async function initMemoryTool(deps, context = {}) {
       modeSwitchFrequency: 0,
       reasoningSteps: [],
       explanation: ""
-    },
-    // The knowledge-context rail is a viewport-side companion to the card, not
-    // part of the card. It starts collapsed on narrow screens so the card keeps
-    // its full width until the learner opens it.
-    contextRailCollapsed: typeof window !== "undefined" && typeof window.matchMedia === "function"
-      ? window.matchMedia("(max-width: 1000px)").matches
-      : false,
-    contextRailToken: 0
+    }
   };
 
   // ========== DECK SCOPE HELPERS ==========
   //
   // Cards live in exactly one deck (`card.deckId`) and that deck belongs to one
   // subject (`card.deck`). Any surface that reads "the current study scope"
-  // goes through `loadScopedCards`, so deck study, filters, Explore, and stats
+  // goes through `loadScopedCards`, so deck study, filters, and stats
   // cannot drift apart.
 
   async function loadScopedCards() {
@@ -289,7 +274,7 @@ export async function initMemoryTool(deps, context = {}) {
     state.directCardsOnly = false;
   }
 
-  let memoryTool, modeSelect, newSessionBtn, statsBtn, backToDecksBtn, deckSearchInput, deckSortBtn;
+  let memoryTool, newSessionBtn, statsBtn, backToDecksBtn, deckSearchInput, deckSortBtn;
   let memoryLaunchpad, deckList, memoryContent, editDecksBtn, manualHeapsBtn;
   let manualHeapPanel, manualHeapList, manualNewHeapBtn, manualOpenLibraryBtn, manualStudyHeapBtn;
   let flashcardContainer, flashcard, flashcardContent, flashcardBackContent;
@@ -297,7 +282,6 @@ export async function initMemoryTool(deps, context = {}) {
   let evidenceMatchingContainer, evidencePrompt, quoteOptions, evidenceFeedback;
   let memoryStats, statsContent, closeStatsBtn, roundProgress, resetMemoryBtn;
   let systemThinkingText;
-  let studyContextRail, studyContextBody, studyContextCollapseBtn, contextToggleBtn;
   // Deck builder elements
   let deckBuilderModal, deckNameInput, deckSubjectInput, deckSubjectOptions, deckParentHint, deckDescriptionInput, deckCardTags, createDeckBtn, closeDeckBuilderBtn;
   let deckDeleteModal, deckDeleteSummary, deckDeleteMoveHint, deckDeleteSubtreeHint;
@@ -356,7 +340,6 @@ export async function initMemoryTool(deps, context = {}) {
 
   function getDOMElements() {
     memoryTool = document.getElementById("memoryTool");
-    modeSelect = document.getElementById("modeSelect");
     newSessionBtn = document.getElementById("newSessionBtn");
     statsBtn = document.getElementById("statsBtn");
     backToDecksBtn = document.getElementById("backToDecksBtn");
@@ -386,10 +369,6 @@ export async function initMemoryTool(deps, context = {}) {
     roundProgress = document.getElementById("roundProgress");
     resetMemoryBtn = document.getElementById("resetMemoryBtn");
     systemThinkingText = document.getElementById("systemThinkingText");
-    contextToggleBtn = document.getElementById("contextToggleBtn");
-    studyContextRail = document.getElementById("studyContextRail");
-    studyContextBody = document.getElementById("studyContextBody");
-    studyContextCollapseBtn = document.getElementById("studyContextCollapseBtn");
 
     // Deck builder elements
     deckBuilderModal = document.getElementById("deckBuilderModal");
@@ -681,28 +660,6 @@ export async function initMemoryTool(deps, context = {}) {
       });
     }
 
-    if (modeSelect) {
-      modeSelect.addEventListener("click", async () => {
-        const modes = ["card-learning", "quote-learning", "analysis-learning", "evidence-matching", "blurt", "manual"];
-        const currentIndex = modes.indexOf(state.currentMode);
-        state.currentMode = modes[(currentIndex + 1) % modes.length];
-        if (state.currentMode === "manual") await loadManualHeaps();
-        await loadFlashcards();
-        renderUI();
-      });
-    }
-
-    const toggleStudyContext = () => {
-      if (!studyContextRail || studyContextRail.hidden) return;
-      state.contextRailCollapsed = !state.contextRailCollapsed;
-      applyStudyContextState();
-      if (!state.contextRailCollapsed) {
-        renderStudyContext(state.flashcards[state.currentIndex]);
-      }
-    };
-    contextToggleBtn?.addEventListener("click", toggleStudyContext);
-    studyContextCollapseBtn?.addEventListener("click", toggleStudyContext);
-
     if (newSessionBtn) {
       newSessionBtn.addEventListener("click", async () => {
         state.currentIndex = 0;
@@ -764,19 +721,6 @@ export async function initMemoryTool(deps, context = {}) {
         const inspectBtn = event.target.closest("[data-inspect-card]");
         if (inspectBtn) {
           inspectCard(inspectBtn.dataset.inspectCard);
-          return;
-        }
-        const filterBtn = event.target.closest("[data-explorer-filter]");
-        if (filterBtn) {
-          state.explorerFilter = filterBtn.dataset.explorerFilter || null;
-          state.explorerPage = 0;
-          renderSidebar();
-          return;
-        }
-        const pageBtn = event.target.closest("[data-explorer-page]");
-        if (pageBtn) {
-          state.explorerPage = Math.max(0, Number(pageBtn.dataset.explorerPage || 0));
-          renderSidebar();
           return;
         }
         const studyBtn = event.target.closest("[data-study-subject]");
@@ -3293,48 +3237,7 @@ export async function initMemoryTool(deps, context = {}) {
     }
   }
 
-  function applyStudyContextState() {
-    if (!studyContextRail) return;
-    const collapsed = !!state.contextRailCollapsed;
-    // On wide screens a collapsed rail is still a visible strip with its own
-    // expand button, so only hide it from assistive tech when it is the
-    // off-screen narrow drawer.
-    const narrow = typeof window.matchMedia === "function"
-      && window.matchMedia("(max-width: 1000px)").matches;
-    studyContextRail.classList.toggle("collapsed", collapsed);
-    studyContextRail.setAttribute("aria-hidden", collapsed && narrow ? "true" : "false");
-    studyContextRail.toggleAttribute("inert", collapsed && narrow);
-
-    if (contextToggleBtn) {
-      contextToggleBtn.classList.toggle("active", !collapsed);
-      contextToggleBtn.setAttribute("aria-expanded", String(!collapsed));
-    }
-    if (studyContextCollapseBtn) {
-      studyContextCollapseBtn.setAttribute("aria-expanded", String(!collapsed));
-      const label = collapsed ? "Expand knowledge context" : "Collapse knowledge context";
-      studyContextCollapseBtn.setAttribute("aria-label", label);
-      studyContextCollapseBtn.title = label;
-    }
-  }
-
-  function hideStudyContext() {
-    // Bump the request token so an in-flight lookup cannot paint stale context
-    // after the learner has left the study view.
-    state.contextRailToken = Number(state.contextRailToken || 0) + 1;
-    if (studyContextRail) {
-      studyContextRail.hidden = true;
-      studyContextRail.classList.add("collapsed");
-      studyContextRail.setAttribute("aria-hidden", "true");
-    }
-    if (studyContextBody) studyContextBody.innerHTML = "";
-    if (contextToggleBtn) {
-      contextToggleBtn.style.display = "none";
-      contextToggleBtn.classList.remove("active");
-      contextToggleBtn.setAttribute("aria-expanded", "false");
-    }
-  }
-
-  function studyContextEmptyHtml(title, copy) {
+  function linkedContextEmptyHtml(title, copy) {
     return `
       <div class="study-context-empty">
         <div class="study-context-empty-icon" aria-hidden="true">◇</div>
@@ -3344,29 +3247,28 @@ export async function initMemoryTool(deps, context = {}) {
     `;
   }
 
-  async function renderStudyContext(flashcardData) {
-    if (!studyContextBody || !flashcardData?.record) return;
-    const card = flashcardData.record;
+  // Linked knowledge lives beside the card, never inside it. Inspect is the
+  // only place it appears now that the study-view rail is gone.
+  async function buildLinkedContextHtml(card) {
+    if (!card) return linkedContextEmptyHtml(
+      "No card selected",
+      "Open a card to see its linked quote, analysis, or source."
+    );
+
     const links = card.links && typeof card.links === "object" ? card.links : {};
     const hasExternalLinks = ["quoteId", "analysisId", "nodeId", "sourceId"]
       .some((key) => Boolean(links[key]));
-    const token = Number(state.contextRailToken || 0) + 1;
-    state.contextRailToken = token;
 
     if (!hasExternalLinks) {
-      studyContextBody.innerHTML = studyContextEmptyHtml(
+      return linkedContextEmptyHtml(
         "No linked knowledge context",
-        "This card stands on its own. Link a quote, analysis, or source when you want context beside it."
+        "This card stands on its own. Link a quote, analysis, or source when you want context recorded beside it."
       );
-      return;
     }
-
-    studyContextBody.innerHTML = `<div class="study-context-loading">Loading linked context…</div>`;
 
     const quote = links.quoteId && typeof getQuote === "function"
       ? await getQuote(links.quoteId).catch(() => null)
       : null;
-    if (token !== state.contextRailToken) return;
 
     const nodeIds = [...new Set([
       links.analysisId,
@@ -3377,7 +3279,6 @@ export async function initMemoryTool(deps, context = {}) {
     const nodes = nodeIds.length && typeof getNode === "function"
       ? await Promise.all(nodeIds.map((id) => getNode(id).catch(() => null)))
       : [];
-    if (token !== state.contextRailToken) return;
 
     const nodeMap = new Map(nodes.filter(Boolean).map((node) => [node.id, node]));
     const linkedNode = links.nodeId ? nodeMap.get(links.nodeId) : null;
@@ -3425,32 +3326,24 @@ export async function initMemoryTool(deps, context = {}) {
     }
 
     if (!sections.length) {
-      studyContextBody.innerHTML = studyContextEmptyHtml(
+      return linkedContextEmptyHtml(
         "Linked context is unavailable",
         "The linked record may have been deleted. This card still stands on its own."
       );
-      return;
     }
 
-    studyContextBody.innerHTML = sections.join("");
+    return sections.join("");
   }
 
-  function updateStudyContext(flashcardData) {
-    const isCardStudy = state.view === "study"
-      && (state.currentMode === "card-learning" || state.currentMode === "manual")
-      && !!flashcardData?.record
-      && (flashcardData.memoryKind === "card" || flashcardData.type === "card-learning");
-
-    if (!isCardStudy) {
-      hideStudyContext();
-      return;
-    }
-
-    if (!studyContextRail) return;
-    studyContextRail.hidden = false;
-    if (contextToggleBtn) contextToggleBtn.style.display = "inline-block";
-    applyStudyContextState();
-    renderStudyContext(flashcardData);
+  async function renderInspectLinkedContext(card) {
+    const host = document.getElementById("inspectLinkedContext");
+    if (!host) return;
+    const token = Number(state.inspectContextToken || 0) + 1;
+    state.inspectContextToken = token;
+    host.innerHTML = `<div class="study-context-loading">Loading linked context…</div>`;
+    const html = await buildLinkedContextHtml(card);
+    if (token !== state.inspectContextToken) return;
+    host.innerHTML = html;
   }
 
   function renderUI() {
@@ -3462,41 +3355,26 @@ export async function initMemoryTool(deps, context = {}) {
       if (memoryLaunchpad) memoryLaunchpad.style.display = "flex";
       if (memoryContent) memoryContent.style.display = "none";
       if (middleUI) middleUI.style.display = "none";
-      if (modeSelect) modeSelect.style.display = "none";
       if (newSessionBtn) newSessionBtn.style.display = "none";
       if (statsBtn) statsBtn.style.display = "none";
       if (backToDecksBtn) backToDecksBtn.style.display = "none";
-      hideStudyContext();
       return;
     } else if (state.view === "middle-ui") {
       if (memoryLaunchpad) memoryLaunchpad.style.display = "none";
       if (memoryContent) memoryContent.style.display = "none";
       if (middleUI) middleUI.style.display = "flex";
-      if (modeSelect) modeSelect.style.display = "none";
       if (newSessionBtn) newSessionBtn.style.display = "none";
       if (statsBtn) statsBtn.style.display = "none";
       if (backToDecksBtn) backToDecksBtn.style.display = "none";
-      hideStudyContext();
       renderMiddleUI();
       return;
     } else {
       if (memoryLaunchpad) memoryLaunchpad.style.display = "none";
       if (memoryContent) memoryContent.style.display = "flex";
       if (middleUI) middleUI.style.display = "none";
-      if (modeSelect) modeSelect.style.display = "inline-block";
       if (newSessionBtn) newSessionBtn.style.display = "inline-block";
       if (statsBtn) statsBtn.style.display = "inline-block";
       if (backToDecksBtn) backToDecksBtn.style.display = "inline-block";
-    }
-
-    if (modeSelect) {
-      modeSelect.textContent =
-        state.currentMode === "card-learning" ? "Cards" :
-        state.currentMode === "quote-learning" ? "Quotes" :
-        state.currentMode === "analysis-learning" ? "Analysis" :
-        state.currentMode === "blurt" ? "Blurt" :
-        state.currentMode === "manual" ? "Manual" :
-        "Evidence Matching";
     }
 
     if (flashcardContainer) flashcardContainer.style.display =
@@ -3507,7 +3385,6 @@ export async function initMemoryTool(deps, context = {}) {
     if (!state.currentSubject && state.currentMode !== "manual") {
       if (flashcardContent) flashcardContent.textContent = "Select a subject to start studying.";
       if (flashcardBackContent) flashcardBackContent.textContent = "Use the sidebar to enter a subject.";
-      hideStudyContext();
       return;
     }
 
@@ -3556,8 +3433,6 @@ export async function initMemoryTool(deps, context = {}) {
         if (priorityCtrl) priorityCtrl.style.display = "none";
       }
     }
-
-    updateStudyContext(currentCard);
 
     if (state.currentMode === "evidence-matching") {
       renderEvidenceMatchingUI();
@@ -4071,7 +3946,7 @@ export async function initMemoryTool(deps, context = {}) {
     }
     // Update header title
     const headerTitle = document.getElementById("sidebarHeaderTitle");
-    const modeLabels = { focus: "Focus", router: "Router", inspect: "Inspect", explore: "Explore" };
+    const modeLabels = { focus: "Focus", router: "Router", inspect: "Inspect" };
     if (headerTitle) headerTitle.textContent = modeLabels[state.sidebarMode] || "Focus";
     // System thinking only visible in focus mode
     const systemThinking = document.getElementById("systemThinking");
@@ -4095,9 +3970,6 @@ export async function initMemoryTool(deps, context = {}) {
         break;
       case SIDEBAR_MODES.INSPECT:
         renderInspectMode();
-        break;
-      case SIDEBAR_MODES.EXPLORE:
-        renderExploreMode();
         break;
       default:
         renderFocusMode();
@@ -4205,8 +4077,12 @@ export async function initMemoryTool(deps, context = {}) {
 
   function findCardById(id) {
     if (!id) return null;
-    const allCards = getAllCardsForExplore();
-    return allCards.find(c => getSidebarCardId(c) === id);
+    const pool = [
+      ...(state.flashcards || []),
+      ...(state.session?.heap?.items || []).map((item) => item.card),
+      ...(Array.isArray(state.session?.surprisePool) ? state.session.surprisePool : [])
+    ].filter(Boolean);
+    return pool.find((card) => getSidebarCardId(card) === id) || null;
   }
 
   function renderInspectMode() {
@@ -4264,6 +4140,8 @@ export async function initMemoryTool(deps, context = {}) {
         <div class="inspect-card-label">${escapeHtml(subject)}${layers.length ? " \u203A " + layers.join(" \u203A ") : ""}</div>
         <div class="inspect-card-preview">${escapeHtml(String(previewText).substring(0, 120))}</div>
       </div>
+      <div class="sidebar-section-title">Knowledge Context</div>
+      <div id="inspectLinkedContext" class="inspect-linked-context"></div>
       <div class="sidebar-section-title">Memory State</div>
       <div class="inspect-metric-row">
         <div class="inspect-metric">
@@ -4326,6 +4204,7 @@ export async function initMemoryTool(deps, context = {}) {
           ${tags.map(t => `<span style="padding:3px 8px;border-radius:999px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);font-size:0.72rem;color:var(--text-muted);">${escapeHtml(t)}</span>`).join("")}
         </div>` : ''}
     `;
+    renderInspectLinkedContext(card.record || card);
   }
 
   function inspectCard(cardId) {
@@ -4344,18 +4223,6 @@ export async function initMemoryTool(deps, context = {}) {
     return ms.L_phase || getUserLearningPhase(card, state.userProfile) || "new";
   }
 
-  function getAllCardsForExplore() {
-    // Collect all cards: quotes, analyses, and custom deck cards
-    const allCards = [];
-    if (state.flashcards && state.flashcards.length > 0) {
-      allCards.push(...state.flashcards);
-    }
-    if (state.session?.heap?.items) {
-      allCards.push(...state.session.heap.items.map(i => i.card));
-    }
-    return allCards;
-  }
-
   function getMemoryStateFromMeta(meta = {}, kind = "quote") {
     return {
       S: Number(meta?.S || 1),
@@ -4366,153 +4233,6 @@ export async function initMemoryTool(deps, context = {}) {
       reviewCount: Number(meta?.reviewCount || 0),
       recentGrades: Array.isArray(meta?.recentGrades) ? meta.recentGrades : []
     };
-  }
-
-  async function loadExplorerCards() {
-    const subject = state.currentSubject;
-    const deckId = state.currentDeckId;
-    if (!subject) {
-      state.explorerCards = [];
-      state.explorerLoaded = true;
-      return;
-    }
-    state.explorerLoading = true;
-    state.explorerLoaded = false;
-    try {
-      const [cards, analyses] = await Promise.all([
-        loadScopedCards(),
-        getAnalysisNodesForSubject(subject)
-      ]);
-      if (subject !== state.currentSubject || deckId !== state.currentDeckId) return;
-      const deckCards = (cards || []).map(card => ({
-        id: card.id,
-        kind: "card",
-        text: card.back || card.front || "",
-        subject: card.deck || subject,
-        layers: (card.deckPath || []).slice(1, 4).filter(Boolean),
-        tags: card.tags || [],
-        priority: card.priority,
-        ms: getMemoryStateFromMeta(card.meta || {}, "card")
-      }));
-      const analysisCards = (analyses || []).map(a => ({
-        id: a.id, kind: "analysis", text: a.analysis || "", subject: a.subject || subject,
-        layers: (a.meta?.hierarchyPath || []).slice(1, 4).filter(Boolean),
-        tags: a.tags || [], priority: null,
-        ms: getMemoryStateFromMeta(a.meta || {}, "analysis")
-      }));
-      state.explorerCards = [...deckCards, ...analysisCards];
-    } catch (e) {
-      if (subject === state.currentSubject && deckId === state.currentDeckId) {
-        console.warn("Explorer load error:", e);
-        state.explorerCards = [];
-      }
-    } finally {
-      // A newer subject or deck may have started loading while this request was
-      // in flight; only the current scope may clear the flags.
-      if (subject === state.currentSubject && deckId === state.currentDeckId) {
-        state.explorerLoading = false;
-        state.explorerLoaded = true;
-      }
-    }
-  }
-
-  function renderExploreMode() {
-    if (!statsContent) return;
-    if (state.explorerSubject !== state.currentSubject || state.explorerDeckId !== state.currentDeckId) {
-      state.explorerSubject = state.currentSubject || "";
-      state.explorerDeckId = state.currentDeckId || "";
-      state.explorerLoaded = false;
-      state.explorerLoading = false;
-      state.explorerCards = [];
-      state.explorerPage = 0;
-    }
-    if (!state.currentSubject) {
-      statsContent.innerHTML = `
-        <div class="inspect-placeholder">
-          <div class="inspect-placeholder-icon">\uD83D\uDDC2</div>
-          <div>No subject active.<br>Open a deck to explore its cards.</div>
-        </div>`;
-      return;
-    }
-    if (state.explorerLoading) {
-      statsContent.innerHTML = `<div class="inspect-placeholder"><div style="color:var(--accent);">Loading\u2026</div></div>`;
-      return;
-    }
-    if (state.explorerCards.length === 0) {
-      if (state.explorerLoaded) {
-        statsContent.innerHTML = `
-          <div class="inspect-placeholder">
-            <div class="inspect-placeholder-icon">\uD83D\uDDC2</div>
-            <div>No cards in this deck yet.<br>Add cards from the Memory library.</div>
-          </div>`;
-        return;
-      }
-      loadExplorerCards().then(() => renderSidebar());
-      statsContent.innerHTML = `<div class="inspect-placeholder"><div style="color:var(--accent);">Loading cards\u2026</div></div>`;
-      return;
-    }
-    const filter = state.explorerFilter;
-    let cards = state.explorerCards;
-    if (filter) {
-      if (filter.startsWith("phase:")) {
-        const ph = filter.slice(6);
-        cards = cards.filter(c => getUserLearningPhase({ memoryState: c.ms }, state.userProfile) === ph);
-      } else if (filter === "kind:card") {
-        cards = cards.filter(c => c.kind === "card");
-      } else if (filter === "kind:analysis") {
-        cards = cards.filter(c => c.kind === "analysis");
-      }
-    }
-    const page = state.explorerPage || 0;
-    const total = cards.length;
-    const totalPages = Math.max(1, Math.ceil(total / EXPLORER_PAGE_SIZE));
-    const pageCards = cards.slice(page * EXPLORER_PAGE_SIZE, (page + 1) * EXPLORER_PAGE_SIZE);
-    const filterChips = [
-      { label: "All", value: "" },
-      { label: "Cards", value: "kind:card" },
-      { label: "Analyses", value: "kind:analysis" },
-      { label: "New", value: "phase:new" },
-      { label: "Stabilising", value: "phase:stabilising" },
-      { label: "Mastered", value: "phase:mastered" }
-    ].map(chip => `
-      <button class="explore-filter-chip${filter === (chip.value || null) ? ' active' : ''}" data-explorer-filter="${chip.value}">
-        ${chip.label}
-      </button>`).join("");
-    const fmtU = u => (Number(u ?? 0.5) * 100).toFixed(0) + "%";
-    const cardsHTML = pageCards.length > 0
-      ? pageCards.map(c => {
-          const ph = getUserLearningPhase({ memoryState: c.ms }, state.userProfile);
-          const layersStr = c.layers.join(" \u203A ");
-          return `
-          <div class="explore-card-item" data-inspect-card="${escapeHtml(c.id)}">
-            <div class="explore-card-text">${escapeHtml(c.text.substring(0, 120))}</div>
-            <div class="explore-card-meta">
-              <span style="color:${c.kind === 'quote' ? '#4ba3ff' : '#ff9b39'};">${c.kind}</span>
-              ${layersStr ? `<span>${escapeHtml(layersStr)}</span>` : ""}
-              <span>U: ${fmtU(c.ms.U)}</span>
-              <span style="color:${ph === 'mastered' ? '#3fd07d' : ph === 'new' ? '#ff9b39' : 'var(--text-muted)'};">${ph}</span>
-              ${c.priority ? `<span style="color:${getPriorityColor(c.priority)};">P${c.priority}</span>` : ""}
-            </div>
-          </div>`;
-        }).join("")
-      : `<div style="color:var(--text-muted);font-size:0.8rem;padding:12px 0;">No cards match this filter.</div>`;
-    const paginationHTML = totalPages > 1
-      ? `<div class="explore-pagination">
-          ${page > 0 ? `<button class="explore-page-btn" data-explorer-page="${page - 1}">\u2190 Prev</button>` : ""}
-          <span style="font-size:0.72rem;color:var(--text-muted);align-self:center;">${page + 1}/${totalPages}</span>
-          ${page < totalPages - 1 ? `<button class="explore-page-btn" data-explorer-page="${page + 1}">Next \u2192</button>` : ""}
-        </div>` : "";
-    statsContent.innerHTML = `
-      <div class="explore-filter-bar">${filterChips}</div>
-      <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:6px;">${total} card${total !== 1 ? "s" : ""} \u00B7 click to inspect</div>
-      ${cardsHTML}
-      ${paginationHTML}
-      <div style="padding-top:8px;">
-        <button class="memory-btn" style="width:100%;font-size:0.8rem;" data-study-subject="${escapeHtml(state.currentSubject)}">
-          Study This Deck
-        </button>
-      </div>
-    `;
   }
 
   function formatSidebarLabel(value) {

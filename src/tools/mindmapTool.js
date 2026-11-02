@@ -96,7 +96,6 @@ const state = {
     // these records are metadata only.
     heaps: [],
     activeHeapId: String(contextHeapId || "").trim() || null,
-    heapSidebarOpen: Boolean(contextHeapId),
     // One scene object per card for the whole tool session. The object is also
     // the card's entry in `nodePositions`, so `x/y` is the single canonical
     // position shared by Graph, Dots, hit-testing, dragging, and transitions.
@@ -149,7 +148,6 @@ const state = {
   const libraryHeapSelect = document.getElementById("libraryHeapSelect");
   const libraryHeapStatus = document.getElementById("libraryHeapStatus");
   const newHeapBtn = document.getElementById("newHeapBtn");
-  const toggleHeapSidebarBtn = document.getElementById("toggleHeapSidebarBtn");
   const libraryHeapSidebarName = document.getElementById("libraryHeapSidebarName");
   const libraryHeapSidebarMeta = document.getElementById("libraryHeapSidebarMeta");
   const libraryHeapItems = document.getElementById("libraryHeapItems");
@@ -2038,7 +2036,6 @@ const state = {
       if (actions) actions.hidden = !hasSelection;
       updateInspectorHeader();
     } else if (nextTab === "heap") {
-      state.heapSidebarOpen = true;
       renderHeapSidebar();
       updateInspectorHeader();
     } else if (nextTab === "connections" && !hasSelection) {
@@ -2056,13 +2053,6 @@ const state = {
       if (count) count.textContent = "0";
       if (tabCount) tabCount.textContent = "0";
       updateInspectorHeader();
-    }
-
-    if (toggleHeapSidebarBtn) {
-      toggleHeapSidebarBtn.setAttribute(
-        "aria-expanded",
-        String(state.heapSidebarOpen && nextTab === "heap" && Boolean(getActiveHeap()))
-      );
     }
   }
 
@@ -2084,12 +2074,9 @@ const state = {
 
   function updateHeapSidebarVisibility() {
     const heap = getActiveHeap();
-    const wantsHeapPanel = Boolean(heap) && state.heapSidebarOpen;
-    if (toggleHeapSidebarBtn) {
-      toggleHeapSidebarBtn.setAttribute("aria-expanded", String(wantsHeapPanel && state.inspectorTab === "heap"));
-      toggleHeapSidebarBtn.textContent = `Heap (${getHeapCards(heap).length})`;
-    }
-    if (!wantsHeapPanel && !state.selectedNodeId && state.inspectorTab === "heap" && nodeSidebar?.classList.contains("open")) {
+    // The inspector's Heap tab is the only heap list. If the selected heap is
+    // gone, close the panel rather than showing a stale list.
+    if (!heap && !state.selectedNodeId && state.inspectorTab === "heap" && nodeSidebar?.classList.contains("open")) {
       closeSidebar();
     }
   }
@@ -2165,10 +2152,6 @@ const state = {
       }
     }
 
-    if (toggleHeapSidebarBtn) {
-      toggleHeapSidebarBtn.textContent = `Heap (${availableCards.length})`;
-    }
-
     renderHeapSidebar();
     updateHeapSidebarVisibility();
     // The active heap can change while the Heap tab is already open (select,
@@ -2193,10 +2176,8 @@ const state = {
       const heap = await addHeap({ name: trimmed, cardIds: [] });
       state.heaps = [heap, ...(state.heaps || []).filter((entry) => entry.id !== heap.id)];
       state.activeHeapId = heap.id;
-      state.heapSidebarOpen = true;
       renderHeapControls();
       renderGrid();
-      openInspector("heap");
       return heap;
     } catch (error) {
       console.error("Failed to create heap:", error);
@@ -2363,7 +2344,6 @@ const state = {
       state.heaps = (state.heaps || []).filter((entry) => entry.id !== heap.id);
       heapSaveBaselines.delete(heap.id);
       state.activeHeapId = state.heaps[0]?.id || null;
-      state.heapSidebarOpen = Boolean(state.activeHeapId);
       renderHeapControls();
       renderGrid();
     } catch (error) {
@@ -4862,8 +4842,6 @@ const state = {
     state.selectedNodeId = null;
     state.sidebarView = "content";
     state.inspectorTab = "details";
-    state.heapSidebarOpen = false;
-    if (toggleHeapSidebarBtn) toggleHeapSidebarBtn.setAttribute("aria-expanded", "false");
     updateLockControls();
     syncGridSelection();
     if (returnFocus?.isConnected) {
@@ -5046,7 +5024,6 @@ const state = {
     }
     if (state.activeHeapId && !state.heaps.some((heap) => heap.id === state.activeHeapId)) {
       state.activeHeapId = null;
-      state.heapSidebarOpen = false;
       updateInspectorHeader();
     }
     state.layerNodes = computeLayerNodesFromSources(nodes);
@@ -5475,22 +5452,6 @@ const state = {
 
     if (heapSidebarStudyBtn) {
       heapSidebarStudyBtn.addEventListener("click", studyActiveHeap);
-    }
-
-    if (toggleHeapSidebarBtn) {
-      toggleHeapSidebarBtn.addEventListener("click", () => {
-        const heap = getActiveHeap();
-        if (!heap) {
-          dialog.alert("Create or select a heap first.");
-          return;
-        }
-        if (nodeSidebar?.classList.contains("open") && state.inspectorTab === "heap") {
-          closeSidebar();
-          return;
-        }
-        state.heapSidebarOpen = true;
-        openInspector("heap");
-      });
     }
 
     if (deleteHeapBtn) {
@@ -6177,12 +6138,6 @@ const state = {
     setViewMode(state.viewMode);
   }
   updateContextualActions();
-
-  // Opening from a heap context lands in the Library with the unified
-  // inspector already showing that heap.
-  if (state.heapSidebarOpen && getActiveHeap()) {
-    openInspector("heap");
-  }
 
   syncGraphFilterUI();
   setupEventListeners();
