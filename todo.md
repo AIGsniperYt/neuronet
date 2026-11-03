@@ -26,10 +26,6 @@ sort internal per deck by date created from oldest to newest or vice versa
 
 ---
 
-# Pending manual test
-
-- [ ] **Memory Focus-quick-look** — shipped `120684c`. Tap any row in the Focus-tab heap queue (including the current "on screen" card) to open a temporary Front/Back preview. Close with the X, tapping outside, or Escape; focus returns to the row. It is read-only: no session start, no grading, no queue movement, no SRS changes. Check desktop and real iPad/Safari.
-
 # Still open
 
 - Real iPad/Safari pass: double-tap zoom, pinch, Lock mode ergonomics, toolbar crowding, heap drag-release feel.
