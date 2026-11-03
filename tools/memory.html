@@ -363,6 +363,7 @@
   </div>
 
   <!-- Memory Content Area -->
+  <div id="memoryBody">
   <div id="memoryContent" style="display: none;">
     <div id="memoryMainArea">
       <div id="roundProgress"></div>
@@ -419,6 +420,7 @@
       <div id="systemThinkingText" class="system-thinking-text"></div>
     </div>
     <div id="statsContent"></div>
+  </div>
   </div>
 
 </div>
@@ -1146,27 +1148,39 @@
     color: #ff4d4d;
   }
 
+  /* Stats is a real column beside the study area, not an overlay. Closed it
+     takes no width; open it pushes the card area aside and the card reflows. */
+  #memoryBody {
+    flex: 1 1 auto;
+    min-height: 0;
+    min-width: 0;
+    display: flex;
+    overflow: hidden;
+  }
+
   #memoryStats {
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: 360px;
+    --stats-panel-width: 360px;
+    position: relative;
+    flex: 0 0 auto;
+    width: 0;
+    min-width: 0;
+    overflow: hidden;
     background: var(--panel-strong);
-    border-left: 1px solid var(--glass-border);
+    border-left: 1px solid transparent;
     display: flex;
     flex-direction: column;
-    transform: translateX(100%);
-    visibility: hidden;
-    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s linear 0.3s;
+    transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s ease;
     z-index: 20;
-    box-shadow: -8px 0 32px rgba(0,0,0,0.3);
+  }
+
+  #memoryStats > * {
+    width: var(--stats-panel-width);
+    flex: 0 0 auto;
   }
 
   #memoryStats.open {
-    transform: translateX(0);
-    visibility: visible;
-    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    width: var(--stats-panel-width);
+    border-left-color: var(--glass-border);
   }
 
   #closeStatsBtn,
@@ -3509,30 +3523,32 @@
     .builder-sticky-actions > div { display: flex; flex-wrap: wrap; gap: 8px; }
   }
 
-  /* A coarse-pointer tablet (iPad) matches the touch rules above even when it
-     has plenty of width. The stats panel is a side drawer there, not a phone
-     sheet, so keep it at the desktop width and anchor it to the right instead
-     of covering the whole study area. */
+  /* A coarse-pointer tablet (iPad) gets the same side-by-side panel, just
+     narrower so the card keeps usable room. */
   @media (min-width: 701px) and (pointer: coarse) and (hover: none) {
     #memoryStats {
-      top: 0;
-      right: 0;
-      bottom: 0;
-      left: auto;
-      width: min(360px, 46vw);
-      max-width: 420px;
-      border-left: 1px solid var(--glass-border);
+      --stats-panel-width: 300px;
     }
   }
 
+  /* Phones have no room for two columns; the panel becomes a full-width sheet. */
   @media (max-width: 700px) {
+    #memoryBody {
+      position: relative;
+    }
     #memoryStats {
-      top: 0;
-      left: 0;
-      bottom: 0;
-      width: 100%;
+      position: absolute;
+      inset: 0 0 0 auto;
+      width: 0;
       max-width: 100%;
       border-left: 0;
+      box-shadow: -8px 0 32px rgba(0,0,0,0.3);
+    }
+    #memoryStats > * {
+      width: 100%;
+    }
+    #memoryStats.open {
+      width: 100%;
     }
   }
 </style>

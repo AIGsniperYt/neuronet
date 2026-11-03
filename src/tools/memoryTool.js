@@ -281,6 +281,7 @@ export async function initMemoryTool(deps, context = {}) {
   let gradingControls, gradeDidntKnowBtn, gradeKindaBtn, gradeEasyBtn, priorityControls, priorityToggle;
   let evidenceMatchingContainer, evidencePrompt, quoteOptions, evidenceFeedback;
   let memoryStats, statsContent, closeStatsBtn, roundProgress, resetMemoryBtn;
+  let memoryBody;
   let systemThinkingText;
   // Deck builder elements
   let deckBuilderModal, deckNameInput, deckSubjectInput, deckSubjectOptions, deckParentHint, deckDescriptionInput, deckCardTags, createDeckBtn, closeDeckBuilderBtn;
@@ -366,6 +367,7 @@ export async function initMemoryTool(deps, context = {}) {
     quoteOptions = document.getElementById("quoteOptions");
     evidenceFeedback = document.getElementById("evidenceFeedback");
     memoryStats = document.getElementById("memoryStats");
+    memoryBody = document.getElementById("memoryBody");
     statsContent = document.getElementById("statsContent");
     closeStatsBtn = document.getElementById("closeStatsBtn");
     roundProgress = document.getElementById("roundProgress");
@@ -3518,23 +3520,28 @@ export async function initMemoryTool(deps, context = {}) {
      if (state.view === "launchpad") {
       if (memoryLaunchpad) memoryLaunchpad.style.display = "flex";
       if (memoryContent) memoryContent.style.display = "none";
+      if (memoryBody) memoryBody.style.display = "none";
       if (middleUI) middleUI.style.display = "none";
       if (newSessionBtn) newSessionBtn.style.display = "none";
       if (statsBtn) statsBtn.style.display = "none";
       if (backToDecksBtn) backToDecksBtn.style.display = "none";
+      if (memoryStats?.classList.contains("open")) setStatsOpen(false);
       return;
     } else if (state.view === "middle-ui") {
       if (memoryLaunchpad) memoryLaunchpad.style.display = "none";
       if (memoryContent) memoryContent.style.display = "none";
+      if (memoryBody) memoryBody.style.display = "none";
       if (middleUI) middleUI.style.display = "flex";
       if (newSessionBtn) newSessionBtn.style.display = "none";
       if (statsBtn) statsBtn.style.display = "none";
       if (backToDecksBtn) backToDecksBtn.style.display = "none";
+      if (memoryStats?.classList.contains("open")) setStatsOpen(false);
       renderMiddleUI();
       return;
     } else {
       if (memoryLaunchpad) memoryLaunchpad.style.display = "none";
       if (memoryContent) memoryContent.style.display = "flex";
+      if (memoryBody) memoryBody.style.display = "flex";
       if (middleUI) middleUI.style.display = "none";
       if (newSessionBtn) newSessionBtn.style.display = "inline-block";
       if (statsBtn) statsBtn.style.display = "inline-block";

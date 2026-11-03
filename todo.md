@@ -55,7 +55,7 @@ maybe add a "dark mode" or "professional mode" for use outside when you dont wan
 
 Canonical vision now lives in the private docs repo at `../backend/docs/project.md` §1.1 "Product Vision and UX Direction". In short: comfort-ride default, power behind a voluntary door, hide/defer/merge over add, deck-first card creation, and no capability removed to buy simplicity.
 
-# Calm-default pass (next)
+# Calm-default pass
 
 Goal: make the default Memory flow feel simple and comfortable without removing capability.
 
@@ -63,15 +63,22 @@ Agreed direction:
 
 - Deck row itself starts card study; a text `Options` button opens the existing control center.
 - The control center keeps every mode, filter, scope toggle, and per-tag/layer shortcut.
-- Stats becomes a real side-by-side panel that pushes the study area aside, not an overlay. Tablet width may shrink the panel; phone keeps a full-screen sheet.
-- Separate batches: deck-row/Options first, stats layout second.
+- Stats is a real side-by-side panel that pushes the study area aside, not an overlay. Tablet shrinks the panel; phone keeps a full-screen sheet.
 
-- [ ] Read-only senior audit: find every place the default flow forces a student to understand or confront power tools - study modes, routing, SRS stats, filters, layers, heaps, metadata.
-- [ ] Map the current default path: open Memory -> choose deck -> study. Count the decisions and controls before the first card.
-- [ ] Identify what to hide behind disclosure, what to merge, and what to delete. No new features; no functionality removed.
-- [ ] Propose one target default flow and the voluntary advanced entry points.
-- [ ] Decide: open deck -> short summary -> Study, or open deck -> Study immediately.
-- [ ] Open question: which screen currently feels like the "wall of buttons" - launchpad, deck page, study screen, or stats sidebar?
+Done:
+
+- [x] Read-only senior audit of the default flow.
+- [x] Map the current path and count decisions/controls before the first card.
+- [x] Identify what to hide, merge, or defer; nothing removed.
+- [x] Decide open deck → Study immediately (no summary screen).
+- [x] Deck row = study, `Options` = control center.
+- [x] Stats = side-by-side column, not an overlay.
+
+Still to consider:
+
+- [ ] Stats default disclosure: keep Studied/Accuracy first and move Router/Inspect internals behind an explicit advanced view.
+- [ ] Launchpad `Manage` grouping for Build Deck / Edit / Heaps, once it is worth the churn.
+
 
 ## Audit brief
 
