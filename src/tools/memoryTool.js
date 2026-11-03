@@ -3332,92 +3332,171 @@ export async function initMemoryTool(deps, context = {}) {
     `;
   }
 
-  // Linked knowledge lives beside the card, never inside it. Inspect is the
-  // only place it appears now that the study-view rail is gone.
-  async function buildLinkedContextHtml(card) {
-    if (!card) return linkedContextEmptyHtml(
-      "No card selected",
-      "Open a card to see its linked quote, analysis, or source."
-    );
+  // Linked knowledge lives in Inspect, never inside the card. Records use
+  // different shapes across modes: cards have `links`, quotes have `link`,
+  // analyses have `quoteRefs`, and blurt cards point at a target record.
+  function contextQuoteSection(quote, label = "Linked quote") {
+    const text = String(quote?.quote || quote?.content || "").trim();
+    if (!text) return "";
+    const section = String(quote?.section || "").trim();
+    return `
+      <section class="study-context-section" data-context-kind="quote">
+        <div class="study-context-label">${escapeHtml(label)}</div>
+        <blockquote class="study-context-quote">${escapeHtml(text)}</blockquote>
+        ${section ? `<div class="study-context-meta">${escapeHtml(section)}</div>` : ""}
+      </section>
+    `;
+  }
 
-    const links = card.links && typeof card.links === "object" ? card.links : {};
-    const hasExternalLinks = ["quoteId", "analysisId", "nodeId", "sourceId"]
-      .some((key) => Boolean(links[key]));
+  function contextAnalysisSection(analysis, label = "Linked analysis") {
+    const title = String(analysis?.title || "").trim();
+    const text = String(analysis?.analysis || analysis?.content || "").trim();
+    if (!title && !text) return "";
+    return `
+      <section class="study-context-section" data-context-kind="analysis">
+        <div class="study-context-label">${escapeHtml(label)}</div>
+        ${title ? `<div class="study-context-section-title">${escapeHtml(title)}</div>` : ""}
+        ${text ? `<div class="study-context-analysis">${formatAnalysisForDisplay(text)}</div>` : ""}
+      </section>
+    `;
+  }
 
-    if (!hasExternalLinks) {
-      return linkedContextEmptyHtml(
-        "No linked knowledge context",
-        "This card stands on its own. Link a quote, analysis, or source when you want context recorded beside it."
-      );
-    }
+  function contextSourceSection(source, label = "Source") {
+    const title = String(source?.title || source?.name || "Untitled source").trim();
+    const meta = [source?.subject, source?.section]
+      .map((part) => String(part || "").trim())
+      .filter(Boolean)
+      .join(" · ");
+    return `
+      <section class="study-context-section" data-context-kind="source">
+        <div class="study-context-label">${escapeHtml(label)}</div>
+        <div class="study-context-section-title">${escapeHtml(title)}</div>
+        ${meta ? `<div class="study-context-meta">${escapeHtml(meta)}</div>` : ""}
+      </section>
+    `;
+  }
 
-    const quote = links.quoteId && typeof getQuote === "function"
-      ? await getQuote(links.quoteId).catch(() => null)
-      : null;
+  async function getContextQuote(id) {
+    if (!id || typeof getQuote !== "function") return null;
+    return getQuote(id).catch(() => null);
+  }
 
+  async function getContextNode(id) {
+    if (!id || typeof getNode !== "function") return null;
+    return getNode(id).catch(() => null);
+  }
+
+  async function buildCardLinkedContext(record) {
+    const links = record?.links && typeof record.links === "object" ? record.links : {};
+    const quote = await getContextQuote(links.quoteId);
     const nodeIds = [...new Set([
       links.analysisId,
       links.nodeId,
-      links.sourceId,
-      quote?.link?.sourceId
+      links.sourceId
     ].filter(Boolean))];
-    const nodes = nodeIds.length && typeof getNode === "function"
-      ? await Promise.all(nodeIds.map((id) => getNode(id).catch(() => null)))
-      : [];
-
+    const nodes = await Promise.all(nodeIds.map(getContextNode));
     const nodeMap = new Map(nodes.filter(Boolean).map((node) => [node.id, node]));
+
     const linkedNode = links.nodeId ? nodeMap.get(links.nodeId) : null;
     const analysisNode = (links.analysisId ? nodeMap.get(links.analysisId) : null)
       || (linkedNode?.type === "analysis" ? linkedNode : null);
-    const sourceNode = (links.sourceId ? nodeMap.get(links.sourceId) : null)
-      || (quote?.link?.sourceId ? nodeMap.get(quote.link.sourceId) : null)
+    let sourceNode = (links.sourceId ? nodeMap.get(links.sourceId) : null)
       || (linkedNode?.type === "source" ? linkedNode : null);
+    if (!sourceNode && quote?.link?.sourceId) {
+      sourceNode = await getContextNode(quote.link.sourceId);
+    }
 
     const sections = [];
-    if (quote) {
-      const section = String(quote.section || "").trim();
-      sections.push(`
-        <section class="study-context-section" data-context-kind="quote">
-          <div class="study-context-label">Linked quote</div>
-          <blockquote class="study-context-quote">${escapeHtml(quote.quote || "")}</blockquote>
-          ${section ? `<div class="study-context-meta">${escapeHtml(section)}</div>` : ""}
-        </section>
-      `);
-    }
-    if (analysisNode) {
-      const title = String(analysisNode.title || "").trim();
-      const analysis = String(analysisNode.analysis || analysisNode.content || "").trim();
-      sections.push(`
-        <section class="study-context-section" data-context-kind="analysis">
-          <div class="study-context-label">Linked analysis</div>
-          ${title ? `<div class="study-context-section-title">${escapeHtml(title)}</div>` : ""}
-          ${analysis ? `<div class="study-context-analysis">${formatAnalysisForDisplay(analysis)}</div>` : ""}
-        </section>
-      `);
-    }
-    if (sourceNode) {
-      const title = String(sourceNode.title || sourceNode.name || "Untitled source").trim();
-      const meta = [sourceNode.subject, sourceNode.section]
-        .map((part) => String(part || "").trim())
-        .filter(Boolean)
-        .join(" · ");
-      sections.push(`
-        <section class="study-context-section" data-context-kind="source">
-          <div class="study-context-label">Source</div>
-          <div class="study-context-section-title">${escapeHtml(title)}</div>
-          ${meta ? `<div class="study-context-meta">${escapeHtml(meta)}</div>` : ""}
-        </section>
-      `);
-    }
+    if (quote) sections.push(contextQuoteSection(quote, "Linked quote"));
+    if (analysisNode) sections.push(contextAnalysisSection(analysisNode, "Linked analysis"));
+    if (sourceNode) sections.push(contextSourceSection(sourceNode, "Source"));
 
-    if (!sections.length) {
+    if (sections.length) return sections.join("");
+    if (Object.values(links).some(Boolean)) {
       return linkedContextEmptyHtml(
         "Linked context is unavailable",
         "The linked record may have been deleted. This card still stands on its own."
       );
     }
+    return linkedContextEmptyHtml(
+      "No linked knowledge context",
+      "This card stands on its own. Link a quote, analysis, or source when you want context recorded beside it."
+    );
+  }
 
-    return sections.join("");
+  async function buildQuoteLinkedContext(quote) {
+    const sections = [];
+    const sourceNode = await getContextNode(quote?.link?.sourceId);
+    if (sourceNode) sections.push(contextSourceSection(sourceNode, "Source"));
+
+    const analyses = typeof getAnalysesReferencingQuote === "function"
+      ? await getAnalysesReferencingQuote(quote.id).catch(() => [])
+      : [];
+    (analyses || []).filter(Boolean).forEach((analysis) => {
+      const html = contextAnalysisSection(analysis, "Linked analysis");
+      if (html) sections.push(html);
+    });
+
+    if (sections.length) return sections.join("");
+    return linkedContextEmptyHtml(
+      "No linked source or analyses",
+      "This quote stands on its own. Link a source or analysis in Mindmap."
+    );
+  }
+
+  async function buildAnalysisLinkedContext(analysis) {
+    const refs = Array.isArray(analysis?.quoteRefs) ? analysis.quoteRefs : [];
+    const quotes = typeof getQuotesReferencedByAnalysis === "function"
+      ? await getQuotesReferencedByAnalysis(analysis.id).catch(() => [])
+      : [];
+    const quoteMap = new Map((quotes || []).filter(Boolean).map((quote) => [quote.id, quote]));
+
+    const sections = [];
+    const seenQuotes = new Set();
+    const seenSources = new Set();
+    const sourceIds = [];
+
+    const addQuote = (quote, ref = null) => {
+      const id = quote?.id || ref?.quoteId || "";
+      if (id && seenQuotes.has(id)) return;
+      if (id) seenQuotes.add(id);
+      const html = contextQuoteSection(
+        quote || { quote: ref?.quote, section: ref?.section },
+        "Evidence quote"
+      );
+      if (!html) return;
+      sections.push(html);
+
+      const sourceId = quote?.link?.sourceId || ref?.sourceId;
+      if (sourceId && !seenSources.has(sourceId)) {
+        seenSources.add(sourceId);
+        sourceIds.push(sourceId);
+      }
+    };
+
+    refs.forEach((ref) => addQuote(quoteMap.get(ref.quoteId), ref));
+    (quotes || []).filter(Boolean).forEach((quote) => addQuote(quote));
+
+    const sources = await Promise.all(sourceIds.map(getContextNode));
+    sources.filter(Boolean).forEach((source) => {
+      sections.push(contextSourceSection(source, "Source"));
+    });
+
+    if (sections.length) return sections.join("");
+    return linkedContextEmptyHtml(
+      "No evidence quotes",
+      "This analysis has no linked quotes yet. Link quotes in Analysis or Mindmap."
+    );
+  }
+
+  async function buildLinkedContextHtml(record) {
+    if (!record) return linkedContextEmptyHtml(
+      "No card selected",
+      "Open a card to see its linked quote, analysis, or source."
+    );
+    if (record.type === "quote") return buildQuoteLinkedContext(record);
+    if (record.type === "analysis") return buildAnalysisLinkedContext(record);
+    return buildCardLinkedContext(record);
   }
 
   async function renderInspectLinkedContext(card) {
@@ -4299,7 +4378,7 @@ export async function initMemoryTool(deps, context = {}) {
           ${tags.map(t => `<span style="padding:3px 8px;border-radius:999px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);font-size:0.72rem;color:var(--text-muted);">${escapeHtml(t)}</span>`).join("")}
         </div>` : ''}
     `;
-    renderInspectLinkedContext(card.record || card);
+    renderInspectLinkedContext(getCardRecord(card) || card);
   }
 
   function inspectCard(cardId) {
