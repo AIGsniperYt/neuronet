@@ -24,6 +24,12 @@ remove layers to replace with tags, cus cant they do everything layers do but be
 
 sort internal per deck by date created from oldest to newest or vice versa
 
+RICH TEXT FRORMATTING IN FLASHCARDS !!! important for flashcards cus of bulleted mark schemes for example - thats really useful! we can just hook up our first party vendor lib md-format and embed it into that tool to call too!! yess!!
+
+add estimated time to completion for flashcard sessions
+
+maybe add a "dark mode" or "professional mode" for use outside when you dont want a comfy evergreen theme with my fav colour everywhere, and just want something clean, dark, and unnoticable to avoid drawing attraction or maybe more simply just removing distractions to let you study with focus
+
 ---
 
 # Still open
@@ -39,30 +45,43 @@ sort internal per deck by date created from oldest to newest or vice versa
 - A new test framework.
 - Re-flowing the graph when search or type filters change. Filters point at nodes; the current physics behaviour is accepted. Revisit only if a filter visibly shoves nodes on a real device.
 
+
 ---
 
-# Owner decisions (answers kept, agent prompts removed)
+# Product direction
 
-## 1. What is a deck?
+Canonical vision now lives in the private docs repo at `../backend/docs/project.md` §1.1 "Product Vision and UX Direction". In short: comfort-ride default, power behind a voluntary door, hide/defer/merge over add, deck-first card creation, and no capability removed to buy simplicity.
 
-**Your answer:** yes decks are a temporary collection of cards, which could be confusing - but take it as this analogy, your full cards set is absolute like a library, a deck is merely like a collection of books you can collect into a pile and take with you to study in a session, and even save them so you can instantly cash out the same pile or modify it without redoing it. a subject is the canonical owner of that card, if it has one, and its something like biology or whatever, a deck is simple something like exam questions, or fact recall, or biological molecules, cards arent exclusive to one deck, a deck is a pile of references to the actual books borrowed, not transferred ownership, its permanent in the sense it saves for users like an easy list to cash out without losing it over sessions, but its temporary in the sense its unassigned and is nothing but a name and a list of references for convenience, which the memory tool allows you to take inside to study using its machinery but letting you manual override the scheduling the srs algo does for you, instead picking which cards and what order you wanna do, however, it still takes your data and it counts as training, contributing to your stats
+# Calm-default pass (next)
 
-## 2. Which card browser is canonical?
+Goal: make the default Memory flow feel simple and comfortable without removing capability.
 
-**Your answer:** uh sure ur default seems right but i dont quite understand, talk to me about this one, but yeah i thought since mindmap is the tool to handle your database like an easy view layer with no intent to modify or use the data like analysis tool can analyse and highlight sources as its purpose or the memory tool purpose is to teach this into your memory, not primarily to let you view it, mindmap is purely for viewing and for basic CRUD operations on your database, nothing complex like the other tools, just seeing and handling your knowledge data
+- [ ] Read-only senior audit: find every place the default flow forces a student to understand or confront power tools - study modes, routing, SRS stats, filters, layers, heaps, metadata.
+- [ ] Map the current default path: open Memory -> choose deck -> study. Count the decisions and controls before the first card.
+- [ ] Identify what to hide behind disclosure, what to merge, and what to delete. No new features; no functionality removed.
+- [ ] Propose one target default flow and the voluntary advanced entry points.
+- [ ] Decide: open deck -> short summary -> Study, or open deck -> Study immediately.
+- [ ] Open question: which screen currently feels like the "wall of buttons" - launchpad, deck page, study screen, or stats sidebar?
 
-## 3. Which study modes do you actually use?
+## Audit brief
 
-**Your answer:** idk - this i feel like is a bad question because the idea shouldnt be to delete this since we want our tool to be useful and super powerful with multiple ways to learn and drill things into memory, theres always something for everyone, so the biggest complaint was making the ux and the flow of the ui less bloated while preserving this level of capability, even if it is admittedly a stub, mainly only using cards - this model can be outdated and stale too since the big cards update where we made card objects their own thing, so its no longer the case of quote and analysis nodes together generating a card but yh, thats its whole discussion, but the bottom line point is to try to aim to remove ui and ux flow bloat, not functionality, though admittedly the other ones barely function cus ive not given them attention
+Read-only audit. Do not modify, commit, or push repo files. Put scripts and screenshots in `/tmp/opencode`.
 
-## 4. Mindmap: Dots and stat pills
+Role: senior frontend/product engineer. Judge the app by ease, lack of friction, and lack of overwhelm first.
 
-**Your answer:** once again terrible question, you cant remove a whole view, and yes its meant to be good imagine wanting to navigate all your flashcards before an exam and hammer in weak ones, dots is so much better than graph because it focuses only on cards and compactly shows so much info - this isnt a question to remove, youre right, maybe we can do something about it on ipad but no deletion
+Mental model: this is a comfort-ride car with a powerful engine. The default drive must be calm, obvious, and uncluttered. The performance engine stays installed, but the driver only sees it after explicitly switching gears. Advanced tooling must be voluntary, never forced into the default view.
 
-## 5. Mindmap: one heap surface
+Critique:
+- Where does the UI force a student to understand internals before they can study?
+- Where are power tools, stats, filters, modes, or metadata visible or required by default?
+- Where does the student face a wall of choices or buttons?
+- What can be hidden, deferred, merged, or deleted without losing capability?
+- What is the smallest coherent default flow?
 
-**Your answer:** not quite sure wat the q is - talk abt this
-
-## 6. Context rail
-
-**Your answer:** talk abt this w me - i just dontt like how out of place it is, it literally doesnt belong here naturally - serious design discussion
+Rules:
+- No generic UX advice. Every recommendation must name what to remove, hide, merge, or defer.
+- No new frameworks, dependencies, screens, or wizards.
+- Preserve the powerful features; change when and how they are exposed.
+- Evidence with `file:line` and/or screenshots for every major claim.
+- Rank findings by user impact, confidence, and effort.
+- Include a target default flow, a progressive-disclosure map, and a "do not do" list.
