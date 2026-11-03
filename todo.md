@@ -34,6 +34,7 @@ maybe add a "dark mode" or "professional mode" for use outside when you dont wan
 
 # Still open
 
+- **Study All Subjects (WIP)**: the disabled launchpad button is intentional, not dead code. Keep it until the all-subjects study flow is built; do not delete it as "unused".
 - Real iPad/Safari pass: double-tap zoom, pinch, Lock mode ergonomics, toolbar crowding, heap drag-release feel.
 - Mindmap layout is browser-local: no cross-device sync, no named snapshots.
 - Locks made during the opening explosion persist after the settle timer, not immediately.

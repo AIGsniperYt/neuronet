@@ -658,6 +658,12 @@ function toast(message, { sticky = false, action = null } = {}) {
     el.classList.add("hide");
     setTimeout(() => el.remove(), 320);
   };
+  // Any toast can be tapped/clicked away. The action button keeps its own
+  // click and dismisses explicitly, so guard against double handling.
+  el.addEventListener("click", (e) => {
+    if (e.target && e.target.closest && e.target.closest(".nn-toast-btn")) return;
+    dismiss();
+  });
   root.appendChild(el);
   if (!sticky) setTimeout(dismiss, 7000);
   return dismiss;
