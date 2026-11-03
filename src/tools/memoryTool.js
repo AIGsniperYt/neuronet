@@ -1646,12 +1646,12 @@ export async function initMemoryTool(deps, context = {}) {
         row.style.setProperty("--deck-depth", String(deck.depth || 0));
         row.setAttribute("role", "treeitem");
         row.innerHTML = `
-          <button type="button" class="deck-row-main" title="Open ${escapeHtml(deck.name)}">
+          <button type="button" class="deck-row-main" title="Study ${escapeHtml(deck.name)}" aria-label="Study ${escapeHtml(deck.name)}">
             <span class="deck-row-name">${escapeHtml(deck.name)}</span>
             <span class="deck-row-meta">${escapeHtml(meta)}</span>
           </button>
           <div class="deck-row-actions">
-            <button type="button" class="card-btn deck-study-btn" data-deck-id="${escapeHtml(deck.id)}">Study</button>
+            <button type="button" class="card-btn deck-options-btn" data-deck-id="${escapeHtml(deck.id)}" title="Study options for ${escapeHtml(deck.name)}">Options</button>
             <button type="button" class="deck-add-btn" data-deck-id="${escapeHtml(deck.id)}" title="Add a card to ${escapeHtml(deck.name)}" aria-label="Add a card to ${escapeHtml(deck.name)}">+</button>
             ${state.editMode ? `
               ${deck.name === UNSORTED_DECK_NAME && !deck.parentId ? "" : `
@@ -1670,18 +1670,18 @@ export async function initMemoryTool(deps, context = {}) {
           setDeckScope(deck);
           state.currentMode = "card-learning";
           state.sessionFilter = null;
-          state.view = "middle-ui";
-          await loadMiddleUIData();
+          state.view = "study";
+          await loadFlashcards();
           renderUI();
         });
 
-        row.querySelector(".deck-study-btn").addEventListener("click", async (e) => {
+        row.querySelector(".deck-options-btn").addEventListener("click", async (e) => {
           e.stopPropagation();
           setDeckScope(deck);
           state.currentMode = "card-learning";
           state.sessionFilter = null;
-          state.view = "study";
-          await loadFlashcards();
+          state.view = "middle-ui";
+          await loadMiddleUIData();
           renderUI();
         });
 

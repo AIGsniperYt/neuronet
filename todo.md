@@ -35,6 +35,8 @@ maybe add a "dark mode" or "professional mode" for use outside when you dont wan
 # Still open
 
 - **Study All Subjects (WIP)**: the disabled launchpad button is intentional, not dead code. Keep it until the all-subjects study flow is built; do not delete it as "unused".
+- **Icon cleanup (not now)**: do not mass-purge emoji/glyphs — several are liked. Revisit selectively later and judge each on whether it adds meaning; text labels are the default for controls.
+- **Later refinement**: the per-tag / per-layer `Study` buttons in the deck control center stay visible for now; consider tucking them into a row `⋯` menu later.
 - Real iPad/Safari pass: double-tap zoom, pinch, Lock mode ergonomics, toolbar crowding, heap drag-release feel.
 - Mindmap layout is browser-local: no cross-device sync, no named snapshots.
 - Locks made during the opening explosion persist after the settle timer, not immediately.
@@ -56,6 +58,13 @@ Canonical vision now lives in the private docs repo at `../backend/docs/project.
 # Calm-default pass (next)
 
 Goal: make the default Memory flow feel simple and comfortable without removing capability.
+
+Agreed direction:
+
+- Deck row itself starts card study; a text `Options` button opens the existing control center.
+- The control center keeps every mode, filter, scope toggle, and per-tag/layer shortcut.
+- Stats becomes a real side-by-side panel that pushes the study area aside, not an overlay. Tablet width may shrink the panel; phone keeps a full-screen sheet.
+- Separate batches: deck-row/Options first, stats layout second.
 
 - [ ] Read-only senior audit: find every place the default flow forces a student to understand or confront power tools - study modes, routing, SRS stats, filters, layers, heaps, metadata.
 - [ ] Map the current default path: open Memory -> choose deck -> study. Count the decisions and controls before the first card.
