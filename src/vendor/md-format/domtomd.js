@@ -27,9 +27,17 @@
  * in a browser only (it touches the DOM), so no node-import guarantees.
  * ========================================================================== */
 
+function textValue(node) {
+    // contenteditable turns a just-typed trailing space into a non-breaking
+    // space so the browser can keep it visible. Serialize it back as a plain
+    // space: markdown has no NBSP token, and leaving one in the source made
+    // the editor's markdown→DOM→markdown round trip keep the character.
+    return (node.textContent || "").replace(/\u00a0/g, " ");
+}
+
 /* block-level node → markdown string; `depth` = list nesting level. */
 function mdBlock(node, depth) {
-    if (node.nodeType === Node.TEXT_NODE) return node.textContent;
+    if (node.nodeType === Node.TEXT_NODE) return textValue(node);
     if (node.nodeType !== Node.ELEMENT_NODE) return "";
 
     const tag = node.tagName.toLowerCase();
@@ -200,7 +208,7 @@ function mdPre(node) {
 
 /* --- inline serialisation: turn element/Text children into markdown --------- */
 function mdInline(node) {
-    if (node.nodeType === Node.TEXT_NODE) return node.textContent;
+    if (node.nodeType === Node.TEXT_NODE) return textValue(node);
     if (node.nodeType !== Node.ELEMENT_NODE) return "";
 
     /* maths: our renderer writes the raw tex into data-tex, and (with KaTeX)

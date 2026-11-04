@@ -691,12 +691,21 @@ export function createEditor(container, opts = {}) {
 
     /* the full round trip for one preview edit */
     let wysiwygTimer = null;
+    /* A just-typed space at the end of the document is a live-editing artefact,
+     * not content. Browsers turn it into &nbsp; in the contenteditable, but
+     * markdown/HTML render it back as a normal trailing space, which the next
+     * keystroke then swallows. If the only difference is terminal whitespace,
+     * leave the browser's live DOM alone; the next real character syncs both
+     * directions normally. */
+    const sameExceptTerminalSpace = (a, b) =>
+        a.replace(/[ \t]+$/, "") === b.replace(/[ \t]+$/, "");
     function wysiwygSync() {
         const caret = saveCaretPath(rootForMd());   // capture BEFORE serialize
         let md;
         try { md = domToMarkdown(rootForMd()); }
         catch (err) { return; }
         if (md !== editor.value) {
+            if (sameExceptTerminalSpace(md, editor.value)) return;
             // heal any self-links a previous round trip already minted:
             // `[https://x.y](https://x.y)` → plain `https://x.y`
             md = md.replace(/\[((?:https?:\/\/|www\.)[^\s\]\\]+)\]\(\1(?:\s*"[^"]*")?\)/g, "$1");
@@ -1163,6 +1172,9 @@ export function createEditor(container, opts = {}) {
             try {
                 let md = domToMarkdown(rootForMd());
                 if (md !== null && md !== undefined && md !== editor.value) {
+                    // Don't persist a terminal space that only exists because
+                    // the browser held it as &nbsp; while it was being typed.
+                    if (sameExceptTerminalSpace(md, editor.value)) return editor.value;
                     md = md.replace(/\[((?:https?:\/\/|www\.)[^\s\]\\]+)\]\(\1(?:\s*"[^"]*")?\)/g, "$1");
                     noteEditorChange(md);
                     editor.value = md;

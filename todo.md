@@ -73,32 +73,10 @@ Done:
 - [x] Decide open deck → Study immediately (no summary screen).
 - [x] Deck row = study, `Options` = control center.
 - [x] Stats = side-by-side column, not an overlay.
+- [x] Card front/back authoring embeds the first-party md-format editor; card content renders Markdown (bold, italics, lists, quotes, code).
+- [x] Analysis WYSIWYG headings keep spaces while typing (editor round-trip no longer eats a just-typed trailing space).
 
 Still to consider:
 
 - [ ] Stats default disclosure: keep Studied/Accuracy first and move Router/Inspect internals behind an explicit advanced view.
 - [ ] Launchpad `Manage` grouping for Build Deck / Edit / Heaps, once it is worth the churn.
-
-
-## Audit brief
-
-Read-only audit. Do not modify, commit, or push repo files. Put scripts and screenshots in `/tmp/opencode`.
-
-Role: senior frontend/product engineer. Judge the app by ease, lack of friction, and lack of overwhelm first.
-
-Mental model: this is a comfort-ride car with a powerful engine. The default drive must be calm, obvious, and uncluttered. The performance engine stays installed, but the driver only sees it after explicitly switching gears. Advanced tooling must be voluntary, never forced into the default view.
-
-Critique:
-- Where does the UI force a student to understand internals before they can study?
-- Where are power tools, stats, filters, modes, or metadata visible or required by default?
-- Where does the student face a wall of choices or buttons?
-- What can be hidden, deferred, merged, or deleted without losing capability?
-- What is the smallest coherent default flow?
-
-Rules:
-- No generic UX advice. Every recommendation must name what to remove, hide, merge, or defer.
-- No new frameworks, dependencies, screens, or wizards.
-- Preserve the powerful features; change when and how they are exposed.
-- Evidence with `file:line` and/or screenshots for every major claim.
-- Rank findings by user impact, confidence, and effort.
-- Include a target default flow, a progressive-disclosure map, and a "do not do" list.

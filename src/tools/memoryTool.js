@@ -1,4 +1,5 @@
 import { dialog } from "./dialog.js";
+import { createEditor, parse as parseMarkdown, render as renderMarkdown } from "../vendor/md-format/mdeditor.js";
 export async function initMemoryTool(deps, context = {}) {
   const {
     getAllNodes,
@@ -389,8 +390,18 @@ export async function initMemoryTool(deps, context = {}) {
     step1DeckInfo = document.getElementById("step1-deckInfo");
     step2Flashcards = document.getElementById("step2-flashcards");
     step3Success = document.getElementById("step3-success");
-    cueInput = document.getElementById("cueInput");
-    quoteInput = document.getElementById("quoteInput");
+    if (!cueInput) {
+      cueInput = createCardMarkdownEditor(
+        document.getElementById("cueInputEditor"),
+        "Question, prompt, or term..."
+      );
+    }
+    if (!quoteInput) {
+      quoteInput = createCardMarkdownEditor(
+        document.getElementById("quoteInputEditor"),
+        "Answer, definition, or explanation..."
+      );
+    }
     priorityPills = document.getElementById("priorityPills");
     saveCardBtn = document.getElementById("saveCardBtn");
     cancelCardBtn = document.getElementById("cancelCardBtn");
@@ -444,8 +455,18 @@ export async function initMemoryTool(deps, context = {}) {
     quickAddDeckOptions = document.getElementById("quickAddDeckOptions");
     quickAddSingleView = document.getElementById("quickAddSingleView");
     quickAddBulkView = document.getElementById("quickAddBulkView");
-    quickAddFront = document.getElementById("quickAddFront");
-    quickAddBack = document.getElementById("quickAddBack");
+    if (!quickAddFront) {
+      quickAddFront = createCardMarkdownEditor(
+        document.getElementById("quickAddFrontEditor"),
+        "Question, prompt, or term..."
+      );
+    }
+    if (!quickAddBack) {
+      quickAddBack = createCardMarkdownEditor(
+        document.getElementById("quickAddBackEditor"),
+        "Answer, definition, or explanation..."
+      );
+    }
     quickAddPriorityPills = document.getElementById("quickAddPriorityPills");
     quickAddTags = document.getElementById("quickAddTags");
     quickAddStatus = document.getElementById("quickAddStatus");
@@ -567,8 +588,8 @@ export async function initMemoryTool(deps, context = {}) {
       const parts = [getCardSubject(card), ...getCardLayers(card)].filter(Boolean);
       cardPeekSubject.textContent = parts.join(" \u203A ");
     }
-    if (cardPeekFront) cardPeekFront.textContent = front;
-    if (cardPeekBack) cardPeekBack.textContent = back;
+    if (cardPeekFront) cardPeekFront.innerHTML = renderCardMarkdown(front);
+    if (cardPeekBack) cardPeekBack.innerHTML = renderCardMarkdown(back);
     if (cardPeekBackSection) cardPeekBackSection.hidden = !back;
 
     showModal(cardPeekModal);
@@ -1029,8 +1050,8 @@ export async function initMemoryTool(deps, context = {}) {
 
     if (saveCardBtn) {
       saveCardBtn.addEventListener("click", () => {
-        const front = cueInput?.value?.trim() || "";
-        const back = quoteInput?.value?.trim() || "";
+        const front = editorMarkdown(cueInput).trim();
+        const back = editorMarkdown(quoteInput).trim();
         if (!front || !back) {
           dialog.alert("Please enter both front and back of the card");
           return;
@@ -1252,13 +1273,13 @@ export async function initMemoryTool(deps, context = {}) {
     // Cue/quote input listeners for save button state
     if (cueInput && quoteInput && saveCardBtn) {
       const updateSaveButton = () => {
-        const hasContent = cueInput.value.trim() && quoteInput.value.trim();
+        const hasContent = editorMarkdown(cueInput).trim() && editorMarkdown(quoteInput).trim();
         saveCardBtn.disabled = !hasContent;
         saveCardBtn.style.opacity = hasContent ? "1" : "0.4";
         saveCardBtn.style.pointerEvents = hasContent ? "auto" : "none";
       };
-      cueInput.addEventListener("input", updateSaveButton);
-      quoteInput.addEventListener("input", updateSaveButton);
+      cueInput.onChange(updateSaveButton);
+      quoteInput.onChange(updateSaveButton);
     }
   }
 
@@ -3691,7 +3712,9 @@ export async function initMemoryTool(deps, context = {}) {
     const back = flashcardData.back || {};
 
  // Front content
-      if (front.isCue) {
+      if (front.isCard) {
+        flashcardContent.innerHTML = `<div class="flashcard-markdown">${renderCardMarkdown(front.content || "")}</div>`;
+      } else if (front.isCue) {
        // For blurt cards pointing at a quote, render the cue more prominently
        const isBlurtQuoteCard = flashcardData.type === "blurt" && flashcardData.targetKind === "quote";
        const isBlurtAnalysisCard = flashcardData.type === "blurt" && flashcardData.targetKind === "analysis";
@@ -3747,7 +3770,9 @@ export async function initMemoryTool(deps, context = {}) {
 
 // Back content - Only populate if flipped to prevent spoiling the next card during transitions
     if (state.isFlipped) {
-      if (back.isQuote) {
+      if (back.isCard) {
+        flashcardBackContent.innerHTML = `<div class="flashcard-markdown">${renderCardMarkdown(back.content || "")}</div>`;
+      } else if (back.isQuote) {
         const sourceNode = back.sourceNode || null;
         const formatted = (sourceNode && back.quoteData)
           ? getFormattedQuote(back.quoteData, sourceNode)
@@ -3904,6 +3929,98 @@ export async function initMemoryTool(deps, context = {}) {
 
   function formatAnalysisForDisplay(text) {
     return escapeHtml(text).replace(/\n/g, "<br>");
+  }
+
+  // Card fronts/backs are authored in Markdown. Rendering is deliberately
+  // separate from storage: a card is still one string, so exports, SRS and
+  // existing cards are unchanged.
+  const CARD_MARKDOWN_TOOLBAR = [
+    "bold", "italic", "strike", "code",
+    "ul", "ol", "task", "quote", "link"
+  ];
+
+  function sanitizeCardHtml(html) {
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    template.content
+      .querySelectorAll("script, style, iframe, object, embed, link, meta, form, textarea, select")
+      .forEach((node) => node.remove());
+    template.content.querySelectorAll("input").forEach((node) => {
+      const type = String(node.getAttribute("type") || "").toLowerCase();
+      if (type !== "checkbox") {
+        node.remove();
+        return;
+      }
+      [...node.attributes].forEach((attr) => {
+        if (!["type", "checked", "disabled"].includes(attr.name.toLowerCase())) {
+          node.removeAttribute(attr.name);
+        }
+      });
+    });
+    template.content.querySelectorAll("*").forEach((node) => {
+      [...node.attributes].forEach((attr) => {
+        const name = attr.name.toLowerCase();
+        const value = String(attr.value || "").trim();
+        if (name.startsWith("on")) node.removeAttribute(attr.name);
+        if ((name === "href" || name === "src") && /^javascript:/i.test(value)) {
+          node.removeAttribute(attr.name);
+        }
+      });
+    });
+    return template.innerHTML;
+  }
+
+  function renderCardMarkdown(text) {
+    const source = String(text ?? "");
+    if (!source.trim()) return "";
+    try {
+      const html = renderMarkdown(parseMarkdown(source), "html", { softBreaks: true });
+      return sanitizeCardHtml(html);
+    } catch (error) {
+      console.warn("Could not render card Markdown:", error);
+      return escapeHtml(source).replace(/\n/g, "<br>");
+    }
+  }
+
+  function cardMarkdownPlainText(text) {
+    const source = String(text ?? "");
+    if (!source.trim()) return "";
+    try {
+      return renderMarkdown(parseMarkdown(source), "text", { softBreaks: true }).replace(/\s+/g, " ").trim();
+    } catch {
+      return source.replace(/\s+/g, " ").trim();
+    }
+  }
+
+  function createCardMarkdownEditor(container, placeholder) {
+    if (!container) return null;
+    const compact = window.matchMedia("(max-width: 700px)").matches;
+    const editor = createEditor(container, {
+      value: "",
+      view: compact ? "preview" : "split",
+      toolbar: CARD_MARKDOWN_TOOLBAR,
+      taskbar: false,
+      storage: false,
+      softBreaks: true,
+      placeholder
+    });
+    // The rest of the tool calls .focus() on its inputs; the editor factory
+    // returns a small API object, so give it the same convenience.
+    editor.focus = () => {
+      const surface = container.querySelector(".mdedit-editor, .md");
+      surface?.focus?.();
+    };
+    return editor;
+  }
+
+  function editorMarkdown(editor) {
+    return editor?.getMarkdown?.() ?? "";
+  }
+
+  function setEditorMarkdown(editor, value) {
+    if (!editor) return;
+    const next = String(value ?? "");
+    if (editor.getMarkdown() !== next) editor.setMarkdown(next);
   }
 
   function renderEvidenceMatchingUI() {
@@ -5042,16 +5159,16 @@ export async function initMemoryTool(deps, context = {}) {
 
     if (index >= 0 && index < deckBuilderState.cards.length) {
       const card = deckBuilderState.cards[index];
-      if (cueInput) cueInput.value = card.front || "";
-      if (quoteInput) quoteInput.value = card.back || "";
+      if (cueInput) setEditorMarkdown(cueInput, card.front || "");
+      if (quoteInput) setEditorMarkdown(quoteInput, card.back || "");
       if (deckCardTags) deckCardTags.value = (card.tags || []).join(", ");
       setPriorityPillSelection(card.priority || 3);
       if (deleteCardBtn) deleteCardBtn.style.display = "inline-block";
       const formTitle = document.getElementById("formTitle");
       if (formTitle) formTitle.textContent = "Edit Card";
     } else {
-      if (cueInput) cueInput.value = "";
-      if (quoteInput) quoteInput.value = "";
+      if (cueInput) setEditorMarkdown(cueInput, "");
+      if (quoteInput) setEditorMarkdown(quoteInput, "");
       if (deckCardTags) deckCardTags.value = "";
       setPriorityPillSelection(3);
       if (deleteCardBtn) deleteCardBtn.style.display = "none";
@@ -5062,7 +5179,7 @@ export async function initMemoryTool(deps, context = {}) {
     if (cueInput) cueInput.focus();
 
     if (saveCardBtn && cueInput && quoteInput) {
-      const hasContent = cueInput.value.trim() && quoteInput.value.trim();
+      const hasContent = editorMarkdown(cueInput).trim() && editorMarkdown(quoteInput).trim();
       saveCardBtn.disabled = !hasContent;
       saveCardBtn.style.opacity = hasContent ? "1" : "0.4";
       saveCardBtn.style.pointerEvents = hasContent ? "auto" : "none";
@@ -5077,8 +5194,8 @@ export async function initMemoryTool(deps, context = {}) {
   }
 
   function clearForm() {
-    if (cueInput) cueInput.value = "";
-    if (quoteInput) quoteInput.value = "";
+    if (cueInput) setEditorMarkdown(cueInput, "");
+    if (quoteInput) setEditorMarkdown(quoteInput, "");
     if (deckCardTags) deckCardTags.value = "";
     setPriorityPillSelection(3);
     if (deleteCardBtn) deleteCardBtn.style.display = "none";
@@ -5153,7 +5270,7 @@ export async function initMemoryTool(deps, context = {}) {
 
       const title = document.createElement("div");
       title.className = "flashcard-item-title";
-      title.textContent = `${realIndex + 1}. ${(card.front || "").substring(0, 50)}`;
+      title.textContent = `${realIndex + 1}. ${cardMarkdownPlainText(card.front || "").substring(0, 50)}`;
 
       if (card.tags && card.tags.length > 0) {
         const tagsDiv = document.createElement("div");
@@ -5508,8 +5625,8 @@ export async function initMemoryTool(deps, context = {}) {
       || ""
     ).trim();
     if (quickAddDeckInput) quickAddDeckInput.value = presetDeck;
-    if (quickAddFront) quickAddFront.value = "";
-    if (quickAddBack) quickAddBack.value = "";
+    if (quickAddFront) setEditorMarkdown(quickAddFront, "");
+    if (quickAddBack) setEditorMarkdown(quickAddBack, "");
     if (quickAddTags) quickAddTags.value = "";
     if (quickAddBulkInput) quickAddBulkInput.value = "";
     setQuickAddStatus(quickAddStatus, "No cards added yet");
@@ -5607,8 +5724,8 @@ export async function initMemoryTool(deps, context = {}) {
     if (quickAddState.saving) return false;
 
     const deck = quickAddDeckInput?.value?.trim() || "";
-    const front = quickAddFront?.value?.trim() || "";
-    const back = quickAddBack?.value?.trim() || "";
+    const front = editorMarkdown(quickAddFront).trim();
+    const back = editorMarkdown(quickAddBack).trim();
 
     if (!front && !back && allowEmptyClose) return true;
 
@@ -5634,8 +5751,8 @@ export async function initMemoryTool(deps, context = {}) {
       quickAddState.lastDeck = label;
       quickAddState.lastDeckId = target?.id || "";
       quickAddState.savedCount += 1;
-      if (quickAddFront) quickAddFront.value = "";
-      if (quickAddBack) quickAddBack.value = "";
+      if (quickAddFront) setEditorMarkdown(quickAddFront, "");
+      if (quickAddBack) setEditorMarkdown(quickAddBack, "");
       addQuickAddDeckOption(label);
       if (quickAddDeckInput) quickAddDeckInput.value = label;
       const count = quickAddState.savedCount;

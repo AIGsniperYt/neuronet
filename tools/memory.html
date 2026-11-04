@@ -101,12 +101,12 @@
               <!-- Card Edit Form (persistent) -->
               <div id="cardEditForm">
                 <div class="form-group">
-                  <label for="cueInput">Front</label>
-                  <textarea id="cueInput" class="builder-input" placeholder="Question, prompt, or term..."></textarea>
+                  <label>Front</label>
+                  <div id="cueInputEditor" class="card-md-editor"></div>
                 </div>
                 <div class="form-group">
-                  <label for="quoteInput">Back</label>
-                  <textarea id="quoteInput" class="builder-input" placeholder="Answer, definition, or explanation..."></textarea>
+                  <label>Back</label>
+                  <div id="quoteInputEditor" class="card-md-editor"></div>
                 </div>
                 <div class="form-group">
                   <label>Priority</label>
@@ -245,13 +245,14 @@
 
         <div id="quickAddSingleView">
           <div class="form-group">
-            <label for="quickAddFront">Front</label>
-            <textarea id="quickAddFront" class="builder-input quick-add-front" placeholder="Question, prompt, or term..."></textarea>
+            <label>Front</label>
+            <div id="quickAddFrontEditor" class="card-md-editor"></div>
           </div>
           <div class="form-group">
-            <label for="quickAddBack">Back</label>
-            <textarea id="quickAddBack" class="builder-input quick-add-back" placeholder="Answer, definition, or explanation..."></textarea>
+            <label>Back</label>
+            <div id="quickAddBackEditor" class="card-md-editor"></div>
           </div>
+          <p class="quick-add-hint">Markdown supported: <strong>**bold**</strong>, <em>*italic*</em>, <code>- lists</code>, <code>&gt; quote</code>.</p>
           <div class="quick-add-meta-row">
             <div class="form-group">
               <label>Priority</label>
@@ -2415,7 +2416,6 @@
     color: var(--text-main);
     font-size: var(--text-md, 1.03rem);
     line-height: 1.55;
-    white-space: pre-wrap;
     word-break: break-word;
   }
 
@@ -2706,6 +2706,89 @@
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
     padding: 8px 12px;
     box-sizing: border-box;
+  }
+
+  /* Card authoring uses the first-party md-format editor. Keep it compact:
+     the formatting toolbar, the markdown pane and a live preview. */
+  .card-md-editor {
+    height: 160px;
+    min-height: 160px;
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    overflow: hidden;
+    background: rgba(255,255,255,0.03);
+  }
+
+  .card-md-editor .mdedit {
+    height: 100%;
+    border: 0;
+  }
+
+  #quickAddSingleView .card-md-editor {
+    height: 150px;
+    min-height: 150px;
+  }
+
+  /* Rendered card markdown: prose stays centred, but lists, quotes, code and
+     tables read left-aligned and never push the card sideways. */
+  .flashcard-markdown {
+    width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .flashcard-markdown > :first-child { margin-top: 0; }
+  .flashcard-markdown > :last-child { margin-bottom: 0; }
+  .flashcard-markdown p { margin: 0 0 0.6em; }
+  .flashcard-markdown p:last-child { margin-bottom: 0; }
+  .flashcard-markdown ul,
+  .flashcard-markdown ol {
+    text-align: left;
+    padding-left: 1.35em;
+    margin: 0.35em 0;
+  }
+  .flashcard-markdown li { margin: 0.12em 0; }
+  .flashcard-markdown li > p { margin: 0; }
+  .flashcard-markdown blockquote {
+    text-align: left;
+    margin: 0.5em 0;
+    padding: 0.2em 0 0.2em 0.8em;
+    border-left: 2px solid var(--accent-soft);
+    color: var(--text-muted);
+  }
+  .flashcard-markdown code {
+    padding: 0.1em 0.35em;
+    border-radius: 5px;
+    background: rgba(255,255,255,0.08);
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 0.9em;
+  }
+  .flashcard-markdown pre {
+    text-align: left;
+    overflow-x: auto;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: rgba(0,0,0,0.35);
+  }
+  .flashcard-markdown pre code { padding: 0; background: none; }
+  .flashcard-markdown table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 0.9em;
+  }
+  .flashcard-markdown th,
+  .flashcard-markdown td {
+    border: 1px solid rgba(255,255,255,0.14);
+    padding: 5px 9px;
+  }
+  .flashcard-markdown th { background: rgba(255,255,255,0.05); }
+  .flashcard-markdown h1,
+  .flashcard-markdown h2,
+  .flashcard-markdown h3 {
+    margin: 0.35em 0;
+    line-height: 1.25;
   }
 
 .flashcard-builder-list {
