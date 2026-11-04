@@ -20,35 +20,15 @@
  *     upgraded records in place.
  *   - The upgrade is idempotent: running it twice is a no-op.
  *
- * NOTE: findQuoteInSource / mdNormalize / htmlToMarkdown mirror their
- * analysisTool.js counterparts — keep them in sync when you change either.
+ * Markdown normalisation and legacy HTML→Markdown live in the first-party
+ * md-format library, so every host shares one implementation.
  */
 
-import { parse, render, domToMarkdown } from "./vendor/md-format/mdeditor.js";
+import { format, normalizeMarkdown as mdNormalize, htmlToMarkdown } from "./vendor/md-format/mdeditor.js";
 
 export const SCHEMA_VERSION = 6;
 
-/* Legacy HTML → markdown round trips leave junk the parser turns back into
- * invisible blocks: a <br> inside a blockquote becomes a hardbreak that
- * domToMarkdown serialises as an empty '> >' line, which re-parses to an
- * empty nested blockquote → blank space in the reader/preview. */
-export function mdNormalize(md) {
-  if (!md) return md;
-  return md
-    .split("\n")
-    .filter((line) => !line.trim().match(/^>[\s>]*$/))
-    .join("\n")
-    .replace(/\n{4,}/g, "\n\n\n")
-    .replace(/^\s+/, "")
-    .replace(/\s+$/, "");
-}
-
-export function htmlToMarkdown(html) {
-  if (!html) return "";
-  const div = document.createElement("div");
-  div.innerHTML = html;
-  return mdNormalize(domToMarkdown(div) || "");
-}
+export { mdNormalize, htmlToMarkdown };
 
 export function sourceMarkdownFor(source) {
   if (!source) return "";
@@ -174,7 +154,7 @@ export function upgradeSource(node) {
   if (!node) return false;
   if (node.contentMarkdown && node.contentHtml && node.contentText && node.meta?.schemaUpgraded) return false;
   const md = sourceMarkdownFor(node);
-  const contentHtml = render(parse(md), "html") || "<p><br></p>";
+  const contentHtml = format(md, "html") || "<p><br></p>";
   const contentText = htmlToPlainText(contentHtml);
   node.contentMarkdown = md;
   node.contentHtml = contentHtml;

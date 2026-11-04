@@ -1,5 +1,5 @@
 import { dialog } from "./dialog.js";
-import { createEditor, parse as parseMarkdown, render as renderMarkdown } from "../vendor/md-format/mdeditor.js";
+import { createEditor, format as formatMarkdown, formatSafe } from "../vendor/md-format/mdeditor.js";
 export async function initMemoryTool(deps, context = {}) {
   const {
     getAllNodes,
@@ -3939,43 +3939,11 @@ export async function initMemoryTool(deps, context = {}) {
     "ul", "ol", "task", "quote", "link"
   ];
 
-  function sanitizeCardHtml(html) {
-    const template = document.createElement("template");
-    template.innerHTML = html;
-    template.content
-      .querySelectorAll("script, style, iframe, object, embed, link, meta, form, textarea, select")
-      .forEach((node) => node.remove());
-    template.content.querySelectorAll("input").forEach((node) => {
-      const type = String(node.getAttribute("type") || "").toLowerCase();
-      if (type !== "checkbox") {
-        node.remove();
-        return;
-      }
-      [...node.attributes].forEach((attr) => {
-        if (!["type", "checked", "disabled"].includes(attr.name.toLowerCase())) {
-          node.removeAttribute(attr.name);
-        }
-      });
-    });
-    template.content.querySelectorAll("*").forEach((node) => {
-      [...node.attributes].forEach((attr) => {
-        const name = attr.name.toLowerCase();
-        const value = String(attr.value || "").trim();
-        if (name.startsWith("on")) node.removeAttribute(attr.name);
-        if ((name === "href" || name === "src") && /^javascript:/i.test(value)) {
-          node.removeAttribute(attr.name);
-        }
-      });
-    });
-    return template.innerHTML;
-  }
-
   function renderCardMarkdown(text) {
     const source = String(text ?? "");
     if (!source.trim()) return "";
     try {
-      const html = renderMarkdown(parseMarkdown(source), "html", { softBreaks: true });
-      return sanitizeCardHtml(html);
+      return formatSafe(source, "html", { softBreaks: true });
     } catch (error) {
       console.warn("Could not render card Markdown:", error);
       return escapeHtml(source).replace(/\n/g, "<br>");
@@ -3986,7 +3954,7 @@ export async function initMemoryTool(deps, context = {}) {
     const source = String(text ?? "");
     if (!source.trim()) return "";
     try {
-      return renderMarkdown(parseMarkdown(source), "text", { softBreaks: true }).replace(/\s+/g, " ").trim();
+      return formatMarkdown(source, "text", { softBreaks: true }).replace(/\s+/g, " ").trim();
     } catch {
       return source.replace(/\s+/g, " ").trim();
     }

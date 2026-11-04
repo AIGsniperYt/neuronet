@@ -1,4 +1,4 @@
-import { createEditor, parse, render, domToMarkdown, renderMathWithKatex } from "../vendor/md-format/mdeditor.js";
+import { createEditor, format, normalizeMarkdown as mdNormalize, htmlToMarkdown, domToMarkdown, renderMathWithKatex } from "../vendor/md-format/mdeditor.js";
 import { dialog } from "./dialog.js";
 
 export async function initAnalysisToolV2(deps, context = {}) {
@@ -232,29 +232,6 @@ function enforceUserSelect() {
     state.selectedSourceId = "";
     state.viewMode = "editor";
     context.nodeId = null;
-  }
-
-  function htmlToMarkdown(html) {
-    if (!html) return "";
-    const div = document.createElement("div");
-    div.innerHTML = html;
-    return mdNormalize(domToMarkdown(div) || "");
-  }
-
-  /* Legacy HTML → markdown round trips leave junk the parser turns back into
-   * invisible blocks: a <br> inside a blockquote becomes a hardbreak that
-   * domToMarkdown serialises as an empty '> >' line, which re-parses to an
-   * empty nested blockquote → blank space in the reader/preview. Normalise the
-   * markdown at the load boundary so both the reader and the editor agree. */
-  function mdNormalize(md) {
-    if (!md) return md;
-    return md
-      .split("\n")
-      .filter((line) => !line.trim().match(/^>[\s>]*$/)) // drop empty blockquote markers ("> ", "> >")
-      .join("\n")
-      .replace(/\n{4,}/g, "\n\n\n")
-      .replace(/^\s+/, "")
-      .replace(/\s+$/, "");
   }
 
   function sourceMarkdown(source) {
@@ -2868,7 +2845,7 @@ const updateLayerSelection = () => {
       currentHierarchy.textContent = rest ? `${bucket} · ${rest}` : bucket;
     }
     const contentMd = sourceMarkdown(source);
-    analysisReader.innerHTML = (contentMd.trim() ? render(parse(contentMd), "html", { softBreaks: sourceSoftBreaks(source) }) : "") || (normalized.contentHtml || "<p><br></p>");
+    analysisReader.innerHTML = (contentMd.trim() ? format(contentMd, "html", { softBreaks: sourceSoftBreaks(source) }) : "") || (normalized.contentHtml || "<p><br></p>");
     renderMathWithKatex(analysisReader);   // typesets $…$ maths when KaTeX is loaded (no-op otherwise)
     analysisReader.style.userSelect = "text";
     analysisReader.style.webkitUserSelect = "text";
@@ -3427,10 +3404,7 @@ const updateLayerSelection = () => {
       // draft out of storage.
       const title = enteredTitle || "Untitled source";
       if (!enteredTitle) sourceTitleInput.value = title;
-      const contentAst = parse(contentMarkdown);
-      // render with the same soft-break mode the user chose, so the saved
-      // html and the reader match the editor.
-      const contentHtml = render(contentAst, "html", { softBreaks: mdEditor.getSoftBreaks() }) || "<p><br></p>";
+      const contentHtml = format(contentMarkdown, "html", { softBreaks: mdEditor.getSoftBreaks() }) || "<p><br></p>";
       // Plain text must match the READER's text (analysisReader.textContent of the
       // rendered html) so quote offsets, resolveQuoteInSource and saved contentText
       // all live in one coordinate space. render(ast, "text") adds blockquote

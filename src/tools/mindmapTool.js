@@ -1,5 +1,5 @@
 import { dialog } from "./dialog.js";
-import { parse, render as renderMarkdown, domToMarkdown, renderMathWithKatex } from "../vendor/md-format/mdeditor.js";
+import { format, normalizeMarkdown as mdNormalize, htmlToMarkdown, renderMathWithKatex } from "../vendor/md-format/mdeditor.js";
 export async function initMindmapTool(deps, context = {}) {
   const {
     getAllNodes,
@@ -1064,24 +1064,6 @@ const state = {
   function sourceSoftBreaks(node) {
     if (node && typeof node.meta?.softBreaks === "boolean") return node.meta.softBreaks;
     return getSoftBreaksDefault();
-  }
-
-  function mdNormalize(md) {
-    if (!md) return md;
-    return md
-      .split("\n")
-      .filter((line) => !line.trim().match(/^>[\s>]*$/))
-      .join("\n")
-      .replace(/\n{4,}/g, "\n\n\n")
-      .replace(/^\s+/, "")
-      .replace(/\s+$/, "");
-  }
-
-  function htmlToMarkdown(html) {
-    if (!html) return "";
-    const div = document.createElement("div");
-    div.innerHTML = html;
-    return mdNormalize(domToMarkdown(div) || "");
   }
 
   function sourceMarkdown(node) {
@@ -3433,7 +3415,7 @@ const state = {
         const markdown = sourceMarkdown(selectedItem);
         try {
           fullContent.innerHTML = markdown.trim()
-            ? renderMarkdown(parse(markdown), "html", { softBreaks: sourceSoftBreaks(selectedItem) })
+            ? format(markdown, "html", { softBreaks: sourceSoftBreaks(selectedItem) })
             : "";
           renderMathWithKatex(fullContent);
         } catch (error) {
