@@ -3960,18 +3960,70 @@ export async function initMemoryTool(deps, context = {}) {
     }
   }
 
+  const CARD_VIEW_OPTIONS = [
+    {
+      value: "md",
+      label: "Raw Markdown",
+      icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 7-5 5 5 5M16 7l5 5-5 5"/></svg>'
+    },
+    {
+      value: "split",
+      label: "Split view",
+      icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>'
+    },
+    {
+      value: "preview",
+      label: "Formatted view",
+      icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.8"/></svg>'
+    }
+  ];
+
+  function installCardViewSwitch(editor, container, initialView) {
+    const bar = container.querySelector(".mdedit-bar");
+    if (!bar || typeof editor?.setView !== "function") return;
+    const group = document.createElement("div");
+    group.className = "card-md-viewswitch";
+    group.setAttribute("role", "group");
+    group.setAttribute("aria-label", "Editor view");
+    const buttons = new Map();
+    const sync = (view) => {
+      for (const [value, button] of buttons) {
+        const active = value === view;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-pressed", active ? "true" : "false");
+      }
+    };
+    for (const option of CARD_VIEW_OPTIONS) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.title = option.label;
+      button.setAttribute("aria-label", option.label);
+      button.innerHTML = option.icon;
+      button.addEventListener("click", () => {
+        editor.setView(option.value);
+        sync(option.value);
+      });
+      group.appendChild(button);
+      buttons.set(option.value, button);
+    }
+    bar.appendChild(group);
+    sync(initialView);
+  }
+
   function createCardMarkdownEditor(container, placeholder) {
     if (!container) return null;
     const compact = window.matchMedia("(max-width: 700px)").matches;
+    const initialView = compact ? "preview" : "split";
     const editor = createEditor(container, {
       value: "",
-      view: compact ? "preview" : "split",
+      view: initialView,
       toolbar: CARD_MARKDOWN_TOOLBAR,
       taskbar: false,
       storage: false,
       softBreaks: true,
       placeholder
     });
+    installCardViewSwitch(editor, container, initialView);
     // The rest of the tool calls .focus() on its inputs; the editor factory
     // returns a small API object, so give it the same convenience.
     editor.focus = () => {
