@@ -1,4 +1,4 @@
-import { createEditor, format, normalizeMarkdown as mdNormalize, htmlToMarkdown, domToMarkdown, renderMathWithKatex } from "../vendor/md-format/mdeditor.js";
+import { createEditor, format, domToMarkdown, renderMathWithKatex } from "../vendor/md-format/mdeditor.js";
 import { dialog } from "./dialog.js";
 
 export async function initAnalysisToolV2(deps, context = {}) {
@@ -235,12 +235,7 @@ function enforceUserSelect() {
   }
 
   function sourceMarkdown(source) {
-    if (!source) return "";
-    let md = "";
-    if (source.contentMarkdown) md = source.contentMarkdown;
-    else if (source.contentHtml) md = htmlToMarkdown(source.contentHtml);
-    else md = source.content || "";
-    return mdNormalize(md);
+    return source?.contentMarkdown || "";
   }
 
 
@@ -608,10 +603,12 @@ function htmlToPlainText(html) {
       };
     }
 
-    const fallbackText = source.content || "";
+    const contentHtml = format(source.contentMarkdown || "", "html", {
+      softBreaks: source.meta?.softBreaks !== false
+    }) || "<p><br></p>";
     return {
-      contentHtml: plainTextToHtml(fallbackText),
-      contentText: fallbackText
+      contentHtml,
+      contentText: htmlToPlainText(contentHtml)
     };
   }
 
@@ -3421,7 +3418,6 @@ const updateLayerSelection = () => {
         subject,
         section: buildSection(path),
         title,
-        content: contentText,
         contentHtml: contentHtml,
         contentText: contentText,
         contentMarkdown,
@@ -3432,8 +3428,7 @@ const updateLayerSelection = () => {
           ...(existing?.meta || {}),
           kind: "source",
           softBreaks: mdEditor.getSoftBreaks(),
-          hierarchyPath: path,
-          formatVersion: 2
+          hierarchyPath: path
         },
         createdAt: existing?.createdAt || now,
         updatedAt: now

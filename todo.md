@@ -75,6 +75,9 @@ Done:
 - [x] Stats = side-by-side column, not an overlay.
 - [x] Card front/back authoring embeds the first-party md-format editor; card content renders Markdown (bold, italics, lists, quotes, code).
 - [x] Analysis WYSIWYG headings keep spaces while typing (editor round-trip no longer eats a just-typed trailing space).
+- [x] Demo dataset migrated once to schema 7; legacy meta, card origins and stale markdown quirks removed.
+- [x] Dataset schema upgrade/migration code retired. Imports now reject non-current exports with a clear version error.
+- [x] md-format stays generic; Neuronet-only markdown cleanup lives outside the library.
 
 Still to consider:
 

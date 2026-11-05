@@ -5191,9 +5191,7 @@ export async function initMemoryTool(deps, context = {}) {
       meta: existing?.meta,
       createdAt: existing?.createdAt,
       origin: existing?.origin,
-      links: existing?.links,
-      legacyQuoteId: existing?.legacyQuoteId || null,
-      legacyCueId: existing?.legacyCueId || null
+      links: existing?.links
     };
 
     if (deckBuilderState.currentCardIndex >= 0) {
@@ -5335,8 +5333,6 @@ export async function initMemoryTool(deps, context = {}) {
         ? Number(existingCard.order)
         : nextOrder++;
       const links = { ...(existingCard?.links || card.links || {}) };
-      if (!links.quoteId && card.legacyQuoteId) links.quoteId = card.legacyQuoteId;
-      if (!links.cueId && card.legacyCueId) links.cueId = card.legacyCueId;
       const cardId = existingCard?.id || card.cardId || crypto.randomUUID();
       const origin = existingCard?.origin || card.origin || "manual";
       const tags = [...new Set(
@@ -5344,11 +5340,6 @@ export async function initMemoryTool(deps, context = {}) {
           .map((tag) => String(tag || "").trim())
           .filter(Boolean)
       )];
-      // Saving a legacy-backed card is an explicit user edit. Mark it newer
-      // than the legacy pair so startup sync cannot overwrite the card.
-      const legacyUpdatedAt = origin === "legacy"
-        ? Math.max(Number(existingCard?.legacyUpdatedAt) || 0, now)
-        : Number(existingCard?.legacyUpdatedAt) || undefined;
 
       const record = {
         id: cardId,
@@ -5366,7 +5357,6 @@ export async function initMemoryTool(deps, context = {}) {
         createdAt: existingCard?.createdAt || card.createdAt || now,
         updatedAt: now
       };
-      if (legacyUpdatedAt) record.legacyUpdatedAt = legacyUpdatedAt;
       await addCard(record);
 
       // Keep the in-memory builder in sync so a second save (e.g. mass edit

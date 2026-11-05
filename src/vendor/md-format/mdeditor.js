@@ -50,33 +50,11 @@ import { sanitizeHtml } from "./sanitize.js";
 export { parse, render, format, domToMarkdown, sanitizeHtml };
 
 /* One-line safe rendering: parse + render + strip executable markup. Use this
- * whenever the output goes into innerHTML (stored notes, flashcard content,
- * user-authored documents). */
+ * whenever the output goes into innerHTML (stored notes, user-authored
+ * documents). */
 export function formatSafe(text, type = "html", opts = {}) {
     const out = format(text, type, opts);
     return type === "html" ? sanitizeHtml(out, opts) : out;
-}
-
-/* Legacy HTML → Markdown round trips leave invisible junk: a <br> inside a
- * blockquote becomes a hardbreak that domToMarkdown serialises as an empty
- * "> >" line, which re-parses to an empty nested blockquote. Normalise at the
- * storage boundary so every host gets the same clean source. */
-export function normalizeMarkdown(md) {
-    if (!md) return md;
-    return md
-        .split("\n")
-        .filter((line) => !line.trim().match(/^>[\s>]*$/))
-        .join("\n")
-        .replace(/\n{4,}/g, "\n\n\n")
-        .replace(/^\s+/, "")
-        .replace(/\s+$/, "");
-}
-
-export function htmlToMarkdown(html) {
-    if (!html) return "";
-    const div = document.createElement("div");
-    div.innerHTML = html;
-    return normalizeMarkdown(domToMarkdown(div) || "");
 }
 
 /* ============================================================================

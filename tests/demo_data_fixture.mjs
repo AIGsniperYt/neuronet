@@ -1,5 +1,5 @@
 // tests/demo_data_fixture.mjs — execution-spec #42 integration fixture.
-// The real 110-node export (user's own tracker data, schemaVersion 6) is the
+// The real 110-node export (user's own tracker data, schemaVersion 7) is the
 // committed demo-data.json. This suite drives the REAL rows through the
 // canonical seams (monthFromWord / seriesId / courseKey identity + the
 // resolveBoundaryDecision decision path) and asserts the honesty contract:
@@ -48,11 +48,28 @@ const check = (name, cond, extra = "") => {
 const eq = (name, a, b) => check(name, JSON.stringify(a) === JSON.stringify(b), `\n      got ${JSON.stringify(a)} want ${JSON.stringify(b)}`);
 
 // ---- 1. The committed fixture is the real export --------------------------
-eq("fixture: schemaVersion 6", demo.schemaVersion, 6);
+eq("fixture: schemaVersion 7", demo.schemaVersion, 7);
 check("fixture: 110 nodes", Array.isArray(demo.nodes) && demo.nodes.length === 110, `len=${demo.nodes && demo.nodes.length}`);
 const byType = {};
 for (const n of demo.nodes) byType[n.type] = (byType[n.type] || 0) + 1;
 eq("fixture: type counts", byType, { source: 27, subject: 9, analysis: 15, pastpaper: 59 });
+check("fixture: 14 cards", demo.cards.length === 14, `len=${demo.cards.length}`);
+check("fixture: 1 deck", demo.decks.length === 1, `len=${demo.decks.length}`);
+check("fixture: 1 heap", demo.heaps.length === 1, `len=${demo.heaps.length}`);
+
+const sources = demo.nodes.filter((n) => n.type === "source");
+check(
+  "fixture: every source has contentMarkdown",
+  sources.every((n) => typeof n.contentMarkdown === "string" && n.contentMarkdown.length > 0)
+);
+const legacyKeys = new Set(["legacyUpdatedAt", "_legacySourceMeta", "schemaUpgraded", "formatVersion", "schemaUpgrade"]);
+const hasLegacyKey = (value) => {
+  if (Array.isArray(value)) return value.some(hasLegacyKey);
+  if (!value || typeof value !== "object") return false;
+  return Object.entries(value).some(([key, child]) => legacyKeys.has(key) || hasLegacyKey(child));
+};
+check("fixture: no legacy keys", !hasLegacyKey(demo));
+check("fixture: no legacy card origins", demo.cards.every((c) => c.origin !== "legacy"));
 
 // ---- 2. Series vocabulary normalizes without fabrication -------------------
 eq("June -> JUN", monthFromWord("June"), "JUN");
@@ -141,46 +158,46 @@ eq("English Lang stored course null", Boolean(engLang.officialCourse) || engLang
 const engKey = courseKey(engLang.officialCourse);
 check("English Lang -> null canonical key", engKey === null || engKey === undefined, `key=${engKey}`);
 
-// ---- 5. Frontier #19: real export — persisted Foundation vs requested Higher --
-// The exported Maths subject is registered as "Mathematics (Foundation)" while
-// the user's stored boundary numbers are the HIGHER tables (2022 scalar=194,
+// ---- 5. Frontier #19: real export — persisted Higher vs requested Foundation --
+// The exported Maths subject is registered as "mathematics (higher)" and the
+// user's stored boundary numbers are the HIGHER tables (2022 scalar=194,
 // 2023 scalar=203, 2024 snapshot top 9=197, 2025 snapshot top 9=217). The engine
-// must NEVER silently mutate the persisted Foundation course into the Higher
+// must NEVER silently mutate the persisted Higher course into the Foundation
 // identity — it surfaces an identity conflict and requires explicit confirmation.
 const mathsSubject = demo.nodes.find((n) => n.type === "subject" && n.subject === "Maths");
-eq("demo: persisted Maths course keys as Foundation", courseKey(mathsSubject.officialCourse), "pearson:gcse:1MA1:F");
+eq("demo: persisted Maths course keys as Higher", courseKey(mathsSubject.officialCourse), "pearson:gcse:1MA1:H");
 
 await clearSnapshotCache();
 await clearAllStores();
-await putCourse({ id: "pearson:gcse:1MA1:F", board: "pearson", qual: "gcse", code: "1MA1", tier: "F", title: "Mathematics (Foundation)" });
+await putCourse({ id: "pearson:gcse:1MA1:H", board: "pearson", qual: "gcse", code: "1MA1", tier: "H", title: "Mathematics (Higher)" });
 
-// 5a. requested Higher over persisted Foundation -> identity conflict, and the
+// 5a. requested Foundation over persisted Higher -> identity conflict, and the
 // engine writes NOTHING and mutates nothing.
 const want = await ensureForSitting({
-  board: "pearson", qual: "gcse", code: "1MA1", tier: "H",
+  board: "pearson", qual: "gcse", code: "1MA1", tier: "F",
   year: 2022, seriesWord: "June"
 });
-eq("demo: Higher-request over Foundation-persisted -> IDENTITY_CONFLICT", want.reason, IDENTITY_CONFLICT);
+eq("demo: Foundation-request over Higher-persisted -> IDENTITY_CONFLICT", want.reason, IDENTITY_CONFLICT);
 eq("demo: conflict asks for confirmation", want.confirmationRequired, true);
-eq("demo: conflict requested key", want.conflict && want.conflict.requested, "pearson:gcse:1MA1:H");
-eq("demo: conflict persisted key", want.conflict && want.conflict.persisted, "pearson:gcse:1MA1:F");
+eq("demo: conflict requested key", want.conflict && want.conflict.requested, "pearson:gcse:1MA1:F");
+eq("demo: conflict persisted key", want.conflict && want.conflict.persisted, "pearson:gcse:1MA1:H");
 let snapDemo = await loadSnapshot();
-check("demo: conflict persisted NOTHING (only the Foundation course remains)",
-  snapDemo.examBoundaries.length === 0 && snapDemo.examSeries.length === 0 && snapDemo.examCourses.length === 1 && snapDemo.examCourses[0].id === "pearson:gcse:1MA1:F");
-check("demo: conflict decision is unknown (official Higher numbers NOT presented)", Boolean(want.decision) && want.decision.kind === "unknown", `kind=${want.decision && want.decision.kind}`);
+check("demo: conflict persisted NOTHING (only the Higher course remains)",
+  snapDemo.examBoundaries.length === 0 && snapDemo.examSeries.length === 0 && snapDemo.examCourses.length === 1 && snapDemo.examCourses[0].id === "pearson:gcse:1MA1:H");
+check("demo: conflict decision is unknown (official Foundation numbers NOT presented)", Boolean(want.decision) && want.decision.kind === "unknown", `kind=${want.decision && want.decision.kind}`);
 
 // 5b. explicit confirmation adopts the REQUESTED identity as a NEW course; the
-// persisted Foundation record is never rewritten.
+// persisted Higher record is never rewritten.
 const confirmed = await ensureForSitting({
-  board: "pearson", qual: "gcse", code: "1MA1", tier: "H",
+  board: "pearson", qual: "gcse", code: "1MA1", tier: "F",
   year: 2022, seriesWord: "June", confirm: true
 });
-eq("demo: confirmation adopts Higher course (boundary still missing -> partial)", confirmed.status, "partial");
-check("demo: confirmation queues a P0 boundary job for the Higher course",
-  confirmed.queue.length === 1 && confirmed.queue[0].courseKey === "pearson:gcse:1MA1:H");
+eq("demo: confirmation adopts Foundation course (boundary still missing -> partial)", confirmed.status, "partial");
+check("demo: confirmation queues a P0 boundary job for the Foundation course",
+  confirmed.queue.length === 1 && confirmed.queue[0].courseKey === "pearson:gcse:1MA1:F");
 snapDemo = await loadSnapshot();
-check("demo: persisted Foundation course untouched by confirmation", snapDemo.examCourses.some((c) => c.id === "pearson:gcse:1MA1:F" && c.tier === "F"));
-check("demo: Higher course added as a NEW identity (not a rewrite)", snapDemo.examCourses.some((c) => c.id === "pearson:gcse:1MA1:H"));
+check("demo: persisted Higher course untouched by confirmation", snapDemo.examCourses.some((c) => c.id === "pearson:gcse:1MA1:H" && c.tier === "H"));
+check("demo: Foundation course added as a NEW identity (not a rewrite)", snapDemo.examCourses.some((c) => c.id === "pearson:gcse:1MA1:F"));
 
 // 5c. populate the official Higher tables for the four years and prove each
 // series resolves INDEPENDENTLY (frontier #19: June 2022/2023/2024/2025).
@@ -218,7 +235,7 @@ for (const [y, { top }] of Object.entries(H_TABLES)) {
   eq(`demo: June ${y} exact top = ${top}`, d.top, top);
 }
 const demoRepoCourses = [...repoDemo.index.courses.values()];
-check("demo: repository still carries both identities (F untouched, H added)", demoRepoCourses.some((c) => c.id === "pearson:gcse:1MA1:F") && demoRepoCourses.some((c) => c.id === "pearson:gcse:1MA1:H"));
+check("demo: repository still carries both identities (H untouched, F added)", demoRepoCourses.some((c) => c.id === "pearson:gcse:1MA1:H") && demoRepoCourses.some((c) => c.id === "pearson:gcse:1MA1:F"));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

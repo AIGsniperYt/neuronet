@@ -8,8 +8,7 @@ import { initTrackerTool } from "./tools/trackerTool.js";
 import { install as installDiag } from "./tools/diag.js";
 import { initScraperTool } from "./tools/scraperTool.js";
 import { flushBoundaryCache } from "./tools/gradeBoundaries.js";
-import { performMigration } from "./migrations.js";
-import { upgradeDataset, upgradeStoredData, SCHEMA_VERSION } from "./schemaUpgrade.js";
+import { SCHEMA_VERSION, assertCurrentDataset } from "./schema.js";
 import { initCanvas } from "./canvas.js";
 
 initCanvas();
@@ -22,7 +21,7 @@ const ctx = window.__neuronetCanvas.getCtx();
 const BACKEND = "https://neuronet-backend.onrender.com";
 let DB_READY = false;
 const DEMO_MODE = true;
-window.APP_VERSION = "v9"; // change per branch
+window.APP_VERSION = "v10"; // change per branch
 window.DEMO_MODE = DEMO_MODE; // true for old versions
 const USE_BACKEND = !window.DEMO_MODE;
 const DEFAULT_PROFILE = {
@@ -689,9 +688,8 @@ async function currentFingerprint() {
   return fingerprintDataset(nodes, quotes, cues);
 }
 
-// Load and upgrade the shipped demo dataset once per page session. `dataset`
-// keeps the explicit `cards` array, so demo detection can compare card
-// identity instead of guessing from legacy quote counts.
+// Load the shipped demo dataset once per page session. `dataset` keeps the
+// explicit `cards` array, so demo detection can compare card identity.
 let demoDatasetPromise = null;
 async function loadDemoDataset() {
   if (!demoDatasetPromise) {
@@ -699,9 +697,7 @@ async function loadDemoDataset() {
       try {
         const res = await fetch("demo-data.json", { cache: "no-store" });
         if (!res.ok) return null;
-        const payload = await res.json();
-        const { dataset } = upgradeDataset(payload);
-        return dataset || null;
+        return assertCurrentDataset(await res.json());
       } catch (e) {
         return null;
       }
@@ -713,7 +709,7 @@ async function loadDemoDataset() {
 async function fetchDemoPayload() {
   const res = await fetch("demo-data.json", { cache: "no-store" });
   if (!res.ok) throw new Error("Demo data not found");
-  return res.json();
+  return assertCurrentDataset(await res.json());
 }
 
 async function exportDatabaseJson() {
@@ -795,16 +791,16 @@ async function syncTagStoreFromData(data = {}) {
 }
 
 async function importPayload(payload) {
-  // Auto-upgrade any legacy data to the markdown-first schema on the way in,
-  // so old export files work as-is (no manual migration needed).
-  const { dataset } = upgradeDataset(payload);
+  // The JSON is owner-editable, but it must already use the current schema.
+  // Old exports are rejected with a version error instead of being rewritten.
+  const dataset = assertCurrentDataset(payload);
 
-  const nodes = Array.isArray(dataset?.nodes) ? dataset.nodes : [];
-  const quotes = Array.isArray(dataset?.quotes) ? dataset.quotes : [];
-  const cues = Array.isArray(dataset?.cues) ? dataset.cues : [];
-  const cards = Array.isArray(dataset?.cards) ? dataset.cards : [];
-  const heaps = Array.isArray(dataset?.heaps) ? dataset.heaps : [];
-  const decks = Array.isArray(dataset?.decks) ? dataset.decks : [];
+  const nodes = dataset.nodes;
+  const quotes = dataset.quotes;
+  const cues = dataset.cues;
+  const cards = dataset.cards;
+  const heaps = dataset.heaps;
+  const decks = dataset.decks;
 
   await clearNodes();
   await clearQuotes();
@@ -858,23 +854,6 @@ async function importPayload(payload) {
   }
 }
 
-async function upgradeStoredDatabaseIfNeeded() {
-  try {
-    const [nodes, quotes, cues] = await Promise.all([getAllNodes(), getAllQuotes(), getAllCues()]);
-    const { upgraded, stats, dataset } = upgradeStoredData(nodes, quotes, cues);
-    if (upgraded && dataset) {
-      await Promise.all([addNodes(dataset.nodes), addQuotes(dataset.quotes), addCues(dataset.cues)]);
-      console.log(
-        `[UPGRADE] legacy data upgraded: sources=${stats.sourceUpgraded} ` +
-        `quotes relocated=${stats.quoteRelocated} kept=${stats.quoteKept} failed=${stats.quoteFailed} ` +
-        `quoteRefs relocated=${stats.refRelocated} failed=${stats.refFailed}`
-      );
-    }
-  } catch (error) {
-    console.error("[UPGRADE] error during stored-data upgrade:", error);
-  }
-}
-
 // ========== DEMO DATA & DELETE DATA ==========
 
 async function importDemoData() {
@@ -894,7 +873,7 @@ async function importDemoData() {
     toast("Demo data imported. Explore the launchpad or click a tool.");
   } catch (error) {
     console.error("Demo import failed", error);
-    dialog.alert("Could not load demo data. It may not be deployed yet.");
+    dialog.alert(`Could not load demo data: ${error?.message || "it may not be deployed yet."}`);
   }
 }
 
@@ -971,22 +950,12 @@ async function isOnDemoData(nodes, quotes, cues, cards = []) {
     !== fingerprintDataset(dataset.nodes || [], dataset.quotes || [], dataset.cues || [])
   ) return false;
 
-  const demoCards = Array.isArray(dataset.cards) ? dataset.cards : [];
-  if (demoCards.length > 0) {
-    // Explicit demo cards have stable IDs. Studying them changes SRS metadata,
-    // so compare identity and count rather than the full card payload.
-    const expectedIds = new Set(demoCards.map((card) => card.id).filter(Boolean));
-    return cards.length === expectedIds.size
-      && cards.every((card) => expectedIds.has(card.id));
-  }
-
-  // Backward compatibility for a demo payload that predates explicit cards:
-  // it has exactly the cards backfilled from its quotes.
-  const expectedCards = (quotes || []).filter(
-    (quote) => quote?.id && quote?.subject && String(quote.quote || "").trim()
-  ).length;
-  return cards.length === expectedCards
-    && cards.every((card) => card?.origin === "legacy");
+  // Demo cards have stable IDs. Studying them changes SRS metadata, so
+  // compare identity and count rather than the full card payload.
+  const demoCards = dataset.cards || [];
+  const expectedIds = new Set(demoCards.map((card) => card.id).filter(Boolean));
+  return cards.length === expectedIds.size
+    && cards.every((card) => expectedIds.has(card.id));
 }
 
 async function wipeDatabase() {
@@ -1868,21 +1837,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   await initDB();
   DB_READY = true;
 
-  // Upgrade any legacy stored data to the markdown-first schema in place
-  // (idempotent, cheap no-op when nothing is legacy). Runs in both demo and
-  // cloud modes so old local DBs self-heal without a manual re-import.
-  await upgradeStoredDatabaseIfNeeded();
-
   // Every card needs a canonical deck home. This is idempotent and backfills
   // pre-deck databases into an Unsorted deck per subject.
   try {
     await ensureDeckMembership();
   } catch (error) {
     console.error("[DECKS] membership backfill failed:", error);
-  }
-
-  if (!window.DEMO_MODE) {
-    await performMigration(getAllNodes, addNode, addQuote);
   }
 
   // Cards are the study source of truth. Legacy quote/cue pairs are optional
@@ -2172,7 +2132,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         setProfileDropdown(false);
       } catch (error) {
         console.error("Import failed", error);
-        dialog.alert("Import failed. Please check the JSON file format.");
+        dialog.alert(`Import failed: ${error?.message || "please check the JSON file format."}`);
       } finally {
         importJsonInput.value = "";
       }

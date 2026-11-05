@@ -1,5 +1,5 @@
 import { dialog } from "./dialog.js";
-import { format, normalizeMarkdown as mdNormalize, htmlToMarkdown, renderMathWithKatex } from "../vendor/md-format/mdeditor.js";
+import { format, renderMathWithKatex } from "../vendor/md-format/mdeditor.js";
 export async function initMindmapTool(deps, context = {}) {
   const {
     getAllNodes,
@@ -1067,25 +1067,7 @@ const state = {
   }
 
   function sourceMarkdown(node) {
-    if (!node) return "";
-    // Legacy saves occasionally stringified a missing value, leaving the
-    // literal text "undefined"/"null" in a content field. Treat that as empty
-    // so the next (real) field in the chain wins instead of printing it.
-    const usable = (value) => {
-      if (typeof value !== "string") return "";
-      const trimmed = value.trim();
-      return trimmed === "undefined" || trimmed === "null" ? "" : value;
-    };
-    let md = "";
-    const markdown = usable(node.contentMarkdown);
-    if (markdown) {
-      md = markdown;
-    } else {
-      const html = usable(node.contentHtml);
-      if (html) md = htmlToMarkdown(html);
-      else md = usable(node.content) || usable(node.contentText) || "";
-    }
-    return mdNormalize(md);
+    return typeof node?.contentMarkdown === "string" ? node.contentMarkdown : "";
   }
 
   function getNodeType(node) {
