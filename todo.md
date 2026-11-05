@@ -30,56 +30,36 @@ add estimated time to completion for flashcard sessions
 
 maybe add a "dark mode" or "professional mode" for use outside when you dont want a comfy evergreen theme with my fav colour everywhere, and just want something clean, dark, and unnoticable to avoid drawing attraction or maybe more simply just removing distractions to let you study with focus
 
+add catastrophic forgetting detection - MAJOR superprogram algorithm change - 
+
 ---
 
-# Still open
+# Open tasks
 
-- **Study All Subjects (WIP)**: the disabled launchpad button is intentional, not dead code. Keep it until the all-subjects study flow is built; do not delete it as "unused".
-- **Icon cleanup (not now)**: do not mass-purge emoji/glyphs — several are liked. Revisit selectively later and judge each on whether it adds meaning; text labels are the default for controls.
-- **Later refinement**: the per-tag / per-layer `Study` buttons in the deck control center stay visible for now; consider tucking them into a row `⋯` menu later.
+## Next
+
 - Real iPad/Safari pass: double-tap zoom, pinch, Lock mode ergonomics, toolbar crowding, heap drag-release feel.
+
+## Later / low priority
+
+- Import-time derivation: when importing JSON, rebuild `contentHtml` / `contentText` from `contentMarkdown` so owner-edited exports stay consistent. Normal in-app use does not need this.
+- Per-tag / per-layer `Study` buttons: consider moving them into a `⋯` menu.
+- Stats default disclosure: keep Studied/Accuracy first; move Router/Inspect internals behind an advanced view.
+- Launchpad `Manage` grouping for Build Deck / Edit / Heaps, once it is worth the churn.
+
+# Constraints
+
+- Keep `Study All Subjects (WIP)` until the all-subjects study flow exists; it is intentional, not dead code.
+- Do not mass-purge emoji/glyphs; text labels are the default for controls.
 - Mindmap layout is browser-local: no cross-device sync, no named snapshots.
-- Locks made during the opening explosion persist after the settle timer, not immediately.
 
 # Deliberately not doing (unless asked)
 
 - Branch or subject locking, or a global Lock all action.
 - Redesigning the stat pills.
 - A new test framework.
-- Re-flowing the graph when search or type filters change. Filters point at nodes; the current physics behaviour is accepted. Revisit only if a filter visibly shoves nodes on a real device.
-
-
----
+- Re-flowing the graph when search or type filters change.
 
 # Product direction
 
-Canonical vision now lives in the private docs repo at `../backend/docs/project.md` §1.1 "Product Vision and UX Direction". In short: comfort-ride default, power behind a voluntary door, hide/defer/merge over add, deck-first card creation, and no capability removed to buy simplicity.
-
-# Calm-default pass
-
-Goal: make the default Memory flow feel simple and comfortable without removing capability.
-
-Agreed direction:
-
-- Deck row itself starts card study; a text `Options` button opens the existing control center.
-- The control center keeps every mode, filter, scope toggle, and per-tag/layer shortcut.
-- Stats is a real side-by-side panel that pushes the study area aside, not an overlay. Tablet shrinks the panel; phone keeps a full-screen sheet.
-
-Done:
-
-- [x] Read-only senior audit of the default flow.
-- [x] Map the current path and count decisions/controls before the first card.
-- [x] Identify what to hide, merge, or defer; nothing removed.
-- [x] Decide open deck → Study immediately (no summary screen).
-- [x] Deck row = study, `Options` = control center.
-- [x] Stats = side-by-side column, not an overlay.
-- [x] Card front/back authoring embeds the first-party md-format editor; card content renders Markdown (bold, italics, lists, quotes, code).
-- [x] Analysis WYSIWYG headings keep spaces while typing (editor round-trip no longer eats a just-typed trailing space).
-- [x] Demo dataset migrated once to schema 7; legacy meta, card origins and stale markdown quirks removed.
-- [x] Dataset schema upgrade/migration code retired. Imports now reject non-current exports with a clear version error.
-- [x] md-format stays generic; Neuronet-only markdown cleanup lives outside the library.
-
-Still to consider:
-
-- [ ] Stats default disclosure: keep Studied/Accuracy first and move Router/Inspect internals behind an explicit advanced view.
-- [ ] Launchpad `Manage` grouping for Build Deck / Edit / Heaps, once it is worth the churn.
+Canonical vision lives in the private docs repo at `../backend/docs/project.md` §1.1 "Product Vision and UX Direction". In short: comfort-ride default, power behind a voluntary door, hide/defer/merge over add, deck-first card creation, and no capability removed to buy simplicity.
