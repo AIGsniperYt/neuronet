@@ -1619,19 +1619,95 @@ function ensureSubjectPillMenu() {
   return subjectPillMenu;
 }
 
+let subjectEditMode = false;
+const SUBJECT_ORDER_KEY = `nn-subject-order-${window.DEMO_MODE ? "demo" : "main"}-${window.APP_VERSION || "v0"}`;
+
 function subjectNameMatches(a, b) {
   return String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
+}
+
+// Subjects are still name-keyed. A trailing parenthetical is treated as an
+// implicit level/qualifier so "Biology (A-Level)" groups away from "Biology".
+function subjectGroup(name) {
+  const match = String(name || "").trim().match(/\(([^()]+)\)\s*$/);
+  return match ? match[1].trim() : "General";
+}
+
+function compareSubjectGroups(a, b) {
+  if (a === "General" && b !== "General") return -1;
+  if (b === "General" && a !== "General") return 1;
+  return a.localeCompare(b, undefined, { sensitivity: "base" });
+}
+
+function loadSubjectOrder() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SUBJECT_ORDER_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveSubjectOrder(order) {
+  try {
+    localStorage.setItem(SUBJECT_ORDER_KEY, JSON.stringify(order));
+  } catch {
+    /* private mode or storage full */
+  }
+}
+
+function updateSubjectOrder(mutator) {
+  saveSubjectOrder(mutator([...loadSubjectOrder()]));
+}
+
+function rememberSubject(name) {
+  updateSubjectOrder((order) => order.includes(name) ? order : [...order, name]);
+}
+
+function forgetSubject(name) {
+  updateSubjectOrder((order) => order.filter((item) => item !== name));
+}
+
+function renameInSubjectOrder(oldName, newName) {
+  updateSubjectOrder((order) => {
+    const seen = new Set();
+    return order
+      .map((item) => item === oldName ? newName : item)
+      .filter((item) => {
+        if (seen.has(item)) return false;
+        seen.add(item);
+        return true;
+      });
+  });
+}
+
+// Group first (so qualifiers stay contiguous), then honour saved drag order
+// inside each group, then fall back to alphabetical for new subjects.
+function orderSubjects(subjects) {
+  const rank = new Map(loadSubjectOrder().map((name, index) => [name, index]));
+  return [...subjects].sort((a, b) => {
+    const groupCompare = compareSubjectGroups(subjectGroup(a), subjectGroup(b));
+    if (groupCompare !== 0) return groupCompare;
+    const aRank = rank.has(a) ? rank.get(a) : Number.MAX_SAFE_INTEGER;
+    const bRank = rank.has(b) ? rank.get(b) : Number.MAX_SAFE_INTEGER;
+    if (aRank !== bRank) return aRank - bRank;
+    return a.localeCompare(b, undefined, { sensitivity: "base" });
+  });
+}
+
+async function readSubjects() {
+  try {
+    return (await getSubjects()) || [];
+  } catch (error) {
+    console.warn("Could not load subjects:", error);
+    return [];
+  }
 }
 
 // Subject creation belongs to the shell, not to any one tool. Tools only
 // consume the global subject list; this is the single creation path.
 async function createSubjectFromShell() {
-  let subjects = [];
-  try {
-    subjects = (await getSubjects()) || [];
-  } catch (error) {
-    console.warn("Could not load subjects:", error);
-  }
+  const subjects = await readSubjects();
 
   const typed = await dialog.prompt("New subject name (e.g. Biology):", "");
   const name = String(typed || "").trim();
@@ -1658,6 +1734,7 @@ async function createSubjectFromShell() {
       await dialog.alert(`Could not create “${subjectName}”: ${error.message}`);
       return;
     }
+    rememberSubject(subjectName);
   }
 
   await renderSidebarSubjects();
@@ -1674,72 +1751,342 @@ async function createSubjectFromShell() {
   }
 }
 
+// Rename keeps all decks/cards/quotes/analyses together. Renaming onto an
+// existing name merges the two subjects, so that path asks twice.
+async function renameSubjectFromShell(name) {
+  const current = String(name || "").trim();
+  if (!current) return;
+
+  const typed = await dialog.prompt(`Rename “${current}” to:`, current);
+  if (typed === null) return;
+  let next = String(typed || "").trim().replace(/\s+/g, " ");
+  if (!next) {
+    await dialog.alert("A subject name cannot be empty.");
+    return;
+  }
+  if (next === current) return;
+
+  const subjects = await readSubjects();
+  const collision = subjects.find((subject) => (
+    !subjectNameMatches(subject, current) && subjectNameMatches(subject, next)
+  ));
+  let merging = false;
+
+  if (collision) {
+    merging = true;
+    next = String(collision).trim();
+    const mergeGate = await dialog.confirm(
+      `“${collision}” already exists.\n\nRenaming “${current}” to that name will MERGE both subjects and all their content. This cannot be undone.`,
+      "Continue to merge",
+      "danger"
+    );
+    if (!mergeGate) return;
+    const mergeFinal = await dialog.confirm(
+      `Merge “${current}” into “${collision}”?`,
+      "Merge subjects",
+      "danger"
+    );
+    if (!mergeFinal) return;
+  }
+
+  if (!merging) {
+    const ok = await dialog.confirm(
+      `Rename “${current}” to “${next}”?\n\nAll decks, cards, quotes and analyses move with it.`,
+      "Rename"
+    );
+    if (!ok) return;
+  }
+
+  try {
+    await renameSubject(current, next);
+  } catch (error) {
+    console.error("Could not rename subject:", error);
+    await dialog.alert(`Could not rename “${current}”: ${error.message}`);
+    return;
+  }
+
+  renameInSubjectOrder(current, next);
+  const wasCurrent = subjectNameMatches(currentSubject, current);
+  await renderSidebarSubjects();
+  await renderDashboard();
+  if (wasCurrent) {
+    currentSubject = null;
+    await selectSidebarSubject(next);
+  }
+  toast(`Subject renamed to “${next}”.`);
+}
+
+async function deleteSubjectFromShell(name) {
+  const current = String(name || "").trim();
+  if (!current) return;
+
+  let stats = { cards: 0, decks: 0, nodes: 0, quotes: 0 };
+  try {
+    const [cards, decks, nodes, quotes] = await Promise.all([
+      getCardsForDeck(current).catch(() => []),
+      getDecksForSubject(current).catch(() => []),
+      getAllNodes().catch(() => []),
+      getAllQuotes().catch(() => [])
+    ]);
+    stats = {
+      cards: (cards || []).length,
+      decks: (decks || []).length,
+      nodes: (nodes || []).filter((node) => String(node.subject || "") === current).length,
+      quotes: (quotes || []).filter((quote) => String(quote.subject || "") === current).length
+    };
+  } catch {
+    /* counts are only a warning aid */
+  }
+
+  const plural = (count, one, many) => `${count} ${count === 1 ? one : many}`;
+  const summary = [
+    plural(stats.decks, "deck", "decks"),
+    plural(stats.cards, "card", "cards"),
+    plural(stats.nodes, "item", "items"),
+    plural(stats.quotes, "quote", "quotes")
+  ].join(", ");
+
+  const first = await dialog.confirm(
+    `Delete “${current}”?\n\nThis permanently removes ${summary}.`,
+    "Continue",
+    "danger"
+  );
+  if (!first) return;
+
+  const typed = await dialog.prompt(
+    `Type the subject name exactly to confirm permanent deletion:\n${current}`,
+    ""
+  );
+  if (typed === null) return;
+  if (String(typed).trim() !== current) {
+    await dialog.alert("The name did not match. Nothing was deleted.");
+    return;
+  }
+
+  const last = await dialog.confirm(
+    `Last chance — permanently delete “${current}” and all its content?`,
+    "Delete forever",
+    "danger"
+  );
+  if (!last) return;
+
+  const wasCurrent = subjectNameMatches(currentSubject, current);
+  try {
+    await deleteSubject(current);
+  } catch (error) {
+    console.error("Could not delete subject:", error);
+    await dialog.alert(`Could not delete “${current}”: ${error.message}`);
+    return;
+  }
+
+  forgetSubject(current);
+  if (wasCurrent) {
+    currentSubject = null;
+    await selectSidebarSubject(null);
+  } else {
+    await renderSidebarSubjects();
+    await renderDashboard();
+  }
+  toast(`Subject “${current}” deleted.`);
+}
+
+function setSubjectEditMode(enabled) {
+  subjectEditMode = !!enabled;
+  const btn = document.getElementById("sidebarSubjectEdit");
+  if (btn) {
+    btn.classList.toggle("active", subjectEditMode);
+    btn.setAttribute("aria-pressed", String(subjectEditMode));
+    btn.title = subjectEditMode ? "Done editing subjects" : "Edit subjects";
+    btn.setAttribute("aria-label", btn.title);
+    btn.innerHTML = subjectEditMode
+      ? '<i class="fa-solid fa-check" aria-hidden="true"></i>'
+      : '<i class="fa-solid fa-pen" aria-hidden="true"></i>';
+  }
+  renderSidebarSubjects();
+}
+
+function subjectPillMarkup(subject) {
+  const norm = (value) => String(value || "").trim().toLowerCase();
+  return `
+    <button type="button" class="subject-pill ${norm(subject) === norm(currentSubject) ? "active" : ""}"
+            data-subject="${escapeHtml(subject)}">${escapeHtml(subject)}</button>
+  `;
+}
+
+function subjectEditRowMarkup(subject, group) {
+  const safe = escapeHtml(subject);
+  return `
+    <div class="subject-edit-row" data-subject="${safe}" data-group="${escapeHtml(group)}">
+      <button type="button" class="subject-drag-handle" title="Drag to reorder" aria-label="Reorder ${safe}">
+        <i class="fa-solid fa-grip-vertical" aria-hidden="true"></i>
+      </button>
+      <span class="subject-edit-name">${safe}</span>
+      <span class="subject-edit-actions">
+        <button type="button" class="subject-row-btn" data-action="rename" title="Rename ${safe}" aria-label="Rename ${safe}">
+          <i class="fa-solid fa-pen" aria-hidden="true"></i>
+        </button>
+        <button type="button" class="subject-row-btn danger" data-action="delete" title="Delete ${safe}" aria-label="Delete ${safe}">
+          <i class="fa-solid fa-trash" aria-hidden="true"></i>
+        </button>
+      </span>
+    </div>
+  `;
+}
+
+// Pointer-based drag works with mouse, touch and pen. Reordering is confined
+// to the subject's group so qualifier sections stay contiguous.
+function attachSubjectDrag(row, handle) {
+  let drag = null;
+
+  const finish = (event, commit) => {
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    const { rows, moved } = drag;
+    row.classList.remove("dragging");
+    try {
+      if (handle.hasPointerCapture?.(event.pointerId)) {
+        handle.releasePointerCapture(event.pointerId);
+      }
+    } catch { /* pointer already released */ }
+    drag = null;
+    if (!commit || !moved) return;
+
+    const groupNames = [...rows.querySelectorAll(".subject-edit-row")]
+      .map((item) => item.dataset.subject);
+    const groupSet = new Set(groupNames);
+    const rest = loadSubjectOrder().filter((name) => !groupSet.has(name));
+    saveSubjectOrder([...rest, ...groupNames]);
+    renderSidebarSubjects();
+  };
+
+  handle.addEventListener("pointerdown", (event) => {
+    if (!subjectEditMode) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    try { handle.setPointerCapture(event.pointerId); } catch { /* unsupported */ }
+    drag = { pointerId: event.pointerId, rows: row.parentElement, moved: false };
+    row.classList.add("dragging");
+  });
+
+  handle.addEventListener("pointermove", (event) => {
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    event.preventDefault();
+    const rows = drag.rows;
+    const siblings = [...rows.querySelectorAll(".subject-edit-row:not(.dragging)")];
+    let before = null;
+    for (const sibling of siblings) {
+      const rect = sibling.getBoundingClientRect();
+      if (event.clientY < rect.top + rect.height / 2) {
+        before = sibling;
+        break;
+      }
+    }
+    if (before) {
+      if (row.nextElementSibling !== before) rows.insertBefore(row, before);
+    } else if (rows.lastElementChild !== row) {
+      rows.appendChild(row);
+    }
+    drag.moved = true;
+  });
+
+  handle.addEventListener("pointerup", (event) => finish(event, true));
+  handle.addEventListener("pointercancel", (event) => finish(event, false));
+}
+
 async function renderSidebarSubjects() {
   const listEl = document.getElementById("sidebarSubjectList");
   const quickListEl = document.getElementById("sidebarQuickSubjectList");
   const allBtn = document.getElementById("sidebarSubjectAll");
   if (!allBtn) return;
 
-  const subjects = await getSubjects();
+  const subjects = orderSubjects(await readSubjects());
   const subjectCount = document.getElementById("sidebarSubjectCount");
   // “All” is a filter, not a subject, so keep the header count aligned with
   // the actual subject entries shown below it.
   if (subjectCount) subjectCount.textContent = String(subjects.length);
   const norm = (s) => String(s || "").trim().toLowerCase();
+  const scrollBox = document.getElementById("sidebarSubjects");
+  const scrollTop = scrollBox?.scrollTop || 0;
 
   allBtn.classList.toggle("active", !currentSubject);
   allBtn.setAttribute("aria-current", !currentSubject ? "page" : "false");
 
-  const subjectButtons = subjects.map(subject => `
-    <button type="button" class="subject-pill ${norm(subject) === norm(currentSubject) ? "active" : ""}"
-            data-subject="${escapeHtml(subject)}">${escapeHtml(subject)}</button>
-  `).join("");
-  if (listEl) listEl.innerHTML = subjectButtons;
+  const groups = new Map();
+  subjects.forEach((subject) => {
+    const group = subjectGroup(subject);
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(subject);
+  });
+  const groupNames = [...groups.keys()].sort(compareSubjectGroups);
+  const showGroupLabels = groupNames.length > 1;
+
+  if (listEl) {
+    if (!subjects.length) {
+      listEl.innerHTML = `<div class="subject-empty">No subjects yet</div>`;
+    } else {
+      listEl.innerHTML = groupNames.map((group) => `
+        <div class="subject-group" data-group="${escapeHtml(group)}">
+          ${showGroupLabels ? `<div class="subject-group-label">${escapeHtml(group)}</div>` : ""}
+          <div class="subject-group-rows">
+            ${groups.get(group).map((subject) => (
+              subjectEditMode ? subjectEditRowMarkup(subject, group) : subjectPillMarkup(subject)
+            )).join("")}
+          </div>
+        </div>
+      `).join("");
+    }
+    scrollBox && (scrollBox.scrollTop = scrollTop);
+  }
+
   if (quickListEl) {
     quickListEl.innerHTML = `
       <button type="button" role="menuitem" class="quick-subject-item ${!currentSubject ? "active" : ""}" data-subject="">
         <span class="quick-subject-dot"></span><span>All subjects</span>
       </button>
-      ${subjects.map(subject => `
-        <button type="button" role="menuitem" class="quick-subject-item ${norm(subject) === norm(currentSubject) ? "active" : ""}" data-subject="${escapeHtml(subject)}">
-          <span class="quick-subject-dot"></span><span>${escapeHtml(subject)}</span>
-        </button>
+      ${groupNames.map((group) => `
+        ${showGroupLabels ? `<div class="quick-group-label">${escapeHtml(group)}</div>` : ""}
+        ${groups.get(group).map((subject) => `
+          <button type="button" role="menuitem" class="quick-subject-item ${norm(subject) === norm(currentSubject) ? "active" : ""}" data-subject="${escapeHtml(subject)}">
+            <span class="quick-subject-dot"></span><span>${escapeHtml(subject)}</span>
+          </button>
+        `).join("")}
       `).join("")}
     `;
   }
 
-  listEl?.querySelectorAll(".subject-pill").forEach(btn => {
-      btn.setAttribute("aria-current", btn.classList.contains("active") ? "page" : "false");
-      btn.addEventListener("click", () => selectSidebarSubject(btn.dataset.subject));
-      btn.addEventListener("contextmenu", (e) => {
-        e.preventDefault();
-        const menu = ensureSubjectPillMenu();
-        const subj = btn.dataset.subject;
-        menu.style.left = e.clientX + "px";
-        menu.style.top = e.clientY + "px";
-        menu.classList.add("open");
-        menu.querySelectorAll("button").forEach(b => {
-          b.onclick = async () => {
-            menu.classList.remove("open");
-            if (b.dataset.action === "rename") {
-              const updated = await dialog.prompt(`Rename "${subj}" to:`, subj);
-              const next = (updated || "").trim();
-              if (!next || next === subj) return;
-              await renameSubject(subj, next);
-              await renderDashboard();
-              await renderSidebarSubjects();
-            } else if (b.dataset.action === "delete") {
-              const ok = await dialog.confirm(`Delete "${subj}" and all its content?`, "Delete", "danger");
-              if (!ok) return;
-              await deleteSubject(subj);
-              await renderDashboard();
-              await renderSidebarSubjects();
-            }
-          };
-        });
+  listEl?.querySelectorAll(".subject-pill").forEach((btn) => {
+    btn.setAttribute("aria-current", btn.classList.contains("active") ? "page" : "false");
+    btn.addEventListener("click", () => selectSidebarSubject(btn.dataset.subject));
+    btn.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      const menu = ensureSubjectPillMenu();
+      const subj = btn.dataset.subject;
+      menu.style.left = `${event.clientX}px`;
+      menu.style.top = `${event.clientY}px`;
+      menu.classList.add("open");
+      menu.querySelectorAll("button").forEach((actionBtn) => {
+        actionBtn.onclick = async () => {
+          menu.classList.remove("open");
+          if (actionBtn.dataset.action === "rename") await renameSubjectFromShell(subj);
+          else if (actionBtn.dataset.action === "delete") await deleteSubjectFromShell(subj);
+        };
       });
+    });
   });
-  quickListEl?.querySelectorAll(".quick-subject-item").forEach(btn => {
+
+  listEl?.querySelectorAll(".subject-edit-row").forEach((row) => {
+    const subject = row.dataset.subject;
+    row.querySelector('[data-action="rename"]')?.addEventListener("click", () => {
+      renameSubjectFromShell(subject);
+    });
+    row.querySelector('[data-action="delete"]')?.addEventListener("click", () => {
+      deleteSubjectFromShell(subject);
+    });
+    const handle = row.querySelector(".subject-drag-handle");
+    if (handle) attachSubjectDrag(row, handle);
+  });
+
+  quickListEl?.querySelectorAll(".quick-subject-item").forEach((btn) => {
     btn.addEventListener("click", () => {
       selectSidebarSubject(btn.dataset.subject);
       document.getElementById("sidebarQuickSubjectsMenu")?.classList.remove("open");
@@ -2008,12 +2355,19 @@ document.addEventListener("DOMContentLoaded", async () => {
   const quickSubjectsBtn = document.getElementById("sidebarQuickSubjects");
   const quickSubjectsMenu = document.getElementById("sidebarQuickSubjectsMenu");
   const subjectAddBtn = document.getElementById("sidebarSubjectAdd");
+  const subjectEditBtn = document.getElementById("sidebarSubjectEdit");
   const quickSubjectAddBtn = document.getElementById("sidebarQuickSubjectAdd");
 
   if (subjectAddBtn) {
     subjectAddBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       createSubjectFromShell();
+    });
+  }
+  if (subjectEditBtn) {
+    subjectEditBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setSubjectEditMode(!subjectEditMode);
     });
   }
   if (quickSubjectAddBtn) {

@@ -441,7 +441,13 @@ canvas { position: fixed; inset:0; z-index:-1; }
   color: var(--accent);
   font-weight: 600;
 }
-.subject-add-btn {
+.subject-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.subject-add-btn,
+.subject-edit-btn {
   display: inline-flex;
   width: 26px;
   height: 26px;
@@ -453,15 +459,120 @@ canvas { position: fixed; inset:0; z-index:-1; }
   background: transparent;
   color: rgba(230,255,245,0.66);
   font: inherit;
-  font-size: 1rem;
+  font-size: 0.86rem;
   line-height: 1;
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
-.subject-add-btn:hover {
+.subject-add-btn:hover,
+.subject-edit-btn:hover {
   color: var(--accent);
   border-color: rgba(44,255,179,0.45);
   background: rgba(44,255,179,0.08);
+}
+.subject-edit-btn.active {
+  color: var(--accent);
+  border-color: rgba(44,255,179,0.55);
+  background: rgba(44,255,179,0.14);
+}
+.subject-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.subject-group + .subject-group {
+  margin-top: 6px;
+}
+.subject-group-label {
+  padding: 4px 10px 2px;
+  color: rgba(230,255,245,0.46);
+  font-size: var(--text-xs, 0.72rem);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.subject-group-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.subject-empty {
+  padding: 8px 10px;
+  color: rgba(230,255,245,0.5);
+  font-size: var(--text-sm, 0.84rem);
+}
+.subject-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 2px 4px 2px 2px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.025);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.subject-edit-row.dragging {
+  opacity: 0.55;
+  background: rgba(44,255,179,0.12);
+  box-shadow: inset 0 0 0 1px rgba(44,255,179,0.35);
+}
+.subject-drag-handle {
+  display: inline-flex;
+  width: 26px;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(230,255,245,0.42);
+  font-size: 0.8rem;
+  cursor: grab;
+  touch-action: none;
+}
+.subject-drag-handle:active {
+  cursor: grabbing;
+  color: var(--accent);
+  background: rgba(44,255,179,0.1);
+}
+.subject-edit-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(230,255,245,0.9);
+  font-size: var(--text-base);
+}
+.subject-edit-actions {
+  display: inline-flex;
+  gap: 2px;
+}
+.subject-row-btn {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: rgba(230,255,245,0.6);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.subject-row-btn:hover {
+  color: var(--accent);
+  border-color: rgba(44,255,179,0.35);
+  background: rgba(44,255,179,0.08);
+}
+.subject-row-btn.danger:hover {
+  color: #ff6b6b;
+  border-color: rgba(255,107,107,0.4);
+  background: rgba(255,107,107,0.1);
 }
 
 
@@ -1877,6 +1988,14 @@ select {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+.quick-group-label {
+  padding: 7px 9px 3px;
+  color: rgba(230,255,245,0.44);
+  font-size: var(--text-xs, 0.72rem);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
 .quick-subject-item {
   display: flex;
   width: 100%;
@@ -2038,7 +2157,10 @@ select {
         <div id="sidebarSubjects">
           <div id="sidebarSubjectsHead">
             <button id="sidebarSubjectAll" class="subject-pill active" data-subject="">All</button>
-            <button id="sidebarSubjectAdd" class="subject-add-btn" type="button" title="New subject" aria-label="New subject">+</button>
+            <div class="subject-head-actions">
+              <button id="sidebarSubjectAdd" class="subject-add-btn" type="button" title="New subject" aria-label="New subject">+</button>
+              <button id="sidebarSubjectEdit" class="subject-edit-btn" type="button" title="Edit subjects" aria-label="Edit subjects" aria-pressed="false"><i class="fa-solid fa-pen" aria-hidden="true"></i></button>
+            </div>
           </div>
           <div id="sidebarSubjectList"></div>
         </div>
