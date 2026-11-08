@@ -1968,11 +1968,13 @@ export async function addSubject(name) {
 export async function deleteSubject(subjectName) {
   const allNodes = await getAllNodes();
   const allQuotes = await getAllQuotes();
+  const allCues = await getAllCues();
   const subjectCards = await getCardsForDeck(subjectName);
   const subjectDecks = await getDecksForSubject(subjectName).catch(() => []);
 
   const subjectNodes = allNodes.filter(n => n.subject === subjectName);
   const subjectQuotes = allQuotes.filter(q => q.subject === subjectName);
+  const subjectCues = allCues.filter(cue => cue.subject === subjectName);
 
   for (const card of subjectCards) {
     await deleteCard(card.id);
@@ -1986,6 +1988,9 @@ export async function deleteSubject(subjectName) {
   for (const quote of subjectQuotes) {
     await deleteQuote(quote.id);
   }
+  for (const cue of subjectCues) {
+    await deleteCue(cue.id);
+  }
 
   return subjectName;
 }
@@ -1993,12 +1998,14 @@ export async function deleteSubject(subjectName) {
 export async function renameSubject(oldName, newName) {
   const allNodes = await getAllNodes();
   const allQuotes = await getAllQuotes();
+  const allCues = await getAllCues();
   const allCards = await getAllCards();
   const subjectDecks = await getDecksForSubject(oldName).catch(() => []);
   const now = Date.now();
 
   const subjectNodes = allNodes.filter(n => n.subject === oldName);
   const subjectQuotes = allQuotes.filter(q => q.subject === oldName);
+  const subjectCues = allCues.filter(cue => cue.subject === oldName);
   const subjectCards = allCards.filter((card) => (
     card.deck === oldName || (card.deckPath || []).includes(oldName)
   ));
@@ -2021,16 +2028,41 @@ export async function renameSubject(oldName, newName) {
   for (const node of subjectNodes) {
     const copy = { ...node };
     copy.subject = newName;
+    if (typeof copy.name === "string") {
+      copy.name = newName;
+    }
     if (copy.type === "subject" || copy.meta?.kind === "subject") {
       copy.title = newName;
+    }
+    if (Array.isArray(copy.meta?.hierarchyPath) && copy.meta.hierarchyPath.length) {
+      copy.meta = {
+        ...copy.meta,
+        hierarchyPath: [newName, ...copy.meta.hierarchyPath.slice(1)]
+      };
     }
     copy.updatedAt = now;
     await deleteNode(node.id);
     await addNode(copy);
   }
   for (const quote of subjectQuotes) {
+    const path = Array.isArray(quote.meta?.hierarchyPath) ? quote.meta.hierarchyPath : [];
     await deleteQuote(quote.id);
-    await addQuote({ ...quote, subject: newName, updatedAt: now });
+    await addQuote({
+      ...quote,
+      subject: newName,
+      meta: {
+        ...(quote.meta || {}),
+        hierarchyPath: path.length ? [newName, ...path.slice(1)] : path
+      },
+      updatedAt: now
+    });
+  }
+  for (const cue of subjectCues) {
+    await addCue({
+      ...cue,
+      subject: newName,
+      updatedAt: now
+    });
   }
 
   return newName;
