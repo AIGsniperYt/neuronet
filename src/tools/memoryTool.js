@@ -995,7 +995,7 @@ export async function initMemoryTool(deps, context = {}) {
         if (importView) {
           const isVisible = importView.style.display !== "none";
           importView.style.display = isVisible ? "none" : "block";
-          if (cardEditForm) cardEditForm.style.display = isVisible ? "block" : "none";
+          if (cardEditForm) cardEditForm.style.display = isVisible ? "" : "none";
         }
       });
     }
@@ -1045,7 +1045,7 @@ export async function initMemoryTool(deps, context = {}) {
         const importView = document.getElementById("importView");
         const cardEditForm = document.getElementById("cardEditForm");
         if (importView) importView.style.display = "none";
-        if (cardEditForm) cardEditForm.style.display = "block";
+        if (cardEditForm) cardEditForm.style.display = "";
         if (ankiImportInput) ankiImportInput.value = "";
         if (importFeedback) importFeedback.textContent = "";
       });
@@ -5116,6 +5116,9 @@ export async function initMemoryTool(deps, context = {}) {
   }
 
   function showDeckBuilderStep(step) {
+    if (deckBuilderModal) {
+      deckBuilderModal.classList.toggle("step-2", step === 2);
+    }
     if (step1DeckInfo) step1DeckInfo.style.display = step === 1 ? "block" : "none";
     if (step2Flashcards) {
       step2Flashcards.style.display = step === 2 ? "flex" : "none";
@@ -5185,7 +5188,7 @@ export async function initMemoryTool(deps, context = {}) {
     const importView = document.getElementById("importView");
     const cardEditForm = document.getElementById("cardEditForm");
     if (importView) importView.style.display = "none";
-    if (cardEditForm) cardEditForm.style.display = "block";
+    if (cardEditForm) cardEditForm.style.display = "";
 
     if (index >= 0 && index < deckBuilderState.cards.length) {
       const card = deckBuilderState.cards[index];
@@ -6307,7 +6310,7 @@ export async function initMemoryTool(deps, context = {}) {
     const importView = document.getElementById("importView");
     const cardEditForm = document.getElementById("cardEditForm");
     if (importView) importView.style.display = "none";
-    if (cardEditForm) cardEditForm.style.display = "block";
+    if (cardEditForm) cardEditForm.style.display = "";
 
     // Update UI
     renderFlashcardList();

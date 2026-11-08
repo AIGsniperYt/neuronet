@@ -100,24 +100,28 @@
 
               <!-- Card Edit Form (persistent) -->
               <div id="cardEditForm">
-                <div class="form-group">
-                  <label>Front</label>
-                  <div id="cueInputEditor" class="card-md-editor"></div>
-                </div>
-                <div class="form-group">
-                  <label>Back</label>
-                  <div id="quoteInputEditor" class="card-md-editor"></div>
-                </div>
-                <div class="form-group">
-                  <label>Priority</label>
-                  <div id="priorityPills" class="priority-pills">
-                    <!-- Pills rendered by JS -->
+                <div class="deck-card-editors">
+                  <div class="form-group deck-card-editor-group">
+                    <label>Front</label>
+                    <div id="cueInputEditor" class="card-md-editor"></div>
+                  </div>
+                  <div class="form-group deck-card-editor-group">
+                    <label>Back</label>
+                    <div id="quoteInputEditor" class="card-md-editor"></div>
                   </div>
                 </div>
-                <div class="form-group">
-                  <label for="deckCardTags">Tags <span class="quick-add-optional">optional</span></label>
-                  <input id="deckCardTags" class="builder-input" type="text" placeholder="cell-biology, exam-2026" autocomplete="off" />
-                  <div id="deckCardTagChips" class="tag-chips" role="group" aria-label="Tags used in this subject" hidden></div>
+                <div class="deck-card-meta-row">
+                  <div class="form-group">
+                    <label>Priority</label>
+                    <div id="priorityPills" class="priority-pills">
+                      <!-- Pills rendered by JS -->
+                    </div>
+                  </div>
+                  <div class="form-group deck-card-tags-group">
+                    <label for="deckCardTags">Tags <span class="quick-add-optional">optional</span></label>
+                    <input id="deckCardTags" class="builder-input" type="text" placeholder="cell-biology, exam-2026" autocomplete="off" />
+                    <div id="deckCardTagChips" class="tag-chips" role="group" aria-label="Tags used in this subject" hidden></div>
+                  </div>
                 </div>
                 <div class="builder-sticky-actions">
                   <div>
@@ -2548,6 +2552,87 @@
   @media (pointer: coarse) and (hover: none) {
     .quick-add-shortcut-hint {
       display: none;
+    }
+  }
+
+  /* Deck-builder card editing gets the same workbench shape as Quick Add:
+     the card list keeps the left rail, front/back share the main area. */
+  #deckBuilderModal.step-2 .deck-builder-container {
+    max-width: 1240px;
+    width: min(96vw, 1240px);
+    height: min(92vh, 900px);
+    max-height: 92vh;
+  }
+
+  /* The form itself is the work surface, so it fills the main area and lets
+     the editors grow; actions stay pinned at the bottom. */
+  #step2-flashcards {
+    flex: 1;
+    min-height: 0;
+  }
+
+  #cardEditForm {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .deck-card-editors {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .deck-card-editor-group {
+    display: flex;
+    flex: 1 1 320px;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    margin-bottom: 0;
+  }
+
+  .deck-card-editor-group .card-md-editor {
+    flex: 1;
+    height: auto;
+    min-height: 220px;
+  }
+
+  .deck-card-meta-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 14px;
+    align-items: start;
+    margin-top: 14px;
+  }
+
+  .deck-card-tags-group {
+    min-width: 0;
+  }
+
+  @media (max-width: 900px) {
+    .deck-card-editor-group .card-md-editor {
+      min-height: 180px;
+    }
+    .deck-card-meta-row {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    #deckBuilderModal.step-2 .priority-pill {
+      padding: 5px 10px;
+      font-size: var(--text-sm, 0.84rem);
+    }
+  }
+
+  @media (max-width: 700px), (pointer: coarse) and (hover: none) {
+    #deckBuilderModal.step-2 .deck-builder-container {
+      width: calc(100vw - 16px);
+      max-width: none;
+      height: calc(100dvh - 16px);
+      max-height: calc(100dvh - 16px);
+      border-radius: 14px;
     }
   }
 
