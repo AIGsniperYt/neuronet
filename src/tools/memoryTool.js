@@ -302,6 +302,7 @@ export async function initMemoryTool(deps, context = {}) {
   let quickAddModal, quickAddOverlay, closeQuickAddBtn, quickAddDeckInput, quickAddDeckOptions;
   let quickAddSingleView, quickAddBulkView, quickAddFront, quickAddBack, quickAddPriorityPills;
   let quickAddTags, quickAddStatus, quickAddSaveCloseBtn, quickAddSaveNextBtn;
+  let quickAddTagChips, deckCardTagChips;
   let quickAddBulkInput, quickAddBulkStatus, quickAddBulkImportBtn, quickAddBulkConfidence, quickAddLaunchBtn, quickAddHeaderBtn;
   // Temporary card peek
   let cardPeekModal, closeCardPeekBtn, cardPeekOverlay, cardPeekSubject, cardPeekFront, cardPeekBack, cardPeekBackSection;
@@ -469,6 +470,8 @@ export async function initMemoryTool(deps, context = {}) {
     }
     quickAddPriorityPills = document.getElementById("quickAddPriorityPills");
     quickAddTags = document.getElementById("quickAddTags");
+    quickAddTagChips = document.getElementById("quickAddTagChips");
+    deckCardTagChips = document.getElementById("deckCardTagChips");
     quickAddStatus = document.getElementById("quickAddStatus");
     quickAddSaveCloseBtn = document.getElementById("quickAddSaveCloseBtn");
     quickAddSaveNextBtn = document.getElementById("quickAddSaveNextBtn");
@@ -1168,6 +1171,10 @@ export async function initMemoryTool(deps, context = {}) {
     }
     if (quickAddBulkImportBtn) {
       quickAddBulkImportBtn.addEventListener("click", quickAddBulkImport);
+    }
+    if (quickAddDeckInput) {
+      quickAddDeckInput.addEventListener("change", refreshQuickAddTagChips);
+      quickAddDeckInput.addEventListener("blur", refreshQuickAddTagChips);
     }
     document.querySelectorAll("[data-quick-add-tab]").forEach((tab) => {
       tab.addEventListener("click", () => setQuickAddTab(tab.dataset.quickAddTab));
@@ -4012,7 +4019,9 @@ export async function initMemoryTool(deps, context = {}) {
 
   function createCardMarkdownEditor(container, placeholder) {
     if (!container) return null;
-    const compact = window.matchMedia("(max-width: 700px)").matches;
+    // Match the Quick Add layout breakpoint: when the editors stack, a
+    // formatted card is calmer than two cramped panes.
+    const compact = window.matchMedia("(max-width: 900px)").matches;
     const initialView = compact ? "preview" : "split";
     const editor = createEditor(container, {
       value: "",
@@ -5123,6 +5132,7 @@ export async function initMemoryTool(deps, context = {}) {
     if (step === 2) {
       renderPriorityPills();
       clearForm();
+      refreshDeckCardTagChips();
     }
     updateDeckBuilderFinishState();
   }
@@ -5182,6 +5192,7 @@ export async function initMemoryTool(deps, context = {}) {
       if (cueInput) setEditorMarkdown(cueInput, card.front || "");
       if (quoteInput) setEditorMarkdown(quoteInput, card.back || "");
       if (deckCardTags) deckCardTags.value = (card.tags || []).join(", ");
+      renderTagChips(deckCardTagChips, deckCardTags);
       setPriorityPillSelection(card.priority || 3);
       if (deleteCardBtn) deleteCardBtn.style.display = "inline-block";
       const formTitle = document.getElementById("formTitle");
@@ -5217,6 +5228,7 @@ export async function initMemoryTool(deps, context = {}) {
     if (cueInput) setEditorMarkdown(cueInput, "");
     if (quoteInput) setEditorMarkdown(quoteInput, "");
     if (deckCardTags) deckCardTags.value = "";
+    renderTagChips(deckCardTagChips, deckCardTags);
     setPriorityPillSelection(3);
     if (deleteCardBtn) deleteCardBtn.style.display = "none";
     const formTitle = document.getElementById("formTitle");
@@ -5483,6 +5495,149 @@ export async function initMemoryTool(deps, context = {}) {
     )];
   }
 
+  // ========== REUSABLE SUBJECT TAGS ==========
+  //
+  // Tags are cheap metadata only if they are cheap to apply. Both card editors
+  // surface the tags already used in the current subject as tappable chips,
+  // ranked by frequency then recency. Free-text entry stays available; the
+  // chips are a shortcut, not a taxonomy form.
+  const TAG_CHIP_LIMIT = 8;
+  const tagChipSuggestions = new WeakMap();
+  const tagChipBindings = new WeakSet();
+  const tagChipRequests = new WeakMap();
+
+  function tagChipKey(tag) {
+    return String(tag || "").trim().toLocaleLowerCase();
+  }
+
+  function toggleTagChip(input, container, tag) {
+    const tags = parseQuickAddTags(input?.value);
+    const key = tagChipKey(tag);
+    const index = tags.findIndex((entry) => tagChipKey(entry) === key);
+    if (index >= 0) {
+      tags.splice(index, 1);
+    } else {
+      tags.push(tag);
+    }
+    if (input) input.value = tags.join(", ");
+    renderTagChips(container, input);
+  }
+
+  function renderTagChips(container, input) {
+    if (!container || !input) return;
+    const suggestions = tagChipSuggestions.get(container) || [];
+    const active = new Set(parseQuickAddTags(input.value).map(tagChipKey));
+    container.innerHTML = "";
+
+    for (const suggestion of suggestions) {
+      const tag = suggestion.tag;
+      const isActive = active.has(tagChipKey(tag));
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "tag-chip";
+      button.classList.toggle("active", isActive);
+      button.dataset.tag = tag;
+      button.textContent = `#${tag}`;
+      button.title = `${isActive ? "Remove" : "Add"} tag “${tag}”`;
+      button.setAttribute("aria-pressed", isActive ? "true" : "false");
+      button.addEventListener("click", () => toggleTagChip(input, container, tag));
+      container.appendChild(button);
+    }
+
+    if (suggestions.length) {
+      const newTag = document.createElement("button");
+      newTag.type = "button";
+      newTag.className = "tag-chip tag-chip-new";
+      newTag.textContent = "+ New tag";
+      newTag.title = "Type a new tag in the field above";
+      newTag.addEventListener("click", () => input.focus());
+      container.appendChild(newTag);
+    }
+
+    container.hidden = suggestions.length === 0;
+  }
+
+  function bindTagChips(container, input) {
+    if (!container || !input || tagChipBindings.has(container)) return;
+    tagChipBindings.add(container);
+    input.addEventListener("input", () => renderTagChips(container, input));
+  }
+
+  async function getSubjectTagSuggestions(subject) {
+    const scope = String(subject || "").trim();
+    if (!scope) return [];
+
+    let cards = [];
+    try {
+      cards = (await getCardsForDeck(scope)) || [];
+    } catch (error) {
+      console.warn("Could not load tags for subject:", scope, error);
+      return [];
+    }
+
+    const stats = new Map();
+    for (const card of cards) {
+      const seen = new Set();
+      const usedAt = Number(card?.updatedAt || card?.createdAt || 0);
+      for (const raw of card?.tags || []) {
+        const tag = String(raw || "").trim();
+        const key = tagChipKey(tag);
+        if (!tag || seen.has(key)) continue;
+        seen.add(key);
+        const entry = stats.get(key) || { tag, count: 0, lastUsed: 0 };
+        entry.count += 1;
+        entry.lastUsed = Math.max(entry.lastUsed, usedAt);
+        stats.set(key, entry);
+      }
+    }
+
+    return [...stats.values()]
+      .sort((a, b) => (
+        b.count - a.count
+        || b.lastUsed - a.lastUsed
+        || a.tag.localeCompare(b.tag)
+      ))
+      .slice(0, TAG_CHIP_LIMIT);
+  }
+
+  async function refreshTagChips(container, input, subject) {
+    if (!container || !input) return;
+    bindTagChips(container, input);
+    const request = (tagChipRequests.get(container) || 0) + 1;
+    tagChipRequests.set(container, request);
+    const suggestions = await getSubjectTagSuggestions(subject);
+    // A deck switch can resolve after a newer request; only the latest wins.
+    if (tagChipRequests.get(container) !== request) return;
+    tagChipSuggestions.set(container, suggestions);
+    renderTagChips(container, input);
+  }
+
+  function quickAddSubjectScope() {
+    const label = String(quickAddDeckInput?.value || "").trim();
+    if (label) {
+      const target = quickAddState.deckTargets.get(label)
+        || [...quickAddState.deckTargets.values()].find((entry) => (
+          String(entry.name || "") === label
+          || String(entry.id || "") === label
+        ));
+      if (target?.subject) return String(target.subject).trim();
+      // Typed "Subject / Deck" labels carry their subject before the slash.
+      if (label.includes(" / ")) return label.split(" / ")[0].trim();
+    }
+    return String(state.currentSubject || contextSubject || "").trim() || UNSORTED_DECK_NAME;
+  }
+
+  function refreshQuickAddTagChips() {
+    return refreshTagChips(quickAddTagChips, quickAddTags, quickAddSubjectScope());
+  }
+
+  function refreshDeckCardTagChips() {
+    const subject = String(
+      deckBuilderState.deckSubject || state.currentSubject || contextSubject || ""
+    ).trim() || UNSORTED_DECK_NAME;
+    return refreshTagChips(deckCardTagChips, deckCardTags, subject);
+  }
+
   function addQuickAddDeckOption(deck) {
     if (!quickAddDeckOptions || !deck) return;
     const label = typeof deck === "string" ? deck : deck.label;
@@ -5610,8 +5765,10 @@ export async function initMemoryTool(deps, context = {}) {
     quickAddState.priority = 3;
     quickAddState.nextOrders.clear();
 
-    showModal(quickAddModal);
+    // Finish loading deck targets before the sheet becomes interactive; a
+    // fast tapper must not have their deck overwritten by the preset pass.
     await populateQuickAddDeckOptions();
+    showModal(quickAddModal);
 
     const targets = [...quickAddState.deckTargets.values()];
     const requested = deckId
@@ -5644,6 +5801,7 @@ export async function initMemoryTool(deps, context = {}) {
     setQuickAddBusy(false);
     renderQuickAddPriorityPills();
     setQuickAddTab("single", { focus: false });
+    refreshQuickAddTagChips();
 
     requestAnimationFrame(() => {
       // The deck is optional now: a blank deck saves to Unsorted, so the
@@ -5765,6 +5923,7 @@ export async function initMemoryTool(deps, context = {}) {
       if (quickAddBack) setEditorMarkdown(quickAddBack, "");
       addQuickAddDeckOption(label);
       if (quickAddDeckInput) quickAddDeckInput.value = label;
+      refreshQuickAddTagChips();
       const count = quickAddState.savedCount;
       setQuickAddStatus(
         quickAddStatus,
@@ -5855,6 +6014,7 @@ export async function initMemoryTool(deps, context = {}) {
       addQuickAddDeckOption(label);
       if (quickAddDeckInput) quickAddDeckInput.value = label;
       if (quickAddBulkInput) quickAddBulkInput.value = "";
+      refreshQuickAddTagChips();
     }
     const summary = `Imported ${imported} card${imported === 1 ? "" : "s"} to ${label}`;
     const skippedCount = skipped + failed;
