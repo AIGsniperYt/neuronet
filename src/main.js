@@ -1619,6 +1619,61 @@ function ensureSubjectPillMenu() {
   return subjectPillMenu;
 }
 
+function subjectNameMatches(a, b) {
+  return String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
+}
+
+// Subject creation belongs to the shell, not to any one tool. Tools only
+// consume the global subject list; this is the single creation path.
+async function createSubjectFromShell() {
+  let subjects = [];
+  try {
+    subjects = (await getSubjects()) || [];
+  } catch (error) {
+    console.warn("Could not load subjects:", error);
+  }
+
+  const typed = await dialog.prompt("New subject name (e.g. Biology):", "");
+  const name = String(typed || "").trim();
+  if (!name) return;
+
+  let subjectName = name;
+  const existing = subjects.find((subject) => subjectNameMatches(subject, name));
+  if (existing) {
+    const qualifier = await dialog.prompt(
+      `“${existing}” already exists. Add a qualifier to create a separate subject (for example A-Level), or leave this blank to use the existing subject.`,
+      ""
+    );
+    if (qualifier === null) return;
+    const suffix = String(qualifier || "").trim();
+    subjectName = suffix ? `${String(existing)} (${suffix})` : String(existing);
+  }
+
+  const alreadyExists = subjects.some((subject) => subjectNameMatches(subject, subjectName));
+  if (!alreadyExists) {
+    try {
+      await addSubject(subjectName);
+    } catch (error) {
+      console.error("Could not create subject:", error);
+      await dialog.alert(`Could not create “${subjectName}”: ${error.message}`);
+      return;
+    }
+  }
+
+  await renderSidebarSubjects();
+  await renderDashboard();
+  document.getElementById("sidebarQuickSubjectsMenu")?.classList.remove("open");
+  document.getElementById("sidebarQuickSubjects")?.setAttribute("aria-expanded", "false");
+
+  if (alreadyExists) {
+    toast(`Subject “${subjectName}” already exists.`);
+  } else {
+    toast(`Subject “${subjectName}” created.`, {
+      action: { label: "Switch", onClick: () => selectSidebarSubject(subjectName) }
+    });
+  }
+}
+
 async function renderSidebarSubjects() {
   const listEl = document.getElementById("sidebarSubjectList");
   const quickListEl = document.getElementById("sidebarQuickSubjectList");
@@ -1952,6 +2007,21 @@ document.addEventListener("DOMContentLoaded", async () => {
   const collapseBtn = document.getElementById("sidebarCollapseBtn");
   const quickSubjectsBtn = document.getElementById("sidebarQuickSubjects");
   const quickSubjectsMenu = document.getElementById("sidebarQuickSubjectsMenu");
+  const subjectAddBtn = document.getElementById("sidebarSubjectAdd");
+  const quickSubjectAddBtn = document.getElementById("sidebarQuickSubjectAdd");
+
+  if (subjectAddBtn) {
+    subjectAddBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      createSubjectFromShell();
+    });
+  }
+  if (quickSubjectAddBtn) {
+    quickSubjectAddBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      createSubjectFromShell();
+    });
+  }
   const mobileNavClose = document.getElementById("mobileNavClose");
   const mobileNavPanel = document.getElementById("mobileNavPanel");
   const subjectBackdrop = document.getElementById("sidebarSubjectBackdrop");

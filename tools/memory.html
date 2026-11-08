@@ -44,13 +44,10 @@
         <div id="step1-deckInfo" class="builder-step active">
           <h3>Deck Information</h3>
           <div class="form-group">
-            <div class="subject-label-row">
-              <label for="deckSubjectInput">Subject</label>
-              <button id="newSubjectBtn" class="memory-btn subject-new-btn" type="button" title="Create a subject explicitly">+ New subject</button>
-            </div>
+            <label for="deckSubjectInput">Subject</label>
             <input type="text" id="deckSubjectInput" class="builder-input" list="deckSubjectOptions" placeholder="e.g., Biology" autocomplete="off">
             <datalist id="deckSubjectOptions"></datalist>
-            <p class="deck-subject-hint">Type a new name to create it, or use <strong>+ New subject</strong> to keep same-name subjects separate.</p>
+            <p class="deck-subject-hint">New names become subjects when you continue. Manage subjects from the sidebar.</p>
             <p id="deckParentHint" class="quick-add-hint"></p>
           </div>
           <div class="form-group">
@@ -2793,23 +2790,6 @@
     gap: 8px;
     flex-wrap: wrap;
     margin-left: auto;
-  }
-
-  .subject-label-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-  }
-
-  .subject-label-row label {
-    margin: 0;
-  }
-
-  .subject-new-btn {
-    padding: 4px 10px;
-    font-size: var(--text-sm, 0.84rem);
-    font-weight: 500;
   }
 
   .deck-subject-hint {

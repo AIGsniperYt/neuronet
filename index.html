@@ -441,6 +441,28 @@ canvas { position: fixed; inset:0; z-index:-1; }
   color: var(--accent);
   font-weight: 600;
 }
+.subject-add-btn {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 7px;
+  background: transparent;
+  color: rgba(230,255,245,0.66);
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.subject-add-btn:hover {
+  color: var(--accent);
+  border-color: rgba(44,255,179,0.45);
+  background: rgba(44,255,179,0.08);
+}
 
 
 #mainContent {
@@ -1874,6 +1896,24 @@ select {
 .quick-subject-item.active { background: rgba(44,255,179,0.12); color: var(--accent); }
 .quick-subject-dot { width: 7px; height: 7px; flex: 0 0 7px; border: 1px solid rgba(230,255,245,0.35); border-radius: 50%; }
 .quick-subject-item.active .quick-subject-dot { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 8px var(--accent-glow); }
+.quick-subject-add {
+  width: 100%;
+  margin-top: 6px;
+  padding: 9px 10px;
+  border: 1px dashed rgba(255,255,255,0.16);
+  border-radius: 9px;
+  background: transparent;
+  color: rgba(230,255,245,0.62);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.quick-subject-add:hover {
+  color: var(--accent);
+  border-color: rgba(44,255,179,0.45);
+  background: rgba(44,255,179,0.06);
+}
 
 #sidebarSubjects {
   gap: 3px;
@@ -1998,6 +2038,7 @@ select {
         <div id="sidebarSubjects">
           <div id="sidebarSubjectsHead">
             <button id="sidebarSubjectAll" class="subject-pill active" data-subject="">All</button>
+            <button id="sidebarSubjectAdd" class="subject-add-btn" type="button" title="New subject" aria-label="New subject">+</button>
           </div>
           <div id="sidebarSubjectList"></div>
         </div>
@@ -2012,8 +2053,9 @@ select {
       <span class="quick-subjects-label">Subjects</span>
     </button>
     <div id="sidebarQuickSubjectsMenu" role="menu" aria-label="Subjects">
-      <div class="quick-menu-heading">Switch subject</div>
+      <div class="quick-menu-heading">Subjects</div>
       <div id="sidebarQuickSubjectList"></div>
+      <button id="sidebarQuickSubjectAdd" type="button" role="menuitem" class="quick-subject-add">+ New subject</button>
     </div>
 
     <div id="sidebarProfile">
