@@ -51,9 +51,6 @@ export async function initAnalysisToolV2(deps, context = {}) {
   const studyView = document.getElementById("studyView");
   const analysisStats = document.getElementById("analysisStats");
   const subjectList = document.getElementById("subjectList");
-  const newSubjectName = document.getElementById("newSubjectName");
-  const addSubjectBtn = document.getElementById("addSubjectBtn");
-  const toggleSubjectEdit = document.getElementById("toggleSubjectEdit");
   const backToLaunchpad = document.getElementById("backToLaunchpad");
   const studySubjectTitle = document.getElementById("studySubjectTitle");
   const sourceSelect = document.getElementById("sourceSelect");
@@ -172,7 +169,6 @@ function enforceUserSelect() {
     selectedSourceId: context.newSource ? "" : (context.sourceId || ""),
     draftSourceId,
     selectedRange: null,
-    subjectEditMode: false,
     analysisEditMode: false,
     quoteEditMode: false, // NEW: for editing quotes
     wasInStudy: false,
@@ -1135,17 +1131,6 @@ function htmlToPlainText(html) {
 
   function getSourceById(id) {
     return state.sources.find((item) => item.id === id) || null;
-  }
-
-  function getSubjectNodeByName(name) {
-    return state.subjectNodes.find((node) => (node.subject || node.title) === name) || null;
-  }
-
-  function subjectExists(name) {
-    const target = String(name || "").trim();
-    if (!target) return false;
-    if (getSubjectNodeByName(target)) return true;
-    return state.sources.some((source) => source.subject === target);
   }
 
   function getSourcesForSelectedSubject() {
@@ -2561,14 +2546,6 @@ function htmlToPlainText(html) {
     `;
   }
 
-  function updateSubjectCreateState() {
-    if (!newSubjectName || !addSubjectBtn) return;
-    const subject = (newSubjectName.value || "").trim();
-    const disabled = !subject || subjectExists(subject);
-    addSubjectBtn.disabled = disabled;
-    addSubjectBtn.setAttribute("aria-disabled", disabled ? "true" : "false");
-  }
-
   function renderSubjects() {
     const subjects = Array.from(new Set([
       ...state.subjectNodes.map((node) => node.subject || node.title),
@@ -2583,17 +2560,13 @@ function htmlToPlainText(html) {
     const unfiledSources = state.sources.filter((source) => !String(source.subject || "").trim());
 
     if (!subjects.length && !unfiledSources.length) {
-      subjectList.innerHTML = `<div class="empty-note">No subjects yet. Add your first subject to begin.</div>`;
+      subjectList.innerHTML = `<div class="empty-note">No subjects yet. Create one from the app sidebar.</div>`;
       return;
     }
 
     const cardSubject = (subject) => `
       <article class="subject-card" data-subject="${escapeHtml(subject)}">
         <span class="subject-name">${escapeHtml(subject)}</span>
-        <div class="subject-actions" ${state.subjectEditMode ? "" : "hidden"}>
-          <button class="btn" type="button" data-action="rename-subject" data-subject="${escapeHtml(subject)}">Rename</button>
-          <button class="btn" type="button" data-action="delete-subject" data-subject="${escapeHtml(subject)}">Delete</button>
-        </div>
       </article>
     `;
 
@@ -2602,7 +2575,6 @@ function htmlToPlainText(html) {
       .concat(unfiledSources.length
         ? `<article class="subject-card unfiled-card" data-subject="">
             <span class="subject-name">Unfiled <span style="opacity:.55;font-size:.75rem">(${unfiledSources.length})</span></span>
-            <div class="subject-actions" ${state.subjectEditMode ? "" : "hidden"}></div>
           </article>`
         : []);
 
@@ -2610,8 +2582,7 @@ function htmlToPlainText(html) {
 
     // Make entire card clickable
     subjectList.querySelectorAll(".subject-card").forEach(card => {
-      card.addEventListener("click", (e) => {
-        if (e.target.closest(".subject-actions")) return;
+      card.addEventListener("click", () => {
         state.selectedSubject = card.dataset.subject || "";
         state.view = "study";
         state.selectedSourceId = "";
@@ -3001,153 +2972,7 @@ const updateLayerSelection = () => {
     state.sources = state.nodes.filter((node) => isSourceNode(node) && node?.type === "source");
     state.analysisNodes = state.nodes.filter((node) => node?.type === "analysis");
     renderState();
-    updateSubjectCreateState();
   }
-
-  async function renameSubject(subjectName) {
-    const updated = await dialog.prompt(`Rename subject "${subjectName}" to:`, subjectName);
-    const next = (updated || "").trim();
-    if (!next || next === subjectName) return;
-
-    const related = state.nodes.filter((node) => {
-      if (node?.type === "subject" || node?.meta?.kind === "subject") {
-        return (node.subject || node.title) === subjectName;
-      }
-      return node.subject === subjectName;
-    });
-
-    const now = Date.now();
-    for (const node of related) {
-      const copy = { ...node };
-      copy.subject = next;
-      if (copy.type === "subject" || copy.meta?.kind === "subject") {
-        copy.title = next;
-      }
-      if (Array.isArray(copy.meta?.hierarchyPath) && copy.meta.hierarchyPath.length) {
-        copy.meta = { ...copy.meta, hierarchyPath: [next, ...copy.meta.hierarchyPath.slice(1)] };
-      }
-      copy.updatedAt = now;
-      await addNode(copy);
-    }
-
-    const relatedQuotes = state.quotes.filter((quote) => quote.subject === subjectName);
-    for (const quote of relatedQuotes) {
-      const path = Array.isArray(quote.meta?.hierarchyPath) ? quote.meta.hierarchyPath : [];
-      await addQuote({
-        ...quote,
-        subject: next,
-        meta: {
-          ...(quote.meta || {}),
-          hierarchyPath: path.length ? [next, ...path.slice(1)] : path
-        },
-        updatedAt: now
-      });
-    }
-
-    if (state.selectedSubject === subjectName) {
-      state.selectedSubject = next;
-    }
-
-    await refreshData();
-    await backupLocalNodesToCloud();
-  }
-
-  async function deleteSubject(subjectName) {
-    const typed = await dialog.prompt(`Type "${subjectName}" to confirm deletion.`);
-    if (typed !== subjectName) return;
-
-    const related = state.nodes.filter((node) => {
-      if (node?.type === "subject" || node?.meta?.kind === "subject") {
-        return (node.subject || node.title) === subjectName;
-      }
-      return node.subject === subjectName;
-    });
-
-    for (const node of related) {
-      if (node.type === "analysis") {
-        await deleteAnalysisNodeWithIntegrity(node);
-      } else {
-        await removeNodeEverywhere(node.id);
-      }
-    }
-
-    for (const quote of state.quotes.filter((item) => item.subject === subjectName)) {
-      await removeQuoteAndLinkedCuesEverywhere(quote.id);
-    }
-
-    if (state.selectedSubject === subjectName) {
-      state.selectedSubject = "";
-      state.selectedSourceId = "";
-      state.view = "launchpad";
-    }
-
-    await refreshData();
-    await backupLocalNodesToCloud();
-  }
-
-  toggleSubjectEdit.addEventListener("click", () => {
-    state.subjectEditMode = !state.subjectEditMode;
-    toggleSubjectEdit.textContent = state.subjectEditMode ? "Done Editing Subjects" : "Edit Subjects";
-    renderSubjects();
-  });
-
-  addSubjectBtn.addEventListener("click", async () => {
-    const subject = (newSubjectName.value || "").trim();
-    if (!subject || subjectExists(subject)) return;
-
-    const now = Date.now();
-    await addNode({
-      id: crypto.randomUUID(),
-      type: "subject",
-      subject,
-      title: subject,
-      content: "",
-      meta: { kind: "subject" },
-      createdAt: now,
-      updatedAt: now
-    });
-
-    newSubjectName.value = "";
-    updateSubjectCreateState();
-    await refreshData();
-    await backupLocalNodesToCloud();
-  });
-
-  if (newSubjectName) {
-    newSubjectName.addEventListener("input", updateSubjectCreateState);
-  }
-
-  subjectList.addEventListener("click", async (event) => {
-    // Check if clicking on action buttons (Rename/Delete)
-    const button = event.target.closest("button[data-action]");
-    if (button) {
-      const subject = button.dataset.subject;
-      if (!subject) return;
-
-      if (button.dataset.action === "rename-subject") {
-        await renameSubject(subject);
-        return;
-      }
-
-      if (button.dataset.action === "delete-subject") {
-        await deleteSubject(subject);
-      }
-      return;
-    }
-
-    // Otherwise, clicking on card body opens subject
-    const card = event.target.closest(".subject-card");
-    if (card && !event.target.closest(".subject-actions")) {
-      state.selectedSubject = card.dataset.subject || "";
-      state.view = "study";
-      state.selectedSourceId = "";
-      state.isCreatingSource = false;
-      state.viewMode = "editor";
-      resetSourceForm();
-      resetAnalysisForm();
-      renderState();
-    }
-  });
 
   // Back to launchpad button handler - goes to analysis tool launchpad, not global
   if (backToLaunchpad) {

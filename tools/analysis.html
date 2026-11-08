@@ -56,26 +56,14 @@ html, body, * {
 
 .launch-top {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr;
   gap: 14px;
 }
 
-.subject-toolbar {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.subject-create-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: nowrap;
-}
-
-.subject-create-row .inline-input {
-  flex: 0 1 360px;
+.subject-manage-hint {
+  margin: 8px 0 0;
+  color: rgba(230, 255, 245, 0.55);
+  font-size: var(--text-sm, 0.84rem);
 }
 
 .inline-input,
@@ -187,11 +175,6 @@ html, body, * {
 .subject-name {
   font-size: var(--text-md, 1.03rem);
   font-weight: 600;
-}
-
-.subject-actions {
-  display: flex;
-  gap: 6px;
 }
 
 .subject-open {
@@ -1360,12 +1343,6 @@ button.analysis-quote-jump.active-quote,
   .launch-top {
     grid-template-columns: 1fr;
   }
-  .subject-create-row {
-    flex-wrap: wrap;
-  }
-  .subject-create-row .inline-input {
-    flex-basis: 100%;
-  }
 }
 
 @media (max-width: 560px) {
@@ -1423,19 +1400,13 @@ button.analysis-quote-jump.active-quote,
 
         <h2><span class="tool-reference" title="Analysis tool"><i class="fa-solid fa-pen-clip" aria-hidden="true"></i><code>Analysis</code></span> Workspace</h2>
         <p>Choose a subject to enter focus mode, explore sources, and generate source-linked analysis nodes.</p>
-      </div>
-      <div class="subject-toolbar">
-        <button id="toggleSubjectEdit" class="btn" type="button">Edit Subjects</button>
+        <p class="subject-manage-hint">Subjects are created, renamed, deleted and reordered from the app sidebar.</p>
       </div>
     </div>
 
     <section class="panel" id="analysisStats"></section>
 
     <section class="panel">
-      <div class="subject-toolbar subject-create-row" style="margin-bottom: 10px;">
-        <input id="newSubjectName" class="inline-input" type="text" placeholder="New subject name" maxlength="80" />
-        <button id="addSubjectBtn" class="btn primary" type="button">+ Add Subject</button>
-      </div>
       <div id="subjectList" class="subject-list"></div>
     </section>
   </section>
