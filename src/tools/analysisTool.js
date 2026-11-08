@@ -3120,7 +3120,9 @@ const updateLayerSelection = () => {
     state.isCreatingSource = false;
     rememberRecentSource(source.id);
     selectSource(source.id);
-    state.view = "study";
+    // The library always opens a source into the study/editor workspace,
+    // regardless of where the library itself was opened from.
+    state.libraryReturnView = "study";
     closeSourceNavigator();
     renderState();
   });
@@ -3329,6 +3331,7 @@ if (saveSourceBtn) {
       state.focusedRangeKey = null;
       resetSourceForm();
       setSourceViewMode("editor");
+      state.view = "study";
       renderState();
     });
   }
