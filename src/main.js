@@ -1634,8 +1634,10 @@ function subjectGroup(name) {
 }
 
 function compareSubjectGroups(a, b) {
-  if (a === "General" && b !== "General") return -1;
-  if (b === "General" && a !== "General") return 1;
+  // Put deliberately qualified groups (A-Level, GCSE, ...) first and leave
+  // unqualified legacy subjects in a General section at the bottom.
+  if (a === "General" && b !== "General") return 1;
+  if (b === "General" && a !== "General") return -1;
   return a.localeCompare(b, undefined, { sensitivity: "base" });
 }
 
@@ -2357,6 +2359,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const subjectAddBtn = document.getElementById("sidebarSubjectAdd");
   const subjectEditBtn = document.getElementById("sidebarSubjectEdit");
   const quickSubjectAddBtn = document.getElementById("sidebarQuickSubjectAdd");
+  const quickSubjectEditBtn = document.getElementById("sidebarQuickSubjectEdit");
 
   if (subjectAddBtn) {
     subjectAddBtn.addEventListener("click", (e) => {
@@ -2374,6 +2377,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     quickSubjectAddBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       createSubjectFromShell();
+    });
+  }
+  if (quickSubjectEditBtn) {
+    quickSubjectEditBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      quickSubjectsMenu?.classList.remove("open");
+      quickSubjectsBtn?.setAttribute("aria-expanded", "false");
+      setSidebarCollapsed(false);
+      setSubjectEditMode(true);
     });
   }
   const mobileNavClose = document.getElementById("mobileNavClose");
