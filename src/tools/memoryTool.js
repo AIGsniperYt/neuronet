@@ -285,7 +285,7 @@ export async function initMemoryTool(deps, context = {}) {
   let memoryBody;
   let systemThinkingText;
   // Deck builder elements
-  let deckBuilderModal, deckNameInput, deckSubjectInput, deckSubjectOptions, deckParentHint, deckDescriptionInput, deckCardTags, createDeckBtn, closeDeckBuilderBtn;
+  let deckBuilderModal, deckNameInput, deckSubjectInput, deckSubjectOptions, deckParentHint, deckDescriptionInput, deckCardTags, createDeckBtn, newSubjectBtn, closeDeckBuilderBtn;
   let deckDeleteModal, deckDeleteSummary, deckDeleteMoveHint, deckDeleteSubtreeHint;
   let closeDeckDeleteBtn, cancelDeckDeleteBtn, confirmDeckDeleteBtn;
   let deckDeleteTargetId = "";
@@ -385,6 +385,7 @@ export async function initMemoryTool(deps, context = {}) {
     deckDescriptionInput = document.getElementById("deckDescriptionInput");
     deckCardTags = document.getElementById("deckCardTags");
     createDeckBtn = document.getElementById("createDeckBtn");
+    newSubjectBtn = document.getElementById("newSubjectBtn");
     editDecksBtn = document.getElementById("editDecksBtn");
     manualHeapsBtn = document.getElementById("manualHeapsBtn");
     closeDeckBuilderBtn = document.getElementById("closeDeckBuilderBtn");
@@ -918,6 +919,9 @@ export async function initMemoryTool(deps, context = {}) {
     // Deck Builder Event Listeners
     if (createDeckBtn) {
       createDeckBtn.addEventListener("click", openDeckBuilder);
+    }
+    if (newSubjectBtn) {
+      newSubjectBtn.addEventListener("click", createExplicitSubject);
     }
 
     if (manualHeapsBtn) {
@@ -5338,6 +5342,56 @@ export async function initMemoryTool(deps, context = {}) {
       item.appendChild(actions);
       flashcardList.appendChild(item);
     });
+  }
+
+  function subjectNameMatches(a, b) {
+    return String(a || "").trim().toLocaleLowerCase() === String(b || "").trim().toLocaleLowerCase();
+  }
+
+  // Subjects are still name-keyed, so an exact duplicate cannot be represented
+  // yet. This explicit path makes creation discoverable and, on a collision,
+  // offers a qualifier ("Biology (A-Level)") instead of silently merging.
+  async function createExplicitSubject() {
+    let subjects = [];
+    try {
+      subjects = (await getSubjects()) || [];
+    } catch (error) {
+      console.warn("Could not load subjects:", error);
+    }
+
+    const typed = await dialog.prompt(
+      "New subject name (e.g. Biology):",
+      deckSubjectInput?.value?.trim() || ""
+    );
+    const name = String(typed || "").trim();
+    if (!name) return;
+
+    let subjectName = name;
+    const existing = subjects.find((subject) => subjectNameMatches(subject, name));
+    if (existing) {
+      const qualifier = await dialog.prompt(
+        `“${existing}” already exists. Add a qualifier to create a separate subject (for example A-Level), or leave this blank to use the existing subject.`,
+        ""
+      );
+      if (qualifier === null) return;
+      const suffix = String(qualifier || "").trim();
+      subjectName = suffix ? `${String(existing)} (${suffix})` : String(existing);
+    }
+
+    const alreadyExists = subjects.some((subject) => subjectNameMatches(subject, subjectName));
+    if (!alreadyExists) {
+      try {
+        await addSubject(subjectName);
+      } catch (error) {
+        console.error("Could not create subject:", error);
+        await dialog.alert(`Could not create “${subjectName}”: ${error.message}`);
+        return;
+      }
+    }
+
+    if (deckSubjectInput) deckSubjectInput.value = subjectName;
+    populateDeckSubjectOptions(subjectName);
+    deckSubjectInput?.focus();
   }
 
   async function ensureSubjectExists(subject) {
