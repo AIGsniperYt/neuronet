@@ -5344,9 +5344,13 @@ export async function initMemoryTool(deps, context = {}) {
     const name = String(subject || "").trim();
     if (!name) throw new Error("Subject is required");
     const subjects = await getSubjects().catch(() => []);
-    if (!(subjects || []).some((item) => String(item || "").trim() === name)) {
-      await addSubject(name);
-    }
+    // Match case-insensitively and reuse the canonical spelling so typing
+    // "biology" cannot create a near-duplicate of an existing "Biology".
+    const existing = (subjects || []).find(
+      (item) => String(item || "").trim().toLowerCase() === name.toLowerCase()
+    );
+    if (existing) return String(existing).trim();
+    await addSubject(name);
     return name;
   }
 
