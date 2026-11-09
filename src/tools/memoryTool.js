@@ -151,6 +151,9 @@ export async function initMemoryTool(deps, context = {}) {
   const state = {
     view: contextSubject ? "study" : "launchpad",
     currentSubject: contextSubject || "",
+    currentSubjectId: context.subjectId || "",
+    subjects: [],
+    subjectByKey: new Map(),
     // A deck is a folder inside a subject. Empty means "whole subject", which
     // is how legacy subject-level study still behaves.
     currentDeckId: "",
@@ -225,6 +228,13 @@ export async function initMemoryTool(deps, context = {}) {
     }
   };
 
+  state.subjects = await getSubjects().catch(() => []);
+  state.subjectByKey = new Map(state.subjects.map((record) => [record.key, record]));
+  function subjectDisplay(key) {
+    const record = state.subjectByKey.get(String(key || ""));
+    return record ? `${record.name}${record.level ? ` · ${record.level}` : ""}` : String(key || "");
+  }
+
   // ========== DECK SCOPE HELPERS ==========
   //
   // Cards live in exactly one deck (`card.deckId`) and that deck belongs to one
@@ -253,7 +263,7 @@ export async function initMemoryTool(deps, context = {}) {
     const path = getDeckPath(decks, deck.id);
     const subject = String(deck.subject || "").trim();
     const name = path.length ? path.join(" / ") : String(deck.name || "");
-    return subject ? `${subject} / ${name}` : name;
+    return subject ? `${subjectDisplay(subject)} / ${name}` : name;
   }
 
   function setDeckScope(deck) {
@@ -1644,18 +1654,18 @@ export async function initMemoryTool(deps, context = {}) {
       directCountByDeck.set(deckId, (directCountByDeck.get(deckId) || 0) + 1);
     }
 
-    const groups = groupDecksBySubject(decks, { direction: state.deckSortDirection });
+    const groups = groupDecksBySubject(decks, { direction: state.deckSortDirection, subjectsByKey: state.subjectByKey });
     for (const group of groups) {
       const subjectDecks = flattenDeckTree(group.decks);
       const allIds = new Set(subjectDecks.map((deck) => String(deck.id)));
       const subjectCards = cards.filter((card) => allIds.has(String(card.deckId || "")));
-      const analysisCount = (await getAnalysisNodesForSubject(group.subject))?.length || 0;
+      const analysisCount = (await getAnalysisNodesForSubject(groupDecks[0]?.subject))?.length || 0;
 
       const section = document.createElement("div");
       section.className = "card deck-subject";
       section.innerHTML = `
         <div class="deck-subject-header">
-          <div class="card-title">${escapeHtml(group.subject || "Unsorted")}</div>
+          <div class="card-title">${escapeHtml(subjectDisplay(groupDecks[0]?.subject) || "Unsorted")}</div>
           <div class="card-meta deck-stats">${subjectCards.length} cards${analysisCount ? ` · ${analysisCount} analysis` : ""}</div>
         </div>
         <div class="deck-tree" role="tree" aria-label="${escapeHtml(group.subject || "Unsorted")} decks"></div>
@@ -4889,7 +4899,9 @@ export async function initMemoryTool(deps, context = {}) {
     const names = new Set();
     getSubjects()
       .then((subjects) => {
-        (subjects || []).forEach((name) => names.add(String(name || "").trim()));
+        state.subjects = subjects || [];
+        state.subjectByKey = new Map(state.subjects.map((record) => [record.key, record]));
+        state.subjects.forEach((record) => names.add(record.key));
       })
       .catch(() => {})
       .finally(() => {
@@ -5347,15 +5359,25 @@ export async function initMemoryTool(deps, context = {}) {
     // Match case-insensitively and reuse the canonical spelling so typing
     // "biology" cannot create a near-duplicate of an existing "Biology".
     const existing = (subjects || []).find(
-      (item) => String(item || "").trim().toLowerCase() === name.toLowerCase()
+      (item) => String(item.key || "").trim().toLowerCase() === name.toLowerCase()
     );
-    if (existing) return String(existing).trim();
-    await addSubject(name);
-    return name;
+    if (existing) return existing;
+    const byDisplay = subjects.filter((item) => item.name.toLowerCase() === name.toLowerCase());
+    if (byDisplay.length === 1) return byDisplay[0];
+    if (byDisplay.length > 1 && state.currentSubjectId) {
+      const selected = byDisplay.find((item) => item.id === state.currentSubjectId);
+      if (selected) return selected;
+    }
+    const level = byDisplay.length > 1 ? await dialog.prompt(`Several subjects are named “${name}”. Enter a level:`, "") : "";
+    if (level === null) throw new Error("Subject selection cancelled");
+    const record = await addSubject({ name, level: String(level || "").trim() });
+    state.subjectByKey.set(record.key, record);
+    return record;
   }
 
   async function persistDeckCards() {
-    const subjectName = await ensureSubjectExists(deckBuilderState.deckSubject);
+    const subjectRecord = await ensureSubjectExists(deckBuilderState.deckSubject);
+    const subjectName = subjectRecord.key;
     const deckName = String(deckBuilderState.deckName || "").trim();
     const isEditing = !!deckBuilderState.editingDeckId;
 
@@ -5367,6 +5389,7 @@ export async function initMemoryTool(deps, context = {}) {
         ...existingDeck,
         name: deckName,
         subject: subjectName,
+        subjectId: subjectRecord.id,
         parentId: existingDeck.parentId || null,
         updatedAt: Date.now()
       });
@@ -5374,6 +5397,7 @@ export async function initMemoryTool(deps, context = {}) {
       const created = await addDeck({
         name: deckName,
         subject: subjectName,
+        subjectId: subjectRecord.id,
         parentId: deckBuilderState.parentId || null
       });
       deckId = created.id;
@@ -5417,6 +5441,7 @@ export async function initMemoryTool(deps, context = {}) {
         front: card.front,
         back: card.back,
         deck: subjectName,
+        subjectId: subjectRecord.id,
         deckId,
         deckPath,
         tags,
@@ -6527,11 +6552,12 @@ export async function initMemoryTool(deps, context = {}) {
     if (!middleSubjectName) return;
 
     const isManual = state.currentMode === "manual";
+    const currentSubjectLabel = subjectDisplay(state.currentSubject);
     middleSubjectName.textContent = isManual
-      ? (state.currentSubject ? `Manual · ${state.currentSubject}` : "Manual Heaps")
+      ? (state.currentSubject ? `Manual · ${currentSubjectLabel}` : "Manual Heaps")
       : (state.currentDeckName
-        ? `${state.currentSubject} / ${state.currentDeckName}`
-        : state.currentSubject);
+        ? `${currentSubjectLabel} / ${state.currentDeckName}`
+        : currentSubjectLabel);
 
     // Keep the mode pills in sync with the actual study mode. Opening a deck
     // resets to Cards, so a stale Quotes/Analysis pill must not stay active.

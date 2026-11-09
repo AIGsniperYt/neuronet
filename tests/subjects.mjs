@@ -1,7 +1,8 @@
 import { parseSubjectName, subjectKey, subjectDisplay, compareSubjectRecords, groupSubjectRecords, migrateSubjectIdentity } from "../src/subjectModel.js";
 let passed = 0; let failed = 0;
 const check = (name, value) => { if (value) { passed++; console.log(`ok   ${name}`); } else { failed++; console.log(`FAIL ${name}`); } };
-const eq = (name, a, b) => check(name, JSON.stringify(a) === JSON.stringify(b));
+const stable = (value) => Array.isArray(value) ? value.map(stable) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable(value[key])])) : value;
+const eq = (name, a, b) => check(name, JSON.stringify(stable(a)) === JSON.stringify(stable(b)));
 export async function run() {
   eq("plain subject parse", parseSubjectName("Biology"), { name: "Biology", level: "" });
   eq("qualified subject parse", parseSubjectName("Biology (A-Level)"), { name: "Biology", level: "A-Level" });

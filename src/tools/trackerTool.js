@@ -71,6 +71,8 @@ export function initTrackerTool(deps, context = {}) {
   // ---- state ----
   let papers = [];
   let allSubjects = [];
+  let subjectRecords = [];
+  const subjectIdFor = (key) => subjectRecords.find((record) => record.key === key)?.id || "";
   let subjectNodes = [];
   let boardsBySubject = {}; // subject -> examBoard (from subject nodes)
   let coursesBySubject = {}; // subject -> officially linked course { board, code, title, qual }
@@ -132,7 +134,9 @@ export function initTrackerTool(deps, context = {}) {
 
   async function loadSubjects() {
     try {
-      allSubjects = (await getSubjects()) || [];
+      // Tracker keeps its exam metadata keyed by the qualified compatibility key.
+      subjectRecords = (await getSubjects()) || [];
+      allSubjects = subjectRecords.map((record) => record.key);
     } catch (e) {
       allSubjects = [];
     }
@@ -246,10 +250,10 @@ export function initTrackerTool(deps, context = {}) {
     if (examBoard != null) patch.examBoard = examBoard.trim();
     if (qualification != null) patch.qualification = qualification.trim();
     if (existing) {
-      await addNode({ ...existing, ...patch, updatedAt: Date.now() });
+      await addNode({ ...existing, ...patch, subjectId: existing.subjectId || subjectIdFor(name), updatedAt: Date.now() });
     } else {
       await addNode({
-        type: "subject", subject: name, name: name,
+        type: "subject", subject: name, subjectId: subjectIdFor(name), name: name,
         examBoard: (examBoard || "").trim(),
         qualification: (qualification || "").trim(),
         customized: false, officialCourse: null,
@@ -267,11 +271,12 @@ export function initTrackerTool(deps, context = {}) {
     const nodes = (await getAllNodes()) || [];
     const existing = nodes.find((n) => n.type === "subject" && (n.subject === name || n.name === name));
     if (existing) {
-      await addNode({ ...existing, examBoard: b, updatedAt: Date.now() });
+      await addNode({ ...existing, subjectId: existing.subjectId || subjectIdFor(name), examBoard: b, updatedAt: Date.now() });
     } else {
       await addNode({
         type: "subject",
         subject: name,
+        subjectId: subjectIdFor(name),
         name: name,
         examBoard: b,
         createdAt: Date.now(),
@@ -1008,6 +1013,7 @@ async function loadSubjectCatalogues() {
       if (existing) {
         await addNode({
           ...existing,
+          subjectId: existing.subjectId || subjectIdFor(subject),
           officialCourse: course,
           customized: false,
           examBoard: existing.examBoard || boardName,
@@ -1016,7 +1022,7 @@ async function loadSubjectCatalogues() {
         });
       } else {
         await addNode({
-          type: "subject", subject, name: subject,
+          type: "subject", subject, subjectId: subjectIdFor(subject), name: subject,
           examBoard: boardName,
           qualification: qualName,
           customized: false,
@@ -1043,10 +1049,10 @@ async function loadSubjectCatalogues() {
       const nodes = (await getAllNodes()) || [];
       const existing = nodes.find((n) => n.type === "subject" && (n.subject === subject || n.name === subject));
       if (existing) {
-        await addNode({ ...existing, officialCourse: null, updatedAt: Date.now() });
+        await addNode({ ...existing, subjectId: existing.subjectId || subjectIdFor(subject), officialCourse: null, updatedAt: Date.now() });
       } else {
         await addNode({
-          type: "subject", subject, name: subject,
+          type: "subject", subject, subjectId: subjectIdFor(subject), name: subject,
           examBoard: "", qualification: "", customized: false, officialCourse: null,
           createdAt: Date.now(), updatedAt: Date.now()
         });
@@ -1663,7 +1669,7 @@ async function loadSubjectCatalogues() {
       if (node && node.qualification) continue; // already set
       if (!node) {
         await addNode({
-          type: "subject", subject, name: subject,
+          type: "subject", subject, subjectId: subjectIdFor(subject), name: subject,
           examBoard: "", qualification: "", customized: false, officialCourse: null,
           createdAt: Date.now(), updatedAt: Date.now()
         });
@@ -2254,7 +2260,7 @@ async function loadSubjectCatalogues() {
       const meta = subjectMeta[subject] || {};
       if (!(await subjectNodeExists(subject))) {
         await addNode({
-          type: "subject", subject, name: subject,
+          type: "subject", subject, subjectId: subjectIdFor(subject), name: subject,
           examBoard: meta.examBoard || "",
           qualification: meta.qualification || "",
           customized: meta.customized || false,
@@ -2278,7 +2284,7 @@ async function loadSubjectCatalogues() {
     const existing = nodes.find((n) => n.type === "subject" && (n.subject === name || n.name === name));
     if (!existing) {
       await addNode({
-        type: "subject", subject: name, name: name,
+        type: "subject", subject: name, subjectId: subjectIdFor(name), name: name,
         examBoard: meta.examBoard || "",
         qualification: meta.qualification || "",
         customized: meta.customized || false,

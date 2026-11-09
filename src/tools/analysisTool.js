@@ -1,11 +1,13 @@
 import { createEditor, format, domToMarkdown, renderMathWithKatex } from "../vendor/md-format/mdeditor.js";
 import { dialog } from "./dialog.js";
+import { groupSubjectRecords } from "../subjectModel.js";
 
 export async function initAnalysisToolV2(deps, context = {}) {
   const {
     getAllNodes,
     getAllQuotes,
     getAllCues,
+    getSubjects,
     getAllTags,
     getNode,
     addNode,
@@ -38,7 +40,7 @@ export async function initAnalysisToolV2(deps, context = {}) {
 
   let textMap = null;
 
-  const { subject: contextSubject, nodeId: contextNodeId } = context;
+  const { subject: contextSubject, subjectId: contextSubjectId, nodeId: contextNodeId } = context;
   const draftSourceId = context.newSource
     ? (context.sourceId || crypto.randomUUID())
     : "";
@@ -164,6 +166,8 @@ function enforceUserSelect() {
     sources: [],
     analysisNodes: [],
     selectedSubject: "",
+    selectedSubjectId: contextSubjectId || "",
+    subjects: [],
     view: context.newSource || context.capture || context.subject || context.sourceId ? "study" : "library",
     libraryReturnView: "library",
     selectedSourceId: context.newSource ? "" : (context.sourceId || ""),
@@ -2261,6 +2265,7 @@ function htmlToPlainText(html) {
        id: crypto.randomUUID(),
        type: "quote",
        subject: source.subject,
+       subjectId: source.subjectId || state.subjects.find((r) => r.key === source.subject)?.id,
        section: source.section || buildSection(path),
        title: source.title,
       quote: quoteText,
@@ -2461,6 +2466,7 @@ function htmlToPlainText(html) {
       id: analysisId,
       type: "analysis",
       subject: state.selectedSubject,
+      subjectId: state.selectedSubjectId || state.subjects.find((r) => r.key === state.selectedSubject)?.id,
       section: null,
       title: "",
       content: "",
@@ -2547,14 +2553,12 @@ function htmlToPlainText(html) {
   }
 
   function renderSubjects() {
-    const subjects = Array.from(new Set([
-      ...state.subjectNodes.map((node) => node.subject || node.title),
-      ...state.sources.map((source) => source.subject)
-    ].filter(Boolean))).sort((a, b) => a.localeCompare(b));
+    const records = state.subjects;
+    const subjects = records.map((r) => r.key);
 
     const subjectListEl = document.getElementById("sourceSubjectList");
     if (subjectListEl) {
-      subjectListEl.innerHTML = subjects.map((s) => `<option value="${escapeHtml(s)}"></option>`).join("");
+      subjectListEl.innerHTML = records.map((r) => `<option value="${escapeHtml(r.key)}">${escapeHtml(r.name)}${r.level ? ` · ${escapeHtml(r.level)}` : ""}</option>`).join("");
     }
 
     const unfiledSources = state.sources.filter((source) => !String(source.subject || "").trim());
@@ -2564,14 +2568,16 @@ function htmlToPlainText(html) {
       return;
     }
 
-    const cardSubject = (subject) => `
-      <article class="subject-card" data-subject="${escapeHtml(subject)}">
-        <span class="subject-name">${escapeHtml(subject)}</span>
+    const cardSubject = (record) => `
+      <article class="subject-card" data-subject="${escapeHtml(record.key)}" data-subject-id="${escapeHtml(record.id)}">
+        <span class="subject-name">${escapeHtml(record.name)}</span>
       </article>
     `;
 
-    const cards = subjects
-      .map((subject) => cardSubject(subject))
+    const cards = groupSubjectRecords(records).flatMap((group) => [
+      `<div class="subject-group-label">${escapeHtml(group.label)}</div>`,
+      ...group.subjects.map((record) => cardSubject(record))
+    ])
       .concat(unfiledSources.length
         ? `<article class="subject-card unfiled-card" data-subject="">
             <span class="subject-name">Unfiled <span style="opacity:.55;font-size:.75rem">(${unfiledSources.length})</span></span>
@@ -2584,6 +2590,7 @@ function htmlToPlainText(html) {
     subjectList.querySelectorAll(".subject-card").forEach(card => {
       card.addEventListener("click", () => {
         state.selectedSubject = card.dataset.subject || "";
+        state.selectedSubjectId = card.dataset.subjectId || "";
         state.view = "study";
         state.selectedSourceId = "";
         state.isCreatingSource = false;
@@ -2935,7 +2942,8 @@ const updateLayerSelection = () => {
     launchpadView.hidden = inStudy || inLibrary;
     if (sourceLibraryView) sourceLibraryView.hidden = !inLibrary;
     studyView.hidden = !inStudy;
-    studySubjectTitle.textContent = state.selectedSubject || "Unfiled";
+    const selectedRecord = state.subjects.find((r) => r.id === state.selectedSubjectId || r.key === state.selectedSubject);
+    studySubjectTitle.textContent = selectedRecord ? `${selectedRecord.name}${selectedRecord.level ? ` · ${selectedRecord.level}` : ""}` : state.selectedSubject || "Unfiled";
     if (!getSourceById(state.selectedSourceId)) {
       if (currentHierarchy) currentHierarchy.textContent = "";
     }
@@ -2964,10 +2972,11 @@ const updateLayerSelection = () => {
   }
 
   async function refreshData() {
-    const [nodes, quotes, cues] = await Promise.all([getAllNodes(), getAllQuotes(), getAllCues()]);
+    const [nodes, quotes, cues, subjects] = await Promise.all([getAllNodes(), getAllQuotes(), getAllCues(), getSubjects()]);
     state.nodes = nodes;
     state.quotes = quotes;
     state.cues = cues;
+    state.subjects = subjects || [];
     state.subjectNodes = state.nodes.filter((node) => node?.type === "subject" || node?.meta?.kind === "subject");
     state.sources = state.nodes.filter((node) => isSourceNode(node) && node?.type === "source");
     state.analysisNodes = state.nodes.filter((node) => node?.type === "analysis");
@@ -3243,6 +3252,7 @@ const updateLayerSelection = () => {
         id: sourceId,
         type: "source",
         subject,
+        subjectId: state.subjects.find((r) => r.key === subject)?.id,
         section: buildSection(path),
         title,
         contentHtml: contentHtml,
@@ -3265,6 +3275,7 @@ const updateLayerSelection = () => {
 
       // Enter the saved source's subject workspace (or unfiled if subject is empty).
       state.selectedSubject = subject;
+      state.selectedSubjectId = state.subjects.find((r) => r.key === subject)?.id || "";
 
       state.selectedSourceId = sourceId;
       state.isCreatingSource = false;

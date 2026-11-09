@@ -50,13 +50,13 @@ export function migrateSubjectIdentity({ nodes = [], quotes = [], cues = [], car
   const collections = { nodes: nodes || [], quotes: quotes || [], cues: cues || [], cards: cards || [], decks: decks || [] };
   const keys = [];
   const add = (raw) => { const key = collapseWhitespace(raw); if (key && !keys.some((known) => subjectKeyMatches(known, key))) keys.push(key); };
-  for (const n of collections.nodes) { add(n.subject); add(n.meta?.hierarchyPath?.[0]); if (!n.subject && n.type === "subject") add(n.name || n.title); }
+  for (const n of collections.nodes) { add(n.subject); if (!n.subject) { add(n.meta?.hierarchyPath?.[0]); if (n.type === "subject") add(n.name || n.title); } }
   for (const q of collections.quotes) { add(q.subject); if (!q.subject) add(q.meta?.hierarchyPath?.[0]); }
   for (const c of collections.cues) { add(c.subject); if (!c.subject) add(c.meta?.hierarchyPath?.[0]); }
   for (const d of collections.decks) { add(d.subject); if (!d.subject) add(d.deckPath?.[0]); }
   for (const c of collections.cards) { add(c.deck); if (!c.deck) add(c.deckPath?.[0]); }
   keys.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
-  const subjects = keys.map((key, order) => ({ ...createSubjectRecord({ key, order }), id: `subj_${order}_${encodeURIComponent(key.toLocaleLowerCase())}` }));
+  const subjects = keys.map((key, order) => createSubjectRecord({ key, order }));
   const byKey = new Map(subjects.map((record) => [record.key.toLocaleLowerCase(), record.id]));
   const stamp = (record, owner, fallback) => {
     const key = collapseWhitespace(owner) || collapseWhitespace(fallback);
