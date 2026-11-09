@@ -135,7 +135,7 @@ export function initDB() {
       const creatingSubjects = !db.objectStoreNames.contains("subjects");
       if (creatingSubjects) {
         const subjectsStore = db.createObjectStore("subjects", { keyPath: "id" });
-        subjectsStore.createIndex("key", "key", { unique: false });
+        subjectsStore.createIndex("key", "key", { unique: true });
         subjectsStore.createIndex("keyNorm", "keyNorm", { unique: true });
         subjectsStore.createIndex("name", "name", { unique: false });
         subjectsStore.createIndex("level", "level", { unique: false });
