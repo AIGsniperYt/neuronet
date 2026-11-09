@@ -1,4 +1,4 @@
-import { initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, addSubject, deleteSubject, renameSubject, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForDeckId, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, clearTags, addDeck, addDecks, getAllDecks, getDeck, getDecksForSubject, deleteDeckRecord, deleteDeck, clearDecks, ensureDeckMembership, sortDecksByCreated, buildDeckForest, flattenDeckTree, getDeckDescendantIds, groupDecksBySubject, getDeckPath, describeDeckDeletion, UNSORTED_DECK_NAME, addHeap, addHeaps, getAllHeaps, getHeap, deleteHeap, clearHeaps } from "./db.js";
+import { initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, getAllSubjects, addSubject, deleteSubject, renameSubject, mergeSubjects, setSubjectOrder, ensureSubjectIdentity, addSubjects, clearSubjects, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForDeckId, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, clearTags, addDeck, addDecks, getAllDecks, getDeck, getDecksForSubject, deleteDeckRecord, deleteDeck, clearDecks, ensureDeckMembership, sortDecksByCreated, buildDeckForest, flattenDeckTree, getDeckDescendantIds, groupDecksBySubject, getDeckPath, describeDeckDeletion, UNSORTED_DECK_NAME, addHeap, addHeaps, getAllHeaps, getHeap, deleteHeap, clearHeaps } from "./db.js";
 import { syncLocalWithCloud, syncToCloud, deleteCloudNode, deleteCloudQuote, deleteCloudCue, fetchCloudNodes, fetchCloudQuotes, fetchCloudCues } from "./sync.js";
 import { initAnalysisToolV2 } from "./tools/analysisTool.js";
 import { dialog } from "./tools/dialog.js";
@@ -10,6 +10,7 @@ import { initScraperTool } from "./tools/scraperTool.js";
 import { flushBoundaryCache } from "./tools/gradeBoundaries.js";
 import { SCHEMA_VERSION, assertCurrentDataset } from "./schema.js";
 import { initCanvas } from "./canvas.js";
+import { parseSubjectName, subjectKey, groupSubjectRecords, compareSubjectRecords } from "./subjectModel.js";
 
 initCanvas();
 
@@ -34,6 +35,7 @@ let syncInProgress = false;
 
 let currentToolName = "";
 let currentSubject = null;
+let currentSubjectId = null;
 let toolContainer;
 
 const tools = {
@@ -43,6 +45,7 @@ const tools = {
       getAllNodes,
       getAllQuotes,
       getAllCues,
+      getSubjects,
       getAllTags,
       getNode,
       addNode,
@@ -271,6 +274,10 @@ function setActiveTool(toolName) {
 }
 
 async function loadTool(toolName, context = {}) {
+  if (!context.subject && context.subjectId) {
+    const record = (await readSubjects()).find((subject) => subject.id === context.subjectId);
+    if (record) context = { ...context, subject: record.key, subjectLabel: record.name, subjectLevel: record.level };
+  }
   flushBoundaryCache();
   // Tear down the tool that is being replaced. Analysis was the only tool
   // whose cleanup ever ran, so Mindmap and Memory could leave document/window
@@ -286,12 +293,13 @@ async function loadTool(toolName, context = {}) {
 
   currentToolName = toolName;
   currentSubject = context.subject || null;
+  currentSubjectId = context.subjectId || (currentSubject ? (await readSubjects()).find((s) => s.key === currentSubject)?.id : null) || null;
   setActiveTool(toolName);
   // Keep the shell's subject pills in sync when a tool is opened with an
   // explicit subject. Without this, Memory could silently scope to Macbeth
   // while the sidebar still showed "All".
   await renderSidebarSubjects();
-  logActivity(context.subject || currentSubject, toolName);
+  logActivity(context.subject || currentSubject, toolName, { ...context, subjectId: currentSubjectId });
 
   const tool = tools[toolName];
   toolContainer.innerHTML = "";
@@ -713,13 +721,14 @@ async function fetchDemoPayload() {
 }
 
 async function exportDatabaseJson() {
-  const [nodes, quotes, cues, cards, heaps, decks] = await Promise.all([
+  const [nodes, quotes, cues, cards, heaps, decks, subjects] = await Promise.all([
     getAllNodes(),
     getAllQuotes(),
     getAllCues(),
     getAllCards(),
     getAllHeaps(),
-    getAllDecks()
+    getAllDecks(),
+    getAllSubjects()
   ]);
   const payload = {
     schemaVersion: SCHEMA_VERSION,
@@ -729,7 +738,8 @@ async function exportDatabaseJson() {
     cues,
     cards,
     heaps,
-    decks
+    decks,
+    subjects
   };
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
@@ -814,8 +824,11 @@ async function importPayload(payload) {
   await addCues(cues);
   await addDecks(decks);
   await addCards(cards);
-  await ensureDeckMembership();
+  await clearSubjects();
+  await addSubjects(dataset.subjects || []);
   await addHeaps(heaps);
+  await ensureSubjectIdentity();
+  await ensureDeckMembership();
   // Rebuild the derived tag index from the final imported records. This also
   // removes stale tags from the DB the import replaced.
   const [finalNodes, finalQuotes, finalCards] = await Promise.all([
@@ -966,6 +979,7 @@ async function wipeDatabase() {
   await clearTags();
   await clearHeaps();
   await clearDecks();
+  await clearSubjects();
   if (USE_BACKEND && window.currentUser) {
     try {
       const [cloudNodes, cloudQuotes, cloudCues] = await Promise.all([
@@ -1040,6 +1054,7 @@ function openTool(toolName, context = {}) {
   flushBoundaryCache();
   currentToolName = toolName;
   currentSubject = context.subject || null;
+  currentSubjectId = context.subjectId || null;
   setActiveTool(toolName);
   const tool = tools[toolName];
   toolContainer.innerHTML = "";
@@ -1059,6 +1074,7 @@ function logActivity(subject, toolName, details = {}) {
   try {
     localStorage.setItem(ACTIVITY_KEY, JSON.stringify({
       subject, tool: toolName, timestamp: Date.now(),
+      subjectId: details.subjectId || currentSubjectId || "",
       sourceId: details.sourceId || "",
       sourceTitle: details.sourceTitle || "",
       sourceMode: details.sourceMode || ""
@@ -1107,10 +1123,11 @@ async function renderQuickActions() {
       : `${subjectLabel} \u2192 ${toolLabel}`;
     resumeBtn.onclick = () => {
       if (last.tool === "memory" || last.tool === "mindmap" || last.tool === "tracker") {
-        loadTool(last.tool, { subject: last.subject });
+        loadTool(last.tool, { subject: last.subject, subjectId: last.subjectId || "" });
       } else {
         loadTool("analysis", {
           subject: last.subject,
+          subjectId: last.subjectId || "",
           sourceId: last.sourceId || "",
           sourceMode: last.sourceMode || "reader"
         });
@@ -1127,16 +1144,16 @@ async function renderQuickActions() {
   let bestDue = 0;
   for (const s of subjects) {
     const [dueCards, dueA] = await Promise.all([
-      getDueCardsForDeck(s, { limit: 999 }),
-      getDueAnalysisNodesForSubject(s, { limit: 999 })
+      getDueCardsForDeck(s.key, { limit: 999 }),
+      getDueAnalysisNodesForSubject(s.key, { limit: 999 })
     ]);
     const total = dueCards.length + dueA.length;
     if (total > bestDue) { bestDue = total; bestSubject = s; }
   }
   if (bestSubject && bestDue > 0) {
     studyBtn.disabled = false;
-    studySub.textContent = `${bestDue} card${bestDue !== 1 ? "s" : ""} due \u2014 ${bestSubject}`;
-    studyBtn.onclick = () => loadTool("memory", { subject: bestSubject });
+    studySub.textContent = `${bestDue} card${bestDue !== 1 ? "s" : ""} due \u2014 ${bestSubject.name}${bestSubject.level ? ` (${bestSubject.level})` : ""}`;
+    studyBtn.onclick = () => loadTool("memory", { subject: bestSubject.key, subjectId: bestSubject.id, subjectLabel: bestSubject.name, subjectLevel: bestSubject.level });
   } else {
     studyBtn.disabled = true;
     studySub.textContent = "No cards due";
@@ -1255,19 +1272,19 @@ async function renderDueForReview() {
 
   for (const s of subjects) {
     const [dueCards, dueA] = await Promise.all([
-      getDueCardsForDeck(s, { limit: 999 }),
-      getDueAnalysisNodesForSubject(s, { limit: 999 })
+      getDueCardsForDeck(s.key, { limit: 999 }),
+      getDueAnalysisNodesForSubject(s.key, { limit: 999 })
     ]);
     const total = dueCards.length + dueA.length;
     if (total > 0) {
       rows.push(`
         <div class="dash-due-row">
-          <span class="dash-due-name">${escapeHtml(s)}</span>
+          <span class="dash-due-name">${escapeHtml(s.name)}${s.level ? ` · ${escapeHtml(s.level)}` : ""}</span>
           <div class="dash-due-counts">
             ${dueCards.length ? `<span><span class="count">${dueCards.length}</span> cards</span>` : ""}
             ${dueA.length ? `<span><span class="count">${dueA.length}</span> analyses</span>` : ""}
           </div>
-          <button class="dash-due-btn" data-subject="${escapeHtml(s)}">Study</button>
+          <button class="dash-due-btn" data-subject="${escapeHtml(s.key)}" data-subject-id="${escapeHtml(s.id)}">Study</button>
         </div>
       `);
     }
@@ -1275,7 +1292,7 @@ async function renderDueForReview() {
 
   list.innerHTML = rows.length > 0 ? rows.join("") : dashEmpty("Nothing due for review");
   list.querySelectorAll(".dash-due-btn").forEach(btn => {
-    btn.addEventListener("click", () => loadTool("memory", { subject: btn.dataset.subject }));
+    btn.addEventListener("click", () => loadTool("memory", { subject: btn.dataset.subject, subjectId: btn.dataset.subjectId }));
   });
 }
 
@@ -1620,276 +1637,43 @@ function ensureSubjectPillMenu() {
 }
 
 let subjectEditMode = false;
-const SUBJECT_ORDER_KEY = `nn-subject-order-${window.DEMO_MODE ? "demo" : "main"}-${window.APP_VERSION || "v0"}`;
-
-function subjectNameMatches(a, b) {
-  return String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
-}
-
-// Subjects are still name-keyed. A trailing parenthetical is treated as an
-// implicit level/qualifier so "Biology (A-Level)" groups away from "Biology".
-function subjectGroup(name) {
-  const match = String(name || "").trim().match(/\(([^()]+)\)\s*$/);
-  return match ? match[1].trim() : "General";
-}
-
-function compareSubjectGroups(a, b) {
-  // Put deliberately qualified groups (A-Level, GCSE, ...) first and leave
-  // unqualified legacy subjects in a General section at the bottom.
-  if (a === "General" && b !== "General") return 1;
-  if (b === "General" && a !== "General") return -1;
-  return a.localeCompare(b, undefined, { sensitivity: "base" });
-}
-
-function loadSubjectOrder() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(SUBJECT_ORDER_KEY) || "[]");
-    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveSubjectOrder(order) {
-  try {
-    localStorage.setItem(SUBJECT_ORDER_KEY, JSON.stringify(order));
-  } catch {
-    /* private mode or storage full */
-  }
-}
-
-function updateSubjectOrder(mutator) {
-  saveSubjectOrder(mutator([...loadSubjectOrder()]));
-}
-
-function rememberSubject(name) {
-  updateSubjectOrder((order) => order.includes(name) ? order : [...order, name]);
-}
-
-function forgetSubject(name) {
-  updateSubjectOrder((order) => order.filter((item) => item !== name));
-}
-
-function renameInSubjectOrder(oldName, newName) {
-  updateSubjectOrder((order) => {
-    const seen = new Set();
-    return order
-      .map((item) => item === oldName ? newName : item)
-      .filter((item) => {
-        if (seen.has(item)) return false;
-        seen.add(item);
-        return true;
-      });
-  });
-}
-
-// Group first (so qualifiers stay contiguous), then honour saved drag order
-// inside each group, then fall back to alphabetical for new subjects.
-function orderSubjects(subjects) {
-  const rank = new Map(loadSubjectOrder().map((name, index) => [name, index]));
-  return [...subjects].sort((a, b) => {
-    const groupCompare = compareSubjectGroups(subjectGroup(a), subjectGroup(b));
-    if (groupCompare !== 0) return groupCompare;
-    const aRank = rank.has(a) ? rank.get(a) : Number.MAX_SAFE_INTEGER;
-    const bRank = rank.has(b) ? rank.get(b) : Number.MAX_SAFE_INTEGER;
-    if (aRank !== bRank) return aRank - bRank;
-    return a.localeCompare(b, undefined, { sensitivity: "base" });
-  });
-}
-
-async function readSubjects() {
-  try {
-    return (await getSubjects()) || [];
-  } catch (error) {
-    console.warn("Could not load subjects:", error);
-    return [];
-  }
-}
-
-// Subject creation belongs to the shell, not to any one tool. Tools only
-// consume the global subject list; this is the single creation path.
+function orderSubjects(records) { return [...records].sort(compareSubjectRecords); }
+async function readSubjects() { try { return await getSubjects(); } catch (error) { console.warn("Could not load subjects:", error); return []; } }
 async function createSubjectFromShell() {
-  const subjects = await readSubjects();
-
-  const typed = await dialog.prompt("New subject name (e.g. Biology):", "");
-  const name = String(typed || "").trim();
-  if (!name) return;
-
-  let subjectName = name;
-  const existing = subjects.find((subject) => subjectNameMatches(subject, name));
-  if (existing) {
-    const qualifier = await dialog.prompt(
-      `“${existing}” already exists. Add a qualifier to create a separate subject (for example A-Level), or leave this blank to use the existing subject.`,
-      ""
-    );
-    if (qualifier === null) return;
-    const suffix = String(qualifier || "").trim();
-    subjectName = suffix ? `${String(existing)} (${suffix})` : String(existing);
-  }
-
-  const alreadyExists = subjects.some((subject) => subjectNameMatches(subject, subjectName));
-  if (!alreadyExists) {
-    try {
-      await addSubject(subjectName);
-    } catch (error) {
-      console.error("Could not create subject:", error);
-      await dialog.alert(`Could not create “${subjectName}”: ${error.message}`);
-      return;
-    }
-    rememberSubject(subjectName);
-  }
-
-  await renderSidebarSubjects();
-  await renderDashboard();
-  document.getElementById("sidebarQuickSubjectsMenu")?.classList.remove("open");
-  document.getElementById("sidebarQuickSubjects")?.setAttribute("aria-expanded", "false");
-
-  if (alreadyExists) {
-    toast(`Subject “${subjectName}” already exists.`);
-  } else {
-    toast(`Subject “${subjectName}” created.`, {
-      action: { label: "Switch", onClick: () => selectSidebarSubject(subjectName) }
-    });
+  const typed = await dialog.prompt("New subject name (e.g. Biology):", ""); if (typed === null) return;
+  const parsed = parseSubjectName(typed); if (!parsed.name) return;
+  const levelInput = await dialog.prompt("Subject level (leave blank for General):", parsed.level); if (levelInput === null) return;
+  const level = String(levelInput).trim(); const key = subjectKey(parsed.name, level);
+  const existing = (await readSubjects()).find((s) => s.key.toLowerCase() === key.toLowerCase());
+  if (existing) { toast(`Subject “${key}” already exists.`); await selectSidebarSubject(existing.id); return; }
+  const record = await addSubject({ name: parsed.name, level }); await renderSidebarSubjects(); await renderDashboard();
+  toast(`Subject “${record.name}” created.`); await selectSidebarSubject(record.id);
+}
+async function renameSubjectFromShell(id) {
+  const record = await (async () => (await readSubjects()).find((s) => s.id === id || s.key === id))(); if (!record) return;
+  const nameInput = await dialog.prompt("Subject name:", record.name); if (nameInput === null) return;
+  const levelInput = await dialog.prompt("Subject level (leave blank for General):", record.level); if (levelInput === null) return;
+  const name = String(nameInput).trim(); const level = String(levelInput).trim(); const key = subjectKey(name, level); if (!name || key === record.key) return;
+  const collision = (await readSubjects()).find((s) => s.id !== record.id && s.key.toLowerCase() === key.toLowerCase());
+  try {
+    if (collision) { if (!await dialog.confirm(`Merge “${record.name} — ${record.level || "General"}” into “${collision.name} — ${collision.level || "General"}”?`, "Continue", "danger")) return; if (!await dialog.confirm("This permanently merges both subjects and their content. Continue?", "Merge subjects", "danger")) return; await mergeSubjects(record.id, collision.id); }
+    else { if (!await dialog.confirm(`Rename “${record.name}” to “${name}” and set level to “${level || "General"}”?`, "Rename")) return; await renameSubject(record.id, { name, level }); }
+  } catch (error) { await dialog.alert(error.message); return; }
+  if (currentSubjectId === record.id) { currentSubject = collision ? collision.key : key; if (collision) currentSubjectId = collision.id; }
+  await renderSidebarSubjects(); await renderDashboard();
+  if (currentToolName && currentSubjectId) {
+    const selected = (await readSubjects()).find((s) => s.id === currentSubjectId);
+    if (selected) await loadTool(currentToolName, { subject: selected.key, subjectId: selected.id, subjectLabel: selected.name, subjectLevel: selected.level });
   }
 }
-
-// Rename keeps all decks/cards/quotes/analyses together. Renaming onto an
-// existing name merges the two subjects, so that path asks twice.
-async function renameSubjectFromShell(name) {
-  const current = String(name || "").trim();
-  if (!current) return;
-
-  const typed = await dialog.prompt(`Rename “${current}” to:`, current);
-  if (typed === null) return;
-  let next = String(typed || "").trim().replace(/\s+/g, " ");
-  if (!next) {
-    await dialog.alert("A subject name cannot be empty.");
-    return;
-  }
-  if (next === current) return;
-
-  const subjects = await readSubjects();
-  const collision = subjects.find((subject) => (
-    !subjectNameMatches(subject, current) && subjectNameMatches(subject, next)
-  ));
-  let merging = false;
-
-  if (collision) {
-    merging = true;
-    next = String(collision).trim();
-    const mergeGate = await dialog.confirm(
-      `“${collision}” already exists.\n\nRenaming “${current}” to that name will MERGE both subjects and all their content. This cannot be undone.`,
-      "Continue to merge",
-      "danger"
-    );
-    if (!mergeGate) return;
-    const mergeFinal = await dialog.confirm(
-      `Merge “${current}” into “${collision}”?`,
-      "Merge subjects",
-      "danger"
-    );
-    if (!mergeFinal) return;
-  }
-
-  if (!merging) {
-    const ok = await dialog.confirm(
-      `Rename “${current}” to “${next}”?\n\nAll decks, cards, quotes and analyses move with it.`,
-      "Rename"
-    );
-    if (!ok) return;
-  }
-
-  try {
-    await renameSubject(current, next);
-  } catch (error) {
-    console.error("Could not rename subject:", error);
-    await dialog.alert(`Could not rename “${current}”: ${error.message}`);
-    return;
-  }
-
-  renameInSubjectOrder(current, next);
-  const wasCurrent = subjectNameMatches(currentSubject, current);
-  await renderSidebarSubjects();
-  await renderDashboard();
-  if (wasCurrent) {
-    currentSubject = null;
-    await selectSidebarSubject(next);
-  }
-  toast(`Subject renamed to “${next}”.`);
-}
-
-async function deleteSubjectFromShell(name) {
-  const current = String(name || "").trim();
-  if (!current) return;
-
-  let stats = { cards: 0, decks: 0, nodes: 0, quotes: 0 };
-  try {
-    const [cards, decks, nodes, quotes] = await Promise.all([
-      getCardsForDeck(current).catch(() => []),
-      getDecksForSubject(current).catch(() => []),
-      getAllNodes().catch(() => []),
-      getAllQuotes().catch(() => [])
-    ]);
-    stats = {
-      cards: (cards || []).length,
-      decks: (decks || []).length,
-      nodes: (nodes || []).filter((node) => String(node.subject || "") === current).length,
-      quotes: (quotes || []).filter((quote) => String(quote.subject || "") === current).length
-    };
-  } catch {
-    /* counts are only a warning aid */
-  }
-
-  const plural = (count, one, many) => `${count} ${count === 1 ? one : many}`;
-  const summary = [
-    plural(stats.decks, "deck", "decks"),
-    plural(stats.cards, "card", "cards"),
-    plural(stats.nodes, "item", "items"),
-    plural(stats.quotes, "quote", "quotes")
-  ].join(", ");
-
-  const first = await dialog.confirm(
-    `Delete “${current}”?\n\nThis permanently removes ${summary}.`,
-    "Continue",
-    "danger"
-  );
-  if (!first) return;
-
-  const typed = await dialog.prompt(
-    `Type the subject name exactly to confirm permanent deletion:\n${current}`,
-    ""
-  );
-  if (typed === null) return;
-  if (String(typed).trim() !== current) {
-    await dialog.alert("The name did not match. Nothing was deleted.");
-    return;
-  }
-
-  const last = await dialog.confirm(
-    `Last chance — permanently delete “${current}” and all its content?`,
-    "Delete forever",
-    "danger"
-  );
-  if (!last) return;
-
-  const wasCurrent = subjectNameMatches(currentSubject, current);
-  try {
-    await deleteSubject(current);
-  } catch (error) {
-    console.error("Could not delete subject:", error);
-    await dialog.alert(`Could not delete “${current}”: ${error.message}`);
-    return;
-  }
-
-  forgetSubject(current);
-  if (wasCurrent) {
-    currentSubject = null;
-    await selectSidebarSubject(null);
-  } else {
-    await renderSidebarSubjects();
-    await renderDashboard();
-  }
-  toast(`Subject “${current}” deleted.`);
+async function deleteSubjectFromShell(id) {
+  const record = (await readSubjects()).find((s) => s.id === id || s.key === id); if (!record) return;
+  const label = `${record.name} — ${record.level || "General"}`;
+  if (!await dialog.confirm(`Permanently delete “${label}” and all its content?`, "Continue", "danger")) return;
+  if (await dialog.prompt(`Type exactly to confirm deletion:
+${label}`, "") !== label) return;
+  if (!await dialog.confirm(`Last chance — delete “${label}”?`, "Delete forever", "danger")) return;
+  await deleteSubject(record.id); if (currentSubjectId === record.id) await selectSidebarSubject(null); else { await renderSidebarSubjects(); await renderDashboard(); }
 }
 
 function setSubjectEditMode(enabled) {
@@ -1907,40 +1691,19 @@ function setSubjectEditMode(enabled) {
   renderSidebarSubjects();
 }
 
-function subjectPillMarkup(subject) {
-  const norm = (value) => String(value || "").trim().toLowerCase();
-  return `
-    <button type="button" class="subject-pill ${norm(subject) === norm(currentSubject) ? "active" : ""}"
-            data-subject="${escapeHtml(subject)}">${escapeHtml(subject)}</button>
-  `;
+function subjectPillMarkup(record) {
+  return `<button type="button" class="subject-pill ${record.id === currentSubjectId ? "active" : ""}" data-subject-id="${escapeHtml(record.id)}" data-subject="${escapeHtml(record.key)}">${escapeHtml(record.name)}</button>`;
 }
-
-function subjectEditRowMarkup(subject, group) {
-  const safe = escapeHtml(subject);
-  return `
-    <div class="subject-edit-row" data-subject="${safe}" data-group="${escapeHtml(group)}">
-      <button type="button" class="subject-drag-handle" title="Drag to reorder" aria-label="Reorder ${safe}">
-        <i class="fa-solid fa-grip-vertical" aria-hidden="true"></i>
-      </button>
-      <span class="subject-edit-name">${safe}</span>
-      <span class="subject-edit-actions">
-        <button type="button" class="subject-row-btn" data-action="rename" title="Rename ${safe}" aria-label="Rename ${safe}">
-          <i class="fa-solid fa-pen" aria-hidden="true"></i>
-        </button>
-        <button type="button" class="subject-row-btn danger" data-action="delete" title="Delete ${safe}" aria-label="Delete ${safe}">
-          <i class="fa-solid fa-trash" aria-hidden="true"></i>
-        </button>
-      </span>
-    </div>
-  `;
+function subjectEditRowMarkup(record, group) {
+  const safe = escapeHtml(record.name);
+  return `<div class="subject-edit-row" data-subject-id="${escapeHtml(record.id)}" data-subject="${escapeHtml(record.key)}" data-group="${escapeHtml(group)}"><button type="button" class="subject-drag-handle" title="Drag to reorder" aria-label="Reorder ${safe}"><i class="fa-solid fa-grip-vertical" aria-hidden="true"></i></button><span class="subject-edit-name">${safe}</span><span class="subject-edit-actions"><button type="button" class="subject-row-btn" data-action="rename" title="Rename ${safe}" aria-label="Rename ${safe}"><i class="fa-solid fa-pen" aria-hidden="true"></i></button><button type="button" class="subject-row-btn danger" data-action="delete" title="Delete ${safe}" aria-label="Delete ${safe}"><i class="fa-solid fa-trash" aria-hidden="true"></i></button></span></div>`;
 }
-
 // Pointer-based drag works with mouse, touch and pen. Reordering is confined
 // to the subject's group so qualifier sections stay contiguous.
 function attachSubjectDrag(row, handle) {
   let drag = null;
 
-  const finish = (event, commit) => {
+  const finish = async (event, commit) => {
     if (!drag || event.pointerId !== drag.pointerId) return;
     const { rows, moved } = drag;
     row.classList.remove("dragging");
@@ -1952,11 +1715,8 @@ function attachSubjectDrag(row, handle) {
     drag = null;
     if (!commit || !moved) return;
 
-    const groupNames = [...rows.querySelectorAll(".subject-edit-row")]
-      .map((item) => item.dataset.subject);
-    const groupSet = new Set(groupNames);
-    const rest = loadSubjectOrder().filter((name) => !groupSet.has(name));
-    saveSubjectOrder([...rest, ...groupNames]);
+    const ids = [...document.querySelectorAll(".subject-edit-row")].map((item) => item.dataset.subjectId);
+    await setSubjectOrder(ids);
     renderSidebarSubjects();
   };
 
@@ -1996,129 +1756,26 @@ function attachSubjectDrag(row, handle) {
 }
 
 async function renderSidebarSubjects() {
-  const listEl = document.getElementById("sidebarSubjectList");
-  const quickListEl = document.getElementById("sidebarQuickSubjectList");
-  const allBtn = document.getElementById("sidebarSubjectAll");
-  if (!allBtn) return;
-
-  const subjects = orderSubjects(await readSubjects());
-  const subjectCount = document.getElementById("sidebarSubjectCount");
-  // “All” is a filter, not a subject, so keep the header count aligned with
-  // the actual subject entries shown below it.
-  if (subjectCount) subjectCount.textContent = String(subjects.length);
-  const norm = (s) => String(s || "").trim().toLowerCase();
-  const scrollBox = document.getElementById("sidebarSubjects");
-  const scrollTop = scrollBox?.scrollTop || 0;
-
-  allBtn.classList.toggle("active", !currentSubject);
-  allBtn.setAttribute("aria-current", !currentSubject ? "page" : "false");
-
-  const groups = new Map();
-  subjects.forEach((subject) => {
-    const group = subjectGroup(subject);
-    if (!groups.has(group)) groups.set(group, []);
-    groups.get(group).push(subject);
-  });
-  const groupNames = [...groups.keys()].sort(compareSubjectGroups);
-  const showGroupLabels = groupNames.length > 1;
-
-  if (listEl) {
-    if (!subjects.length) {
-      listEl.innerHTML = `<div class="subject-empty">No subjects yet</div>`;
-    } else {
-      listEl.innerHTML = groupNames.map((group) => `
-        <div class="subject-group" data-group="${escapeHtml(group)}">
-          ${showGroupLabels ? `<div class="subject-group-label">${escapeHtml(group)}</div>` : ""}
-          <div class="subject-group-rows">
-            ${groups.get(group).map((subject) => (
-              subjectEditMode ? subjectEditRowMarkup(subject, group) : subjectPillMarkup(subject)
-            )).join("")}
-          </div>
-        </div>
-      `).join("");
-    }
-    scrollBox && (scrollBox.scrollTop = scrollTop);
-  }
-
-  if (quickListEl) {
-    quickListEl.innerHTML = `
-      <button type="button" role="menuitem" class="quick-subject-item ${!currentSubject ? "active" : ""}" data-subject="">
-        <span class="quick-subject-dot"></span><span>All subjects</span>
-      </button>
-      ${groupNames.map((group) => `
-        ${showGroupLabels ? `<div class="quick-group-label">${escapeHtml(group)}</div>` : ""}
-        ${groups.get(group).map((subject) => `
-          <button type="button" role="menuitem" class="quick-subject-item ${norm(subject) === norm(currentSubject) ? "active" : ""}" data-subject="${escapeHtml(subject)}">
-            <span class="quick-subject-dot"></span><span>${escapeHtml(subject)}</span>
-          </button>
-        `).join("")}
-      `).join("")}
-    `;
-  }
-
-  listEl?.querySelectorAll(".subject-pill").forEach((btn) => {
-    btn.setAttribute("aria-current", btn.classList.contains("active") ? "page" : "false");
-    btn.addEventListener("click", () => selectSidebarSubject(btn.dataset.subject));
-    btn.addEventListener("contextmenu", (event) => {
-      event.preventDefault();
-      const menu = ensureSubjectPillMenu();
-      const subj = btn.dataset.subject;
-      menu.style.left = `${event.clientX}px`;
-      menu.style.top = `${event.clientY}px`;
-      menu.classList.add("open");
-      menu.querySelectorAll("button").forEach((actionBtn) => {
-        actionBtn.onclick = async () => {
-          menu.classList.remove("open");
-          if (actionBtn.dataset.action === "rename") await renameSubjectFromShell(subj);
-          else if (actionBtn.dataset.action === "delete") await deleteSubjectFromShell(subj);
-        };
-      });
-    });
-  });
-
-  listEl?.querySelectorAll(".subject-edit-row").forEach((row) => {
-    const subject = row.dataset.subject;
-    row.querySelector('[data-action="rename"]')?.addEventListener("click", () => {
-      renameSubjectFromShell(subject);
-    });
-    row.querySelector('[data-action="delete"]')?.addEventListener("click", () => {
-      deleteSubjectFromShell(subject);
-    });
-    const handle = row.querySelector(".subject-drag-handle");
-    if (handle) attachSubjectDrag(row, handle);
-  });
-
-  quickListEl?.querySelectorAll(".quick-subject-item").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      selectSidebarSubject(btn.dataset.subject);
-      document.getElementById("sidebarQuickSubjectsMenu")?.classList.remove("open");
-      document.getElementById("sidebarQuickSubjects")?.setAttribute("aria-expanded", "false");
-    });
-  });
+  const listEl = document.getElementById("sidebarSubjectList"); const quickListEl = document.getElementById("sidebarQuickSubjectList"); const allBtn = document.getElementById("sidebarSubjectAll"); if (!allBtn) return;
+  const subjects = orderSubjects(await readSubjects()); const subjectCount = document.getElementById("sidebarSubjectCount"); if (subjectCount) subjectCount.textContent = String(subjects.length);
+  const scrollBox = document.getElementById("sidebarSubjects"); const scrollTop = scrollBox?.scrollTop || 0;
+  allBtn.classList.toggle("active", !currentSubjectId); allBtn.setAttribute("aria-current", !currentSubjectId ? "page" : "false");
+  const groups = groupSubjectRecords(subjects); const showLabels = true;
+  if (listEl) { listEl.innerHTML = subjects.length ? groups.map((g) => `<div class="subject-group" data-group="${escapeHtml(g.label)}">${showLabels ? `<div class="subject-group-label">${escapeHtml(g.label)}</div>` : ""}<div class="subject-group-rows">${g.subjects.map((record) => subjectEditMode ? subjectEditRowMarkup(record, g.label) : subjectPillMarkup(record)).join("")}</div></div>`).join("") : `<div class="subject-empty">No subjects yet</div>`; if (scrollBox) scrollBox.scrollTop = scrollTop; }
+  if (quickListEl) quickListEl.innerHTML = `<button type="button" role="menuitem" class="quick-subject-item ${!currentSubjectId ? "active" : ""}" data-subject=""><span class="quick-subject-dot"></span><span>All subjects</span></button>${groups.map((g) => `${showLabels ? `<div class="quick-group-label">${escapeHtml(g.label)}</div>` : ""}${g.subjects.map((r) => `<button type="button" role="menuitem" class="quick-subject-item ${r.id === currentSubjectId ? "active" : ""}" data-subject-id="${escapeHtml(r.id)}" data-subject="${escapeHtml(r.key)}"><span class="quick-subject-dot"></span><span>${escapeHtml(r.name)}</span></button>`).join("")}`).join("")}`;
+  listEl?.querySelectorAll(".subject-pill").forEach((btn) => { btn.addEventListener("click", () => selectSidebarSubject(btn.dataset.subjectId)); btn.addEventListener("contextmenu", (event) => { event.preventDefault(); const menu = ensureSubjectPillMenu(); menu.style.left = `${event.clientX}px`; menu.style.top = `${event.clientY}px`; menu.classList.add("open"); menu.querySelectorAll("button").forEach((action) => { action.onclick = () => action.dataset.action === "rename" ? renameSubjectFromShell(btn.dataset.subjectId) : deleteSubjectFromShell(btn.dataset.subjectId); }); }); });
+  listEl?.querySelectorAll(".subject-edit-row").forEach((row) => { row.querySelector('[data-action="rename"]')?.addEventListener("click", () => renameSubjectFromShell(row.dataset.subjectId)); row.querySelector('[data-action="delete"]')?.addEventListener("click", () => deleteSubjectFromShell(row.dataset.subjectId)); const handle = row.querySelector(".subject-drag-handle"); if (handle) attachSubjectDrag(row, handle); });
+  quickListEl?.querySelectorAll(".quick-subject-item").forEach((btn) => btn.addEventListener("click", () => { selectSidebarSubject(btn.dataset.subjectId || null); document.getElementById("sidebarQuickSubjectsMenu")?.classList.remove("open"); document.getElementById("sidebarQuickSubjects")?.setAttribute("aria-expanded", "false"); }));
 }
 
 async function selectSidebarSubject(subject) {
-  if (typeof window.closeSubjectDrawer === "function") {
-    window.closeSubjectDrawer();
-  }
-  const next = subject || null;
-  const subjectChanged = next !== currentSubject;
-  currentSubject = next;
-  setActiveTool(currentToolName);
-  await renderSidebarSubjects();
-
-  if (!subjectChanged) return;
-  if (currentToolName === "mindmap" && typeof window.__neuronetMindmapSetSubject === "function") {
-    // The mindmap animates between subject scopes in place; reloading the
-    // tool would destroy the canvas and lose the transition.
-    window.__neuronetMindmapSetSubject(next);
-  } else if (currentToolName) {
-    loadTool(currentToolName, { subject: next });
-  } else if (next) {
-    enterSubjectWorkspace(next);
-  } else {
-    returnToGlobalLaunchpad();
-  }
+  if (typeof window.closeSubjectDrawer === "function") window.closeSubjectDrawer();
+  const record = subject ? (typeof subject === "object" ? subject : await (async () => { const rows = await readSubjects(); return rows.find((r) => r.id === subject || r.key === subject) || null; })()) : null;
+  const next = record?.key || null; const nextId = record?.id || null; const subjectChanged = nextId !== currentSubjectId;
+  currentSubject = next; currentSubjectId = nextId; setActiveTool(currentToolName); await renderSidebarSubjects(); if (!subjectChanged) return;
+  if (currentToolName === "mindmap" && typeof window.__neuronetMindmapSetSubject === "function") window.__neuronetMindmapSetSubject(next);
+  else if (currentToolName) loadTool(currentToolName, record ? { subject: record.key, subjectId: record.id, subjectLabel: record.name, subjectLevel: record.level } : {});
+  else if (next) enterSubjectWorkspace(next); else returnToGlobalLaunchpad();
 }
 
 window.__neuronetSelectSubject = selectSidebarSubject;
@@ -2244,6 +1901,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Every card needs a canonical deck home. This is idempotent and backfills
   // pre-deck databases into an Unsorted deck per subject.
   try {
+    await ensureSubjectIdentity();
     await ensureDeckMembership();
   } catch (error) {
     console.error("[DECKS] membership backfill failed:", error);
