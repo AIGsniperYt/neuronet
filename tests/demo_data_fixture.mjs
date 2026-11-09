@@ -1,5 +1,5 @@
 // tests/demo_data_fixture.mjs — execution-spec #42 integration fixture.
-// The real 110-node export (user's own tracker data, schemaVersion 7) is the
+// The real 112-node export (user's own tracker data, schemaVersion 8) is the
 // committed demo-data.json. This suite drives the REAL rows through the
 // canonical seams (monthFromWord / seriesId / courseKey identity + the
 // resolveBoundaryDecision decision path) and asserts the honesty contract:
@@ -48,14 +48,16 @@ const check = (name, cond, extra = "") => {
 const eq = (name, a, b) => check(name, JSON.stringify(a) === JSON.stringify(b), `\n      got ${JSON.stringify(a)} want ${JSON.stringify(b)}`);
 
 // ---- 1. The committed fixture is the real export --------------------------
-eq("fixture: schemaVersion 7", demo.schemaVersion, 7);
-check("fixture: 110 nodes", Array.isArray(demo.nodes) && demo.nodes.length === 110, `len=${demo.nodes && demo.nodes.length}`);
+eq("fixture: schemaVersion 8", demo.schemaVersion, 8);
+check("fixture: 112 nodes", Array.isArray(demo.nodes) && demo.nodes.length === 112, `len=${demo.nodes && demo.nodes.length}`);
 const byType = {};
 for (const n of demo.nodes) byType[n.type] = (byType[n.type] || 0) + 1;
-eq("fixture: type counts", byType, { source: 27, subject: 9, analysis: 15, pastpaper: 59 });
+eq("fixture: type counts", byType, { source: 26, subject: 12, analysis: 15, pastpaper: 59 });
 check("fixture: 14 cards", demo.cards.length === 14, `len=${demo.cards.length}`);
-check("fixture: 1 deck", demo.decks.length === 1, `len=${demo.decks.length}`);
+check("fixture: 4 decks", demo.decks.length === 4, `len=${demo.decks.length}`);
 check("fixture: 1 heap", demo.heaps.length === 1, `len=${demo.heaps.length}`);
+check("fixture: 12 subject records", demo.subjects.length === 12, `len=${demo.subjects.length}`);
+check("fixture: every owned record has subjectId", ["nodes", "quotes", "cues", "decks", "cards"].every((key) => demo[key].filter((r) => key === "cards" ? r.deck : r.subject).every((r) => r.subjectId)));
 
 const sources = demo.nodes.filter((n) => n.type === "source");
 check(
