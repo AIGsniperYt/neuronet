@@ -274,6 +274,7 @@ export async function initMemoryTool(deps, context = {}) {
       return;
     }
     state.currentSubject = String(deck.subject || "").trim();
+    state.currentSubjectId = deck.subjectId || state.subjectByKey.get(state.currentSubject)?.id || "";
     state.currentDeckId = String(deck.id || "");
     state.currentDeckName = String(deck.name || "");
     state.directCardsOnly = false;
@@ -1659,13 +1660,13 @@ export async function initMemoryTool(deps, context = {}) {
       const subjectDecks = flattenDeckTree(group.decks);
       const allIds = new Set(subjectDecks.map((deck) => String(deck.id)));
       const subjectCards = cards.filter((card) => allIds.has(String(card.deckId || "")));
-      const analysisCount = (await getAnalysisNodesForSubject(groupDecks[0]?.subject))?.length || 0;
+      const analysisCount = (await getAnalysisNodesForSubject(group.key))?.length || 0;
 
       const section = document.createElement("div");
       section.className = "card deck-subject";
       section.innerHTML = `
         <div class="deck-subject-header">
-          <div class="card-title">${escapeHtml(subjectDisplay(groupDecks[0]?.subject) || "Unsorted")}</div>
+          <div class="card-title">${escapeHtml(subjectDisplay(group.key) || "Unsorted")}</div>
           <div class="card-meta deck-stats">${subjectCards.length} cards${analysisCount ? ` · ${analysisCount} analysis` : ""}</div>
         </div>
         <div class="deck-tree" role="tree" aria-label="${escapeHtml(group.subject || "Unsorted")} decks"></div>
@@ -4896,30 +4897,23 @@ export async function initMemoryTool(deps, context = {}) {
 
   function populateDeckSubjectOptions(selected = "") {
     if (!deckSubjectOptions) return;
-    const names = new Set();
+    const renderOptions = (records) => {
+      if (!deckSubjectOptions) return;
+      const byKey = new Map((records || []).map((record) => [record.key, record]));
+      if (selected) byKey.set(selected, byKey.get(selected) || { key: selected, name: selected, level: "" });
+      deckSubjectOptions.innerHTML = [...byKey.values()]
+        .sort((a, b) => a.key.localeCompare(b.key))
+        .map((record) => `<option value="${escapeHtml(record.key)}">${escapeHtml(record.name)}${record.level ? ` · ${escapeHtml(record.level)}` : ""}</option>`)
+        .join("");
+    };
+    renderOptions(state.subjects);
     getSubjects()
       .then((subjects) => {
         state.subjects = subjects || [];
         state.subjectByKey = new Map(state.subjects.map((record) => [record.key, record]));
-        state.subjects.forEach((record) => names.add(record.key));
+        renderOptions(state.subjects);
       })
-      .catch(() => {})
-      .finally(() => {
-        if (selected) names.add(selected);
-        if (deckSubjectOptions) {
-          deckSubjectOptions.innerHTML = [...names]
-            .filter(Boolean)
-            .sort((a, b) => a.localeCompare(b))
-            .map((name) => `<option value="${escapeHtml(name)}"></option>`)
-            .join("");
-        }
-      });
-    if (selected) names.add(selected);
-    deckSubjectOptions.innerHTML = [...names]
-      .filter(Boolean)
-      .sort((a, b) => a.localeCompare(b))
-      .map((name) => `<option value="${escapeHtml(name)}"></option>`)
-      .join("");
+      .catch(() => {});
   }
 
   function closeDeckDelete() {

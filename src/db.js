@@ -150,7 +150,7 @@ export function initDB() {
               data[name] = req.result || [];
               if (--pending === 0) {
                 const migrated = migrateSubjectIdentity(data);
-                for (const record of migrated.subjects) subjectsStore.put(record);
+                for (const record of migrated.subjects) subjectsStore.put({ ...record, keyNorm: String(record.key || "").trim().toLocaleLowerCase() });
                 for (const name of names) for (const record of migrated[name] || []) tx.objectStore(name).put(record);
               }
             };
@@ -1593,11 +1593,13 @@ export function groupDecksBySubject(decks = [], { direction = "desc", subjectsBy
     .map(([key, groupDecks]) => {
       const record = subjectsByKey?.get?.(key) || subjectsByKey?.[key];
       return {
-      subjectId: record?.id || groupDecks[0]?.subjectId || "",
-      subject: record?.name || key,
-      level: record?.level || "",
-      decks: buildDeckForest(groupDecks, { direction })
-    }; });
+        key,
+        subjectId: record?.id || groupDecks[0]?.subjectId || "",
+        subject: record?.name || key,
+        level: record?.level || "",
+        decks: buildDeckForest(groupDecks, { direction })
+      };
+    });
 }
 
 // ========== DECK DELETION ==========
@@ -1984,7 +1986,11 @@ export async function addSubject(nameOrOptions) {
   const parsed = typeof nameOrOptions === "string" ? parseSubjectName(nameOrOptions) : { name: nameOrOptions?.name || "", level: nameOrOptions?.level || "" };
   const key = subjectKey(parsed.name, parsed.level); if (!key) throw new Error("Subject name is required");
   const existing = await getSubjectByKey(key); if (existing) return existing;
-  const now = Date.now(); const record = { ...createSubjectRecord({ ...parsed, key, order: (await getAllSubjects()).filter((s) => subjectKeyMatches(s.level, parsed.level)).length }), id: `subj_${crypto.randomUUID()}`, createdAt: now, updatedAt: now };
+  // Subject order is global (setSubjectOrder rewrites every row), so append
+  // after the highest existing order. Counting rows in the same level would
+  // collide after a delete or with imported non-contiguous orders.
+  const order = (await getAllSubjects()).reduce((max, subject) => Math.max(max, Number(subject.order) || 0), -1) + 1;
+  const now = Date.now(); const record = { ...createSubjectRecord({ ...parsed, key, order }), id: `subj_${crypto.randomUUID()}`, createdAt: now, updatedAt: now };
   await addSubjects([record]);
   await addNode({ id: `subject-${record.id}`, type: "subject", subject: key, subjectId: record.id, name: key, level: record.level, createdAt: now, updatedAt: now });
   try { await findOrCreateUnsortedDeck(key, record.id); } catch (error) { console.warn("[DECKS] could not create Unsorted deck for subject:", error); }
