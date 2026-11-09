@@ -2028,7 +2028,20 @@ export async function deleteSubject(idOrKey) {
 export async function mergeSubjects(sourceId, targetId) {
   const source = await resolveSubject(sourceId); const target = await resolveSubject(targetId); if (!source || !target || source.id === target.id) return target;
   const [nodes, quotes, cues, cards, decks] = await Promise.all([getAllNodes(), getAllQuotes(), getAllCues(), getAllCards(), getAllDecks()]);
+  const sourceUnsorted = decks.find((d) => d.subjectId === source.id && !d.parentId && d.name === UNSORTED_DECK_NAME);
+  const targetUnsorted = decks.find((d) => d.subjectId === target.id && !d.parentId && d.name === UNSORTED_DECK_NAME);
   await Promise.all([addNodes(nodes.filter((r) => r.subjectId === source.id || (!r.subjectId && r.subject === source.key)).map((r) => ({ ...r, subjectId: target.id, subject: target.key, name: r.type === "subject" ? target.key : r.name }))), addQuotes(quotes.filter((r) => r.subjectId === source.id || (!r.subjectId && r.subject === source.key)).map((r) => ({ ...r, subjectId: target.id, subject: target.key }))), addCues(cues.filter((r) => r.subjectId === source.id || (!r.subjectId && r.subject === source.key)).map((r) => ({ ...r, subjectId: target.id, subject: target.key }))), addCards(cards.filter((r) => r.subjectId === source.id || (!r.subjectId && r.deck === source.key)).map((r) => ({ ...r, subjectId: target.id, deck: target.key }))), addDecks(decks.filter((r) => r.subjectId === source.id || (!r.subjectId && r.subject === source.key)).map((r) => ({ ...r, subjectId: target.id, subject: target.key }))) ]);
+  // Both subjects usually have a root "Unsorted" deck. After the move they
+  // would appear as two identical roots in Memory, so fold the source one into
+  // the target's deck and keep every card.
+  if (sourceUnsorted && targetUnsorted && sourceUnsorted.id !== targetUnsorted.id) {
+    const now = Date.now();
+    const orphanCards = (await getAllCards()).filter((card) => card.deckId === sourceUnsorted.id);
+    if (orphanCards.length) await addCards(orphanCards.map((card) => ({ ...card, deckId: targetUnsorted.id, deckPath: [target.key, targetUnsorted.name], updatedAt: now })));
+    const childDecks = (await getAllDecks()).filter((deck) => deck.parentId === sourceUnsorted.id);
+    for (const child of childDecks) await addDeck({ ...child, parentId: targetUnsorted.id, updatedAt: now });
+    await deleteDeckRecord(sourceUnsorted.id);
+  }
   await new Promise((resolve, reject) => { const tx = db.transaction("subjects", "readwrite"); tx.objectStore("subjects").delete(source.id); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); });
   const node = (await getAllNodes()).find((r) => r.id === `subject-${source.id}`); if (node) await deleteNode(node.id); return target;
 }
