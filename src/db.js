@@ -1,6 +1,7 @@
+import { createSubjectRecord, parseSubjectName, subjectKey, subjectKeyMatches, migrateSubjectIdentity, compareSubjectRecords } from "./subjectModel.js";
 let db;
 
-const DB_VERSION = 11;
+const DB_VERSION = 12;
 
 // Decks are canonical folders inside a subject. Cards point at one deck via
 // deckId; the legacy `card.deck` string remains the subject owner until the
@@ -122,6 +123,39 @@ export function initDB() {
         deckStore.createIndex("subject", "subject", { unique: false });
         deckStore.createIndex("parentId", "parentId", { unique: false });
         deckStore.createIndex("createdAt", "createdAt", { unique: false });
+      }
+
+      for (const storeName of ["nodes", "quotes", "cues", "decks", "cards"]) {
+        if (db.objectStoreNames.contains(storeName)) {
+          const store = tx.objectStore(storeName);
+          if (!store.indexNames.contains("subjectId")) store.createIndex("subjectId", "subjectId", { unique: false });
+        }
+      }
+
+      const creatingSubjects = !db.objectStoreNames.contains("subjects");
+      if (creatingSubjects) {
+        const subjectsStore = db.createObjectStore("subjects", { keyPath: "id" });
+        subjectsStore.createIndex("key", "key", { unique: false });
+        subjectsStore.createIndex("keyNorm", "keyNorm", { unique: true });
+        subjectsStore.createIndex("name", "name", { unique: false });
+        subjectsStore.createIndex("level", "level", { unique: false });
+        subjectsStore.createIndex("order", "order", { unique: false });
+        const names = ["nodes", "quotes", "cues", "cards", "decks"].filter((name) => db.objectStoreNames.contains(name));
+        if (names.length) {
+          const data = {};
+          let pending = names.length;
+          for (const name of names) {
+            const req = tx.objectStore(name).getAll();
+            req.onsuccess = () => {
+              data[name] = req.result || [];
+              if (--pending === 0) {
+                const migrated = migrateSubjectIdentity(data);
+                for (const record of migrated.subjects) subjectsStore.put(record);
+                for (const name of names) for (const record of migrated[name] || []) tx.objectStore(name).put(record);
+              }
+            };
+          }
+        }
       }
 
       if (!db.objectStoreNames.contains("heaps")) {
@@ -1404,19 +1438,20 @@ export function clearDecks() {
   });
 }
 
-async function findOrCreateUnsortedDeck(subject) {
+async function findOrCreateUnsortedDeck(subject, subjectId = "") {
   const normalizedSubject = String(subject || "").trim();
   const decks = await getAllDecks().catch(() => []);
   const existing = decks.find((deck) => (
     !deck.parentId
     && deck.name === UNSORTED_DECK_NAME
-    && String(deck.subject || "").trim() === normalizedSubject
+    && (subjectId ? deck.subjectId === subjectId : String(deck.subject || "").trim() === normalizedSubject)
   ));
   if (existing) return existing;
 
   return addDeck({
     name: UNSORTED_DECK_NAME,
     subject: normalizedSubject,
+    subjectId: subjectId || undefined,
     parentId: null
   });
 }
@@ -1546,7 +1581,7 @@ export function getDeckDescendantIds(decks = [], deckId) {
   return out;
 }
 
-export function groupDecksBySubject(decks = [], { direction = "desc" } = {}) {
+export function groupDecksBySubject(decks = [], { direction = "desc", subjectsByKey } = {}) {
   const groups = new Map();
   for (const deck of decks) {
     const subject = String(deck.subject || "").trim();
@@ -1555,10 +1590,14 @@ export function groupDecksBySubject(decks = [], { direction = "desc" } = {}) {
   }
   return [...groups.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([subject, groupDecks]) => ({
-      subject,
+    .map(([key, groupDecks]) => {
+      const record = subjectsByKey?.get?.(key) || subjectsByKey?.[key];
+      return {
+      subjectId: record?.id || groupDecks[0]?.subjectId || "",
+      subject: record?.name || key,
+      level: record?.level || "",
       decks: buildDeckForest(groupDecks, { direction })
-    }));
+    }; });
 }
 
 // ========== DECK DELETION ==========
@@ -1928,145 +1967,82 @@ export async function setPinnedToolsOrder(toolIds) {
 
 // ========== SUBJECTS ==========
 
-export async function getSubjects() {
-  const [allNodes, allQuotes, allCards] = await Promise.all([
-    getAllNodes(),
-    getAllQuotes(),
-    getAllCards()
+function readAll(storeName) {
+  return new Promise((resolve, reject) => { const tx = db.transaction(storeName, "readonly"); const req = tx.objectStore(storeName).getAll(); req.onsuccess = () => resolve(req.result || []); req.onerror = () => reject(req.error); });
+}
+function writeRows(storeName, rows, mode = "readwrite") {
+  return new Promise((resolve, reject) => { const tx = db.transaction(storeName, mode); const store = tx.objectStore(storeName); for (const row of rows) store.put(row); tx.oncomplete = () => resolve(rows); tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error); });
+}
+export async function getAllSubjects() { return (await readAll("subjects")).sort(compareSubjectRecords); }
+export async function getSubject(id) { const all = await getAllSubjects(); return all.find((s) => s.id === id) || null; }
+export async function getSubjectByKey(key) { const all = await getAllSubjects(); return all.find((s) => subjectKeyMatches(s.key, key)) || null; }
+export async function resolveSubject(idOrKey) { return await getSubject(idOrKey) || await getSubjectByKey(idOrKey); }
+export async function getSubjects() { return getAllSubjects(); }
+export async function addSubjects(records = []) { return writeRows("subjects", records.map((record) => ({ ...record, keyNorm: String(record.key || "").trim().toLocaleLowerCase() }))); }
+export async function clearSubjects() { return new Promise((resolve, reject) => { const tx = db.transaction("subjects", "readwrite"); tx.objectStore("subjects").clear(); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); }); }
+export async function addSubject(nameOrOptions) {
+  const parsed = typeof nameOrOptions === "string" ? parseSubjectName(nameOrOptions) : { name: nameOrOptions?.name || "", level: nameOrOptions?.level || "" };
+  const key = subjectKey(parsed.name, parsed.level); if (!key) throw new Error("Subject name is required");
+  const existing = await getSubjectByKey(key); if (existing) return existing;
+  const now = Date.now(); const record = { ...createSubjectRecord({ ...parsed, key, order: (await getAllSubjects()).filter((s) => subjectKeyMatches(s.level, parsed.level)).length }), id: `subj_${crypto.randomUUID()}`, createdAt: now, updatedAt: now };
+  await addSubjects([record]);
+  await addNode({ id: `subject-${record.id}`, type: "subject", subject: key, subjectId: record.id, name: key, level: record.level, createdAt: now, updatedAt: now });
+  try { await findOrCreateUnsortedDeck(key, record.id); } catch (error) { console.warn("[DECKS] could not create Unsorted deck for subject:", error); }
+  return record;
+}
+export async function setSubjectOrder(orderedIds = []) { const records = await getAllSubjects(); const byId = new Map(records.map((s) => [s.id, s])); await addSubjects(orderedIds.map((id, order) => byId.has(id) ? { ...byId.get(id), order, updatedAt: Date.now() } : null).filter(Boolean)); }
+export async function renameSubject(idOrKey, newNameOrOptions) {
+  const record = await resolveSubject(idOrKey); if (!record) return null;
+  const next = typeof newNameOrOptions === "string" ? { ...record, ...parseSubjectName(newNameOrOptions) } : { ...record, name: newNameOrOptions?.name ?? record.name, level: newNameOrOptions?.level ?? record.level };
+  const nextKey = subjectKey(next.name, next.level); const other = await getSubjectByKey(nextKey);
+  if (other && other.id !== record.id) { const error = new Error("A subject with this name and level already exists"); error.code = "SUBJECT_KEY_EXISTS"; throw error; }
+  const now = Date.now(); const updated = { ...record, name: next.name, level: next.level, key: nextKey, updatedAt: now }; await addSubjects([updated]);
+  const [nodes, quotes, cues, cards, decks] = await Promise.all([getAllNodes(), getAllQuotes(), getAllCues(), getAllCards(), getAllDecks()]);
+  await Promise.all([
+    addNodes(nodes.filter((r) => r.subjectId === record.id || (!r.subjectId && subjectKeyMatches(r.subject, record.key))).map((r) => ({ ...r, subjectId: record.id, subject: r.subject === record.key ? nextKey : r.subject, name: r.type === "subject" ? nextKey : r.name, title: r.type === "subject" ? nextKey : r.title, meta: r.meta?.hierarchyPath ? { ...r.meta, hierarchyPath: [nextKey, ...r.meta.hierarchyPath.slice(1)] } : r.meta, updatedAt: now }))),
+    addQuotes(quotes.filter((r) => r.subjectId === record.id || (!r.subjectId && subjectKeyMatches(r.subject, record.key))).map((r) => ({ ...r, subjectId: record.id, subject: nextKey, meta: r.meta?.hierarchyPath ? { ...r.meta, hierarchyPath: [nextKey, ...r.meta.hierarchyPath.slice(1)] } : r.meta, updatedAt: now }))),
+    addCues(cues.filter((r) => r.subjectId === record.id || (!r.subjectId && subjectKeyMatches(r.subject, record.key))).map((r) => ({ ...r, subjectId: record.id, subject: nextKey, updatedAt: now }))),
+    addCards(cards.filter((r) => r.subjectId === record.id || (!r.subjectId && subjectKeyMatches(r.deck, record.key))).map((r) => ({ ...r, subjectId: record.id, deck: r.deck === record.key ? nextKey : r.deck, deckPath: (r.deckPath || []).map((v, i) => i === 0 && v === record.key ? nextKey : v), updatedAt: now }))),
+    addDecks(decks.filter((r) => r.subjectId === record.id || (!r.subjectId && subjectKeyMatches(r.subject, record.key))).map((r) => ({ ...r, subjectId: record.id, subject: nextKey, updatedAt: now })))
+  ]); return updated;
+}
+export async function setSubjectLevel(id, level) { const subject = await getSubject(id); return subject ? renameSubject(id, { name: subject.name, level }) : null; }
+export async function deleteSubject(idOrKey) {
+  const subject = await resolveSubject(idOrKey); if (!subject) return null; const key = subject.key;
+  const [nodes, quotes, cues, cards, decks] = await Promise.all([getAllNodes(), getAllQuotes(), getAllCues(), getAllCards(), getAllDecks()]);
+  await Promise.all([
+    ...cards.filter((r) => r.subjectId === subject.id || (!r.subjectId && subjectKeyMatches(r.deck, key))).map((r) => deleteCard(r.id)),
+    ...decks.filter((r) => r.subjectId === subject.id || (!r.subjectId && subjectKeyMatches(r.subject, key))).map((r) => deleteDeckRecord(r.id)),
+    ...nodes.filter((r) => r.subjectId === subject.id || (!r.subjectId && subjectKeyMatches(r.subject, key))).map((r) => deleteNode(r.id)),
+    ...quotes.filter((r) => r.subjectId === subject.id || (!r.subjectId && subjectKeyMatches(r.subject, key))).map((r) => deleteQuote(r.id)),
+    ...cues.filter((r) => r.subjectId === subject.id || (!r.subjectId && subjectKeyMatches(r.subject, key))).map((r) => deleteCue(r.id))
   ]);
-  const subjects = new Set();
-  allNodes.forEach(node => {
-    if (node.subject) subjects.add(node.subject);
-  });
-  allQuotes.forEach(quote => {
-    if (quote.subject) subjects.add(quote.subject);
-  });
-  allCards.forEach(card => {
-    if (card.deck) subjects.add(card.deck);
-  });
-  return Array.from(subjects).sort();
+  await new Promise((resolve, reject) => { const tx = db.transaction("subjects", "readwrite"); tx.objectStore("subjects").delete(subject.id); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); }); return subject;
 }
-
-export async function addSubject(name) {
-  const subjectNode = {
-    id: `subject-${crypto.randomUUID()}`,
-    type: "subject",
-    subject: name,
-    name: name,
-    createdAt: Date.now(),
-    updatedAt: Date.now()
-  };
-  const node = await addNode(subjectNode);
-  try {
-    await findOrCreateUnsortedDeck(name);
-  } catch (error) {
-    console.warn("[DECKS] could not create Unsorted deck for subject:", error);
-  }
-  return node;
+export async function mergeSubjects(sourceId, targetId) {
+  const source = await resolveSubject(sourceId); const target = await resolveSubject(targetId); if (!source || !target || source.id === target.id) return target;
+  const [nodes, quotes, cues, cards, decks] = await Promise.all([getAllNodes(), getAllQuotes(), getAllCues(), getAllCards(), getAllDecks()]);
+  await Promise.all([addNodes(nodes.filter((r) => r.subjectId === source.id || (!r.subjectId && r.subject === source.key)).map((r) => ({ ...r, subjectId: target.id, subject: target.key, name: r.type === "subject" ? target.key : r.name }))), addQuotes(quotes.filter((r) => r.subjectId === source.id || (!r.subjectId && r.subject === source.key)).map((r) => ({ ...r, subjectId: target.id, subject: target.key }))), addCues(cues.filter((r) => r.subjectId === source.id || (!r.subjectId && r.subject === source.key)).map((r) => ({ ...r, subjectId: target.id, subject: target.key }))), addCards(cards.filter((r) => r.subjectId === source.id || (!r.subjectId && r.deck === source.key)).map((r) => ({ ...r, subjectId: target.id, deck: target.key }))), addDecks(decks.filter((r) => r.subjectId === source.id || (!r.subjectId && r.subject === source.key)).map((r) => ({ ...r, subjectId: target.id, subject: target.key }))) ]);
+  await new Promise((resolve, reject) => { const tx = db.transaction("subjects", "readwrite"); tx.objectStore("subjects").delete(source.id); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); });
+  const node = (await getAllNodes()).find((r) => r.id === `subject-${source.id}`); if (node) await deleteNode(node.id); return target;
 }
-
-export async function deleteSubject(subjectName) {
-  const allNodes = await getAllNodes();
-  const allQuotes = await getAllQuotes();
-  const allCues = await getAllCues();
-  const subjectCards = await getCardsForDeck(subjectName);
-  const subjectDecks = await getDecksForSubject(subjectName).catch(() => []);
-
-  const subjectNodes = allNodes.filter(n => n.subject === subjectName);
-  const subjectQuotes = allQuotes.filter(q => q.subject === subjectName);
-  const subjectCues = allCues.filter(cue => cue.subject === subjectName);
-
-  for (const card of subjectCards) {
-    await deleteCard(card.id);
-  }
-  for (const deck of subjectDecks) {
-    await deleteDeckRecord(deck.id);
-  }
-  for (const node of subjectNodes) {
-    await deleteNode(node.id);
-  }
-  for (const quote of subjectQuotes) {
-    await deleteQuote(quote.id);
-  }
-  for (const cue of subjectCues) {
-    await deleteCue(cue.id);
-  }
-
-  return subjectName;
+export async function ensureSubjectIdentity() {
+  const [subjects, nodes, quotes, cues, cards, decks] = await Promise.all([getAllSubjects(), getAllNodes(), getAllQuotes(), getAllCues(), getAllCards(), getAllDecks()]);
+  const migrated = migrateSubjectIdentity({ nodes, quotes, cues, cards, decks }); const byKey = new Map(subjects.map((s) => [s.key.toLocaleLowerCase(), s]));
+  for (const candidate of migrated.subjects) if (!byKey.has(candidate.key.toLocaleLowerCase())) { const s = { ...candidate, id: `subj_${crypto.randomUUID()}`, createdAt: Date.now(), updatedAt: Date.now() }; await addSubjects([s]); byKey.set(s.key.toLocaleLowerCase(), s); }
+  const idByKey = new Map([...byKey.values()].map((s) => [s.key.toLocaleLowerCase(), s.id]));
+  for (const [store, rows, owner] of [["nodes", nodes, "subject"], ["quotes", quotes, "subject"], ["cues", cues, "subject"], ["cards", cards, "deck"], ["decks", decks, "subject"]]) { const changed = rows.map((r) => { const k = String(r[owner] || r.meta?.hierarchyPath?.[0] || r.deckPath?.[0] || "").trim(); const id = r.subjectId || idByKey.get(k.toLocaleLowerCase()); return id && id !== r.subjectId ? { ...r, subjectId: id } : null; }).filter(Boolean); if (changed.length) await writeRows(store, changed); }
+  for (const s of await getAllSubjects()) if (!(await getAllNodes()).some((n) => n.type === "subject" && n.subjectId === s.id)) await addNode({ id: `subject-${s.id}`, type: "subject", subject: s.key, subjectId: s.id, name: s.key, level: s.level, createdAt: s.createdAt, updatedAt: s.updatedAt });
+  return getAllSubjects();
 }
-
-export async function renameSubject(oldName, newName) {
-  const allNodes = await getAllNodes();
-  const allQuotes = await getAllQuotes();
-  const allCues = await getAllCues();
-  const allCards = await getAllCards();
-  const subjectDecks = await getDecksForSubject(oldName).catch(() => []);
-  const now = Date.now();
-
-  const subjectNodes = allNodes.filter(n => n.subject === oldName);
-  const subjectQuotes = allQuotes.filter(q => q.subject === oldName);
-  const subjectCues = allCues.filter(cue => cue.subject === oldName);
-  const subjectCards = allCards.filter((card) => (
-    card.deck === oldName || (card.deckPath || []).includes(oldName)
-  ));
-
-  for (const deck of subjectDecks) {
-    await addDeck({
-      ...deck,
-      subject: newName,
-      updatedAt: now
-    });
-  }
-  for (const card of subjectCards) {
-    await addCard({
-      ...card,
-      deck: card.deck === oldName ? newName : card.deck,
-      deckPath: (card.deckPath || []).map((part) => part === oldName ? newName : part),
-      updatedAt: now
-    });
-  }
-  for (const node of subjectNodes) {
-    const copy = { ...node };
-    copy.subject = newName;
-    if (typeof copy.name === "string") {
-      copy.name = newName;
-    }
-    if (copy.type === "subject" || copy.meta?.kind === "subject") {
-      copy.title = newName;
-    }
-    if (Array.isArray(copy.meta?.hierarchyPath) && copy.meta.hierarchyPath.length) {
-      copy.meta = {
-        ...copy.meta,
-        hierarchyPath: [newName, ...copy.meta.hierarchyPath.slice(1)]
-      };
-    }
-    copy.updatedAt = now;
-    await deleteNode(node.id);
-    await addNode(copy);
-  }
-  for (const quote of subjectQuotes) {
-    const path = Array.isArray(quote.meta?.hierarchyPath) ? quote.meta.hierarchyPath : [];
-    await deleteQuote(quote.id);
-    await addQuote({
-      ...quote,
-      subject: newName,
-      meta: {
-        ...(quote.meta || {}),
-        hierarchyPath: path.length ? [newName, ...path.slice(1)] : path
-      },
-      updatedAt: now
-    });
-  }
-  for (const cue of subjectCues) {
-    await addCue({
-      ...cue,
-      subject: newName,
-      updatedAt: now
-    });
-  }
-
-  return newName;
-}
+export async function getQuotesForSubjectId(id) { return (await getAllQuotes()).filter((r) => r.subjectId === id); }
+export async function getAnalysisNodesForSubjectId(id) { return (await getAllNodes()).filter((r) => r.subjectId === id && r.type === "analysis"); }
+export async function getDueQuotesForSubjectId(id, options) { const { now = Date.now(), limit = 200 } = options || {}; return (await getQuotesForSubjectId(id)).filter((r) => Number(r.meta?.nextReview || 0) <= now).slice(0, limit); }
+export async function getDueAnalysisNodesForSubjectId(id, options) { const { now = Date.now(), limit = 200 } = options || {}; return (await getAnalysisNodesForSubjectId(id)).filter((r) => Number(r.meta?.nextReview || 0) <= now).slice(0, limit); }
+export async function getCuesForSubjectId(id) { return (await getAllCues()).filter((r) => r.subjectId === id); }
+export async function getDecksForSubjectId(id) { return (await getAllDecks()).filter((r) => r.subjectId === id); }
+export async function getCardsForSubjectId(id) { return (await getAllCards()).filter((r) => r.subjectId === id); }
+export async function getDueCardsForSubjectId(id, options) { const { now = Date.now(), limit = 200 } = options || {}; return (await getCardsForSubjectId(id)).filter((r) => Number(r.meta?.nextReview || 0) <= now).slice(0, limit); }
 
 // ========== TAGS ==========
 
