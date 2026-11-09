@@ -1300,19 +1300,33 @@ function htmlToPlainText(html) {
     requestAnimationFrame(() => sourceNavigatorSearch?.focus());
   }
 
+  // The WYSIWYG editor serializes hard line breaks without the two trailing
+  // spaces that markdown sources usually carry. Compare a canonical form so
+  // merely opening a source does not look like an unsaved edit.
+  function canonicalSourceMarkdown(value) {
+    return String(value || "").replace(/\r\n?/g, "\n").replace(/[ \t]+$/gm, "").trim();
+  }
+
+  let sourceFormBaseline = null;
+  function snapshotSourceForm() {
+    sourceFormBaseline = {
+      title: sourceTitleInput.value.trim(),
+      subject: sourceSubjectInput.value.trim(),
+      level1: sourceLevel1Input.value.trim(),
+      level2: sourceLevel2Input.value.trim(),
+      level3: sourceLevel3Input.value.trim(),
+      markdown: canonicalSourceMarkdown(mdEditor.getMarkdown())
+    };
+  }
+
   function sourceFormIsDirty() {
-    if (state.isCreatingSource) {
-      return Boolean(sourceTitleInput?.value.trim() || sourceSubjectInput?.value.trim() || mdEditor.getMarkdown().trim());
-    }
-    const source = getSourceById(state.selectedSourceId);
-    if (!source || state.viewMode !== "editor") return false;
-    const path = sourceHierarchy(source);
-    return sourceTitleInput.value.trim() !== String(source.title || "").trim()
-      || sourceSubjectInput.value.trim() !== String(source.subject || "").trim()
-      || sourceLevel1Input.value.trim() !== String(path[1] || "").trim()
-      || sourceLevel2Input.value.trim() !== String(path[2] || "").trim()
-      || sourceLevel3Input.value.trim() !== String(path[3] || "").trim()
-      || mdEditor.getMarkdown().trim() !== String(sourceMarkdown(source) || "").trim();
+    if (!sourceFormBaseline) return false;
+    return sourceTitleInput.value.trim() !== sourceFormBaseline.title
+      || sourceSubjectInput.value.trim() !== sourceFormBaseline.subject
+      || sourceLevel1Input.value.trim() !== sourceFormBaseline.level1
+      || sourceLevel2Input.value.trim() !== sourceFormBaseline.level2
+      || sourceLevel3Input.value.trim() !== sourceFormBaseline.level3
+      || canonicalSourceMarkdown(mdEditor.getMarkdown()) !== sourceFormBaseline.markdown;
   }
 
   async function confirmSourceNavigation() {
@@ -2101,6 +2115,7 @@ function htmlToPlainText(html) {
     // per-document line-break preference (falls back to the account default)
     mdEditor.setSoftBreaks(sourceSoftBreaks(source), { persist: false });
     mdEditor.setMarkdown(sourceMarkdown(source));
+    snapshotSourceForm();
   }
 
   function resetSourceForm() {
@@ -2109,6 +2124,7 @@ function htmlToPlainText(html) {
     sourceSubjectInput.value = state.selectedSubject;
     mdEditor.setSoftBreaks(getSoftBreaksDefault(), { persist: false });
     mdEditor.setMarkdown("");
+    snapshotSourceForm();
   }
 
   // ========== NEW: QUOTE AND ANALYSIS LINKING FUNCTIONS ==========
