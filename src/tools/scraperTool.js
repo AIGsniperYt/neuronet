@@ -11,9 +11,10 @@ import {
 } from "./gradeBoundaries.js";
 import { adapterFor, defaultSeriesWindow } from "./examData/adapters.js";
 import { VERIFIED_CATALOGUE } from "./examData/sources/PearsonSource.js";
+import { parseSubjectName, qualificationForLevel, qualificationLabel, subjectKeyMatches, subjectOptionLabel } from "../subjectModel.js";
 
 export function initScraperTool(deps, context = {}) {
-  const { escapeHtml, getAllNodes, activityToast } = deps;
+  const { escapeHtml, getAllNodes, getSubjects, activityToast } = deps;
   const $ = (id) => document.getElementById(id);
 
   const el = {
@@ -34,6 +35,10 @@ export function initScraperTool(deps, context = {}) {
 
   let subjects = [];
   let activeSuggestionIndex = -1;
+  // When the tool is opened from a subject, bias the pickers toward that
+  // subject's level + official qualification. This is a lens onto the same
+  // metadata the Tracker uses, not a second source of truth.
+  let contextSubject = null;
 
   // ---------- qualification registry (shared across boards) ----------
   const QR = {
@@ -190,6 +195,56 @@ export function initScraperTool(deps, context = {}) {
     if (el.seriesSelect && statePrefs.series && [...el.seriesSelect.options].some((o) => o.value === statePrefs.series)) {
       el.seriesSelect.value = statePrefs.series;
     }
+  }
+
+  // Resolve the subject the shell opened into this tool and default the board
+  // and qualification from its level/official link. Runs after restorePrefs so
+  // an explicit subject wins over the last remembered board/qual pair.
+  async function applySubjectContext() {
+    if (!context.subject && !context.subjectId) return;
+    let records = [];
+    if (typeof getSubjects === "function") {
+      try { records = (await getSubjects()) || []; } catch { records = []; }
+    }
+    let record = records.find((r) => context.subjectId ? r.id === context.subjectId : subjectKeyMatches(r.key, context.subject)) || null;
+    if (!record) {
+      const parsed = parseSubjectName(context.subject || context.subjectId || "");
+      if (parsed.name) record = { name: parsed.name, level: parsed.level, key: context.subject || parsed.name };
+    }
+    if (!record) return;
+    contextSubject = record;
+
+    let node = null;
+    if (typeof getAllNodes === "function") {
+      try {
+        const nodes = (await getAllNodes()) || [];
+        node = nodes.find((n) => n && n.type === "subject" && context.subjectId && n.subjectId === context.subjectId)
+          || nodes.find((n) => n && n.type === "subject" && subjectKeyMatches(n.subject || n.name, context.subject || record.key))
+          || null;
+      } catch { /* ignore */ }
+    }
+
+    const official = node && node.officialCourse;
+    const board = boardToId((official && official.board) || (node && node.examBoard));
+    if (board && el.boardSelect && [...el.boardSelect.options].some((o) => o.value === board)) {
+      el.boardSelect.value = board;
+      refreshPickers();
+    }
+    const fromLevel = qualificationForLevel(record.level || (node && node.level) || "");
+    const fallbackQual = qualToId((official && official.qual) || (node && node.qualification));
+    const qual = fromLevel || (fallbackQual === "alevel" ? "aLevel" : fallbackQual);
+    if (qual && el.qualSelect && [...el.qualSelect.options].some((o) => o.value === qual)) {
+      el.qualSelect.value = qual;
+    }
+    savePrefs({
+      board: el.boardSelect ? el.boardSelect.value : undefined,
+      qual: el.qualSelect ? el.qualSelect.value : undefined,
+      series: el.seriesSelect ? el.seriesSelect.value : undefined
+    });
+    const label = subjectOptionLabel(record);
+    const boardName = board === "aqa" ? "AQA" : board === "ocr" ? "OCR" : board === "pearson" ? "Pearson" : "";
+    const qualName = qualificationLabel(qual) || (qual === "aLevel" ? "A-Level" : "");
+    setStatus(`Opened for ${label}${boardName || qualName ? ` — ${[boardName, qualName].filter(Boolean).join(" ")}` : ""}.`, "ok");
   }
 
   // ---------- proxy ----------
@@ -794,13 +849,24 @@ export function initScraperTool(deps, context = {}) {
     items.forEach((n, i) => n.classList.toggle("active", i === activeSuggestionIndex));
   }
 
+  function contextSubjectMatches(subject) {
+    if (!contextSubject || !contextSubject.name) return false;
+    const wanted = normalize(contextSubject.name);
+    const title = normalize(subject.title);
+    return title === wanted || title.startsWith(wanted) || title.includes(wanted);
+  }
+
   function renderSubjectPicker(subjectList) {
     if (!el.subjectInput) return;
     el.subjectInput.disabled = false;
     el.subjectInput.value = "";
     el.subjectInput.placeholder = `Search ${subjectList.length} subjects...`;
 
-    const preferred = subjectList.find(englishLanguageMatches) || subjectList[0];
+    // Opening from "Biology · A-Level" should land on A-Level Biology, not on
+    // English Language or an arbitrary first row.
+    const preferred = subjectList.find(contextSubjectMatches)
+      || subjectList.find(englishLanguageMatches)
+      || subjectList[0];
     if (preferred) selectSubject(preferred);
   }
 
@@ -1361,7 +1427,7 @@ export function initScraperTool(deps, context = {}) {
     }
     await autoFetchLatest();
   };
-  autoDiscover();
+  applySubjectContext().catch(() => {}).then(autoDiscover);
 
   // Fetch the newest available series for each board×qual into the cache, but
   // only when the cache is missing or stale for that combination. Runs in the
@@ -1372,7 +1438,10 @@ export function initScraperTool(deps, context = {}) {
     const jobs = [];
     const queued = new Set();
     const qualificationForCourse = (board, course, meta) => {
-      const qualValue = course?.qual || meta?.qualification;
+      // Prefer the exact course, then stored qualification, then the subject's
+      // level. This lets an A-Level subject warm A-Level packs even before its
+      // official course has been linked.
+      const qualValue = course?.qual || meta?.qualification || qualificationLabel(meta?.level);
       if (!board || !qualValue) return null;
       const wanted = qualToId(qualValue);
       return Object.values(boardQuals[board] || QR).find((q) =>

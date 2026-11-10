@@ -1992,7 +1992,7 @@ export async function addSubject(nameOrOptions) {
   const order = (await getAllSubjects()).reduce((max, subject) => Math.max(max, Number(subject.order) || 0), -1) + 1;
   const now = Date.now(); const record = { ...createSubjectRecord({ ...parsed, key, order }), id: `subj_${crypto.randomUUID()}`, createdAt: now, updatedAt: now };
   await addSubjects([record]);
-  await addNode({ id: `subject-${record.id}`, type: "subject", subject: key, subjectId: record.id, name: key, level: record.level, createdAt: now, updatedAt: now });
+  await addNode({ id: `subject-${record.id}`, type: "subject", subject: key, subjectId: record.id, name: record.name, level: record.level, createdAt: now, updatedAt: now });
   try { await findOrCreateUnsortedDeck(key, record.id); } catch (error) { console.warn("[DECKS] could not create Unsorted deck for subject:", error); }
   return record;
 }
@@ -2005,7 +2005,17 @@ export async function renameSubject(idOrKey, newNameOrOptions) {
   const now = Date.now(); const updated = { ...record, name: next.name, level: next.level, key: nextKey, updatedAt: now }; await addSubjects([updated]);
   const [nodes, quotes, cues, cards, decks] = await Promise.all([getAllNodes(), getAllQuotes(), getAllCues(), getAllCards(), getAllDecks()]);
   await Promise.all([
-    addNodes(nodes.filter((r) => r.subjectId === record.id || (!r.subjectId && subjectKeyMatches(r.subject, record.key))).map((r) => ({ ...r, subjectId: record.id, subject: r.subject === record.key ? nextKey : r.subject, name: r.type === "subject" ? nextKey : r.name, title: r.type === "subject" ? nextKey : r.title, meta: r.meta?.hierarchyPath ? { ...r.meta, hierarchyPath: [nextKey, ...r.meta.hierarchyPath.slice(1)] } : r.meta, updatedAt: now }))),
+    addNodes(nodes.filter((r) => r.subjectId === record.id || (!r.subjectId && subjectKeyMatches(r.subject, record.key))).map((r) => {
+      const subjectNode = r.type === "subject";
+      return {
+        ...r,
+        subjectId: record.id,
+        subject: nextKey,
+        ...(subjectNode ? { name: next.name, title: next.name, level: next.level } : {}),
+        meta: r.meta?.hierarchyPath ? { ...r.meta, hierarchyPath: [nextKey, ...r.meta.hierarchyPath.slice(1)] } : r.meta,
+        updatedAt: now
+      };
+    })),
     addQuotes(quotes.filter((r) => r.subjectId === record.id || (!r.subjectId && subjectKeyMatches(r.subject, record.key))).map((r) => ({ ...r, subjectId: record.id, subject: nextKey, meta: r.meta?.hierarchyPath ? { ...r.meta, hierarchyPath: [nextKey, ...r.meta.hierarchyPath.slice(1)] } : r.meta, updatedAt: now }))),
     addCues(cues.filter((r) => r.subjectId === record.id || (!r.subjectId && subjectKeyMatches(r.subject, record.key))).map((r) => ({ ...r, subjectId: record.id, subject: nextKey, updatedAt: now }))),
     addCards(cards.filter((r) => r.subjectId === record.id || (!r.subjectId && subjectKeyMatches(r.deck, record.key))).map((r) => ({ ...r, subjectId: record.id, deck: r.deck === record.key ? nextKey : r.deck, deckPath: (r.deckPath || []).map((v, i) => i === 0 && v === record.key ? nextKey : v), updatedAt: now }))),
@@ -2030,7 +2040,22 @@ export async function mergeSubjects(sourceId, targetId) {
   const [nodes, quotes, cues, cards, decks] = await Promise.all([getAllNodes(), getAllQuotes(), getAllCues(), getAllCards(), getAllDecks()]);
   const sourceUnsorted = decks.find((d) => d.subjectId === source.id && !d.parentId && d.name === UNSORTED_DECK_NAME);
   const targetUnsorted = decks.find((d) => d.subjectId === target.id && !d.parentId && d.name === UNSORTED_DECK_NAME);
-  await Promise.all([addNodes(nodes.filter((r) => r.subjectId === source.id || (!r.subjectId && r.subject === source.key)).map((r) => ({ ...r, subjectId: target.id, subject: target.key, name: r.type === "subject" ? target.key : r.name }))), addQuotes(quotes.filter((r) => r.subjectId === source.id || (!r.subjectId && r.subject === source.key)).map((r) => ({ ...r, subjectId: target.id, subject: target.key }))), addCues(cues.filter((r) => r.subjectId === source.id || (!r.subjectId && r.subject === source.key)).map((r) => ({ ...r, subjectId: target.id, subject: target.key }))), addCards(cards.filter((r) => r.subjectId === source.id || (!r.subjectId && r.deck === source.key)).map((r) => ({ ...r, subjectId: target.id, deck: target.key }))), addDecks(decks.filter((r) => r.subjectId === source.id || (!r.subjectId && r.subject === source.key)).map((r) => ({ ...r, subjectId: target.id, subject: target.key }))) ]);
+  await Promise.all([
+    addNodes(nodes.filter((r) => r.subjectId === source.id || (!r.subjectId && r.subject === source.key)).map((r) => {
+      const subjectNode = r.type === "subject";
+      return {
+        ...r,
+        subjectId: target.id,
+        subject: target.key,
+        ...(subjectNode ? { name: target.name, title: target.name, level: target.level } : {}),
+        meta: r.meta?.hierarchyPath ? { ...r.meta, hierarchyPath: [target.key, ...r.meta.hierarchyPath.slice(1)] } : r.meta
+      };
+    })),
+    addQuotes(quotes.filter((r) => r.subjectId === source.id || (!r.subjectId && r.subject === source.key)).map((r) => ({ ...r, subjectId: target.id, subject: target.key, meta: r.meta?.hierarchyPath ? { ...r.meta, hierarchyPath: [target.key, ...r.meta.hierarchyPath.slice(1)] } : r.meta }))),
+    addCues(cues.filter((r) => r.subjectId === source.id || (!r.subjectId && r.subject === source.key)).map((r) => ({ ...r, subjectId: target.id, subject: target.key }))),
+    addCards(cards.filter((r) => r.subjectId === source.id || (!r.subjectId && r.deck === source.key)).map((r) => ({ ...r, subjectId: target.id, deck: target.key, deckPath: (r.deckPath || []).map((v, i) => i === 0 && v === source.key ? target.key : v) }))),
+    addDecks(decks.filter((r) => r.subjectId === source.id || (!r.subjectId && r.subject === source.key)).map((r) => ({ ...r, subjectId: target.id, subject: target.key })))
+  ]);
   // Both subjects usually have a root "Unsorted" deck. After the move they
   // would appear as two identical roots in Memory, so fold the source one into
   // the target's deck and keep every card.
@@ -2051,7 +2076,30 @@ export async function ensureSubjectIdentity() {
   for (const candidate of migrated.subjects) if (!byKey.has(candidate.key.toLocaleLowerCase())) { const s = { ...candidate, id: `subj_${crypto.randomUUID()}`, createdAt: Date.now(), updatedAt: Date.now() }; await addSubjects([s]); byKey.set(s.key.toLocaleLowerCase(), s); }
   const idByKey = new Map([...byKey.values()].map((s) => [s.key.toLocaleLowerCase(), s.id]));
   for (const [store, rows, owner] of [["nodes", nodes, "subject"], ["quotes", quotes, "subject"], ["cues", cues, "subject"], ["cards", cards, "deck"], ["decks", decks, "subject"]]) { const changed = rows.map((r) => { const k = String(r[owner] || r.meta?.hierarchyPath?.[0] || r.deckPath?.[0] || "").trim(); const id = r.subjectId || idByKey.get(k.toLocaleLowerCase()); return id && id !== r.subjectId ? { ...r, subjectId: id } : null; }).filter(Boolean); if (changed.length) await writeRows(store, changed); }
-  for (const s of await getAllSubjects()) if (!(await getAllNodes()).some((n) => n.type === "subject" && n.subjectId === s.id)) await addNode({ id: `subject-${s.id}`, type: "subject", subject: s.key, subjectId: s.id, name: s.key, level: s.level, createdAt: s.createdAt, updatedAt: s.updatedAt });
+
+  // Subject rows are the source of truth for display name and level; subject
+  // nodes are the compatibility projection other tools index. Keep them synced
+  // so old databases and imported datasets gain level metadata in place.
+  const allSubjects = await getAllSubjects();
+  const currentNodes = await getAllNodes();
+  const subjectNodesById = new Map(
+    currentNodes.filter((n) => n && n.type === "subject" && n.subjectId).map((n) => [n.subjectId, n])
+  );
+  const synced = [];
+  for (const subject of allSubjects) {
+    const node = subjectNodesById.get(subject.id);
+    if (!node) {
+      await addNode({
+        id: `subject-${subject.id}`, type: "subject", subject: subject.key, subjectId: subject.id,
+        name: subject.name, level: subject.level, createdAt: subject.createdAt, updatedAt: subject.updatedAt
+      });
+      continue;
+    }
+    if (node.subject !== subject.key || node.name !== subject.name || node.level !== subject.level) {
+      synced.push({ ...node, subject: subject.key, name: subject.name, level: subject.level, updatedAt: Date.now() });
+    }
+  }
+  if (synced.length) await addNodes(synced);
   return getAllSubjects();
 }
 export async function getQuotesForSubjectId(id) { return (await getAllQuotes()).filter((r) => r.subjectId === id); }

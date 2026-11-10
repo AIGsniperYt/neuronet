@@ -1,4 +1,4 @@
-import { parseSubjectName, subjectKey, subjectDisplay, compareSubjectRecords, groupSubjectRecords, migrateSubjectIdentity } from "../src/subjectModel.js";
+import { parseSubjectName, subjectKey, subjectDisplay, compareSubjectRecords, groupSubjectRecords, migrateSubjectIdentity, qualificationForLevel, normalizeQualificationId, qualificationLabel, levelsConflict, subjectOptionLabel } from "../src/subjectModel.js";
 let passed = 0; let failed = 0;
 const check = (name, value) => { if (value) { passed++; console.log(`ok   ${name}`); } else { failed++; console.log(`FAIL ${name}`); } };
 const stable = (value) => Array.isArray(value) ? value.map(stable) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable(value[key])])) : value;
@@ -12,6 +12,22 @@ export async function run() {
   eq("subject key includes level", subjectKey("Biology", "A-Level"), "Biology (A-Level)");
   eq("blank level key is name", subjectKey("Biology", " "), "Biology");
   eq("blank display level is General", subjectDisplay({ name: "Biology", level: "" }), { name: "Biology", level: "General" });
+  eq("A-Level level maps to aLevel", qualificationForLevel("A-Level"), "aLevel");
+  eq("A Level level maps to aLevel", qualificationForLevel("A Level"), "aLevel");
+  eq("GCSE level maps to gcse", qualificationForLevel("gcse"), "gcse");
+  eq("AS level maps to as", qualificationForLevel("AS"), "as");
+  eq("blank level has no qualification", qualificationForLevel(""), "");
+  eq("unknown level has no qualification", qualificationForLevel("College"), "");
+  eq("legacy alevel id normalises", normalizeQualificationId("alevel"), "aLevel");
+  eq("qualification label from id", qualificationLabel("aLevel"), "A-Level");
+  eq("qualification label from free text", qualificationLabel("GCSE"), "GCSE");
+  check("A-Level conflicts with GCSE", levelsConflict("A-Level", "GCSE"));
+  check("GCSE conflicts with A-Level", levelsConflict("GCSE", "A-Level"));
+  check("blank level never conflicts", !levelsConflict("", "GCSE"));
+  check("blank qualification never conflicts", !levelsConflict("A-Level", ""));
+  check("same level does not conflict", !levelsConflict("A-Level", "A-Level"));
+  eq("option label disambiguates level", subjectOptionLabel({ name: "Biology", level: "A-Level" }), "Biology \u00b7 A-Level");
+  eq("option label leaves General plain", subjectOptionLabel({ name: "Biology", level: "" }), "Biology");
   const records = [{ name: "Bio", level: "A-Level", order: 1 }, { name: "Biology", level: "A-Level", order: 0 }, { name: "Biology", level: "GCSE", order: 0 }, { name: "Physics", level: "", order: 0 }];
   check("comparator sorts order then name within level", compareSubjectRecords(records[1], records[0]) < 0);
   eq("groups sort levels with General last", groupSubjectRecords(records).map((g) => g.label), ["A-Level", "GCSE", "General"]);

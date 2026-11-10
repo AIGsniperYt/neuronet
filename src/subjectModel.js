@@ -27,6 +27,47 @@ export function subjectDisplay(record) {
   return { name: record?.name || "", level: record?.level || "General" };
 }
 
+// Qualification vocabulary used by the exam-data layer. Levels are free text,
+// so this is deliberately tolerant: "A Level", "A-Level" and "Alevel" all map
+// to the same qualification. An empty/unknown level stays empty rather than
+// silently becoming GCSE.
+export function qualificationForLevel(level) {
+  const text = collapseWhitespace(level).toLowerCase();
+  if (!text) return "";
+  if (text.includes("gcse")) return "gcse";
+  if (/\ba[\s-]?level\b/.test(text)) return "aLevel";
+  if (/^as(\b|$)/.test(text) || /^a\/s\b/.test(text)) return "as";
+  return "";
+}
+
+export function normalizeQualificationId(qual) {
+  const text = collapseWhitespace(qual).toLowerCase();
+  if (!text) return "";
+  if (text.includes("gcse")) return "gcse";
+  if (text.includes("a level") || text.includes("a-level") || text === "alevel") return "aLevel";
+  if (text === "as" || text === "a/s" || text === "as level" || text === "as-level") return "as";
+  return "";
+}
+
+export function qualificationLabel(qual) {
+  return { gcse: "GCSE", aLevel: "A-Level", as: "AS" }[normalizeQualificationId(qual)] || "";
+}
+
+// A level and an official course qualification conflict only when BOTH are
+// known and they name different qualifications. Unknown/blank data never
+// creates a false mismatch.
+export function levelsConflict(level, qual) {
+  const wanted = qualificationForLevel(level);
+  const offered = normalizeQualificationId(qual);
+  return !!wanted && !!offered && wanted !== offered;
+}
+
+export function subjectOptionLabel(record) {
+  const name = collapseWhitespace(record?.name);
+  const level = collapseWhitespace(record?.level);
+  return level ? `${name} \u00b7 ${level}` : name;
+}
+
 const groupOrder = (level) => level ? collapseWhitespace(level).toLocaleLowerCase() : "\uffff";
 export function compareSubjectRecords(a, b) {
   return groupOrder(a?.level).localeCompare(groupOrder(b?.level)) || (Number(a?.order) || 0) - (Number(b?.order) || 0) || String(a?.name || "").localeCompare(String(b?.name || ""), undefined, { sensitivity: "base" });

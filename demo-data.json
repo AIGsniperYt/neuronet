@@ -71,7 +71,8 @@
       "createdAt": 1788067815720,
       "updatedAt": 1791134049074,
       "id": "19d2cbfa-80b3-4714-8e22-ca43788af538",
-      "subjectId": "subj_72216ef2-03fc-406b-91fc-b3cf0b2be9f3"
+      "subjectId": "subj_72216ef2-03fc-406b-91fc-b3cf0b2be9f3",
+      "level": ""
     },
     {
       "type": "subject",
@@ -89,7 +90,8 @@
       "createdAt": 1788067815712,
       "updatedAt": 1788637599664,
       "id": "21a58f49-5bd1-47ce-a36a-6592d787d86f",
-      "subjectId": "subj_e71ff2e5-9db6-429d-a7c1-7c168d9995e6"
+      "subjectId": "subj_e71ff2e5-9db6-429d-a7c1-7c168d9995e6",
+      "level": ""
     },
     {
       "type": "subject",
@@ -107,7 +109,8 @@
       "createdAt": 1788067815715,
       "updatedAt": 1791015737111,
       "id": "220691d7-6708-45c2-85ad-b9587455a9cd",
-      "subjectId": "subj_1a8f5893-8521-4e1c-8135-1f0242d6efb2"
+      "subjectId": "subj_1a8f5893-8521-4e1c-8135-1f0242d6efb2",
+      "level": ""
     },
     {
       "type": "subject",
@@ -125,7 +128,8 @@
       "createdAt": 1788067815709,
       "updatedAt": 1788604455426,
       "id": "2217bc9a-08b9-43cb-8266-4f32266c8e8d",
-      "subjectId": "subj_da1f6e9e-f056-4050-a8cb-17f29faae2d7"
+      "subjectId": "subj_da1f6e9e-f056-4050-a8cb-17f29faae2d7",
+      "level": ""
     },
     {
       "id": "25ab3979-626d-4370-9470-21649d50a63e",
@@ -283,7 +287,8 @@
       "createdAt": 1788067815733,
       "updatedAt": 1788979521077,
       "id": "4eaf18a7-397a-4513-8f2e-90860879152d",
-      "subjectId": "subj_107acd21-e46e-45dd-a262-bb66fab22f07"
+      "subjectId": "subj_107acd21-e46e-45dd-a262-bb66fab22f07",
+      "level": ""
     },
     {
       "type": "subject",
@@ -301,7 +306,8 @@
       "createdAt": 1788067815736,
       "updatedAt": 1791135102952,
       "id": "4ee2b828-cabd-40d0-9446-d6c034acfaa9",
-      "subjectId": "subj_1ada8c29-60dc-4aad-bc2e-7918610c730b"
+      "subjectId": "subj_1ada8c29-60dc-4aad-bc2e-7918610c730b",
+      "level": ""
     },
     {
       "id": "508d2969-4ab6-480d-8ab9-1622332c9e53",
@@ -1009,7 +1015,9 @@
       "updatedAt": 1788600393096,
       "customized": false,
       "officialCourse": null,
-      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7"
+      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7",
+      "name": "Macbeth",
+      "level": ""
     },
     {
       "id": "d6d516b3-edbd-4167-a1a4-c2461dbab684",
@@ -1072,7 +1080,8 @@
       "createdAt": 1788067815728,
       "updatedAt": 1788973715160,
       "id": "da7edfd1-65f1-4a2a-b787-ec3cffa05998",
-      "subjectId": "subj_82720077-ce3b-4cb2-9979-631bdd9c0544"
+      "subjectId": "subj_82720077-ce3b-4cb2-9979-631bdd9c0544",
+      "level": ""
     },
     {
       "id": "dfc66998-dccc-42ee-9b4f-61aab18de4b5",
@@ -1199,7 +1208,8 @@
       "createdAt": 1788067815702,
       "updatedAt": 1791052959406,
       "id": "efd872bf-aea6-4cc9-8990-f7d57ff1217e",
-      "subjectId": "subj_5403c1f9-37bf-4ed6-b5a8-0f88f9f56061"
+      "subjectId": "subj_5403c1f9-37bf-4ed6-b5a8-0f88f9f56061",
+      "level": ""
     },
     {
       "id": "f7779d16-f4b7-4778-b459-cb6b271e894d",
@@ -3260,28 +3270,31 @@
       "id": "subject-4b59cb38-dc33-4f04-b7d1-179f110b107b",
       "type": "subject",
       "subject": "Maths (A-Level)",
-      "name": "Maths (A-Level)",
+      "name": "Maths",
       "createdAt": 1794174587760,
       "updatedAt": 1794174587760,
-      "subjectId": "subj_34a4db99-6f3d-4881-ac74-1738e2e211ba"
+      "subjectId": "subj_34a4db99-6f3d-4881-ac74-1738e2e211ba",
+      "level": "A-Level"
     },
     {
       "id": "subject-7df8f413-9ad9-42d1-ad57-8ced88461ae8",
       "type": "subject",
       "subject": "Chemistry (A-Level)",
-      "name": "Chemistry (A-Level)",
+      "name": "Chemistry",
       "createdAt": 1794174570372,
       "updatedAt": 1794174570372,
-      "subjectId": "subj_bc9aa2de-921e-427e-acac-fee4b9704a1e"
+      "subjectId": "subj_bc9aa2de-921e-427e-acac-fee4b9704a1e",
+      "level": "A-Level"
     },
     {
       "id": "subject-cf1e152c-228b-40ab-bcd9-97f9bb920884",
       "type": "subject",
       "subject": "Biology (A-Level)",
-      "name": "Biology (A-Level)",
+      "name": "Biology",
       "createdAt": 1794174550479,
       "updatedAt": 1794174550479,
-      "subjectId": "subj_d825ba06-bca1-44ca-9d42-2b5fab6e04de"
+      "subjectId": "subj_d825ba06-bca1-44ca-9d42-2b5fab6e04de",
+      "level": "A-Level"
     }
   ],
   "quotes": [

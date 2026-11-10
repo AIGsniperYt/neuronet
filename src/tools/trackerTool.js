@@ -10,9 +10,17 @@ import { planRequirements, REQUIREMENT_TYPES } from "./examData/scheduler.js";
 import { parseCourseKey, courseKey, seriesId, monthFromWord, normalizeTitle, boardId, qualId } from "./examData/schema.js";
 import { findSubjects, matchSubjects } from "./subjects.js";
 import { diag } from "./diag.js";
+import {
+  qualificationForLevel,
+  qualificationLabel,
+  normalizeQualificationId,
+  levelsConflict,
+  subjectKeyMatches,
+  subjectOptionLabel
+} from "../subjectModel.js";
 
 export function initTrackerTool(deps, context = {}) {
-  const { getAllNodes, addNode, addNodes, deleteNode, getSubjects, escapeHtml, activityToast } = deps;
+  const { getAllNodes, addNode, addNodes, deleteNode, getSubjects, setSubjectLevel, escapeHtml, activityToast } = deps;
   // ---- DOM refs ----
   const $ = (id) => document.getElementById(id);
   const el = {
@@ -70,13 +78,13 @@ export function initTrackerTool(deps, context = {}) {
 
   // ---- state ----
   let papers = [];
-  let allSubjects = [];
   let subjectRecords = [];
-  const subjectIdFor = (key) => subjectRecords.find((record) => record.key === key)?.id || "";
+  const subjectIdFor = (key) => subjectRecords.find((record) => subjectKeyMatches(record.key, key))?.id || "";
+  const recordFor = (subject) => subjectRecords.find((record) => subjectKeyMatches(record.key, subject)) || null;
   let subjectNodes = [];
   let boardsBySubject = {}; // subject -> examBoard (from subject nodes)
   let coursesBySubject = {}; // subject -> officially linked course { board, code, title, qual }
-  let subjectMeta = {}; // subject -> { examBoard, qualification, code } for auto resolution
+  let subjectMeta = {}; // subject -> { examBoard, qualification, code, level } for auto resolution
   const COL_DEFS = [
     { id: "boundary", label: "Boundary" },
     { id: "achieved", label: "Achieved grade" },
@@ -136,9 +144,8 @@ export function initTrackerTool(deps, context = {}) {
     try {
       // Tracker keeps its exam metadata keyed by the qualified compatibility key.
       subjectRecords = (await getSubjects()) || [];
-      allSubjects = subjectRecords.map((record) => record.key);
     } catch (e) {
-      allSubjects = [];
+      subjectRecords = [];
     }
     boardsBySubject = {};
     coursesBySubject = {};
@@ -146,25 +153,67 @@ export function initTrackerTool(deps, context = {}) {
     subjectNodes = [];
     try {
       const all = (await getAllNodes()) || [];
+      const recordByKey = new Map(subjectRecords.map((record) => [record.key.toLocaleLowerCase(), record]));
       for (const n of all) {
-        if (n && n.type === "subject") {
-          subjectNodes.push(n);
-          // Older subject nodes may have a display `name` that differs from
-          // the stable `subject` value stored on past-paper sittings. Index
-          // both spellings so a valid official link is never lost at render.
-          const names = Array.from(new Set([n.name, n.subject].filter(Boolean)));
-          for (const name of names) {
-            if (n.examBoard) boardsBySubject[name] = n.examBoard;
-            if (n.officialCourse && n.officialCourse.code) coursesBySubject[name] = n.officialCourse;
-            subjectMeta[name] = {
-              examBoard: n.examBoard || "",
-              qualification: n.qualification || "",
-              code: (n.officialCourse && n.officialCourse.code) || ""
-            };
-          }
-        }
+        if (!n || n.type !== "subject") continue;
+        subjectNodes.push(n);
+        const record = n.subjectId
+          ? subjectRecords.find((r) => r.id === n.subjectId)
+          : recordByKey.get(String(n.subject || n.name || "").trim().toLocaleLowerCase());
+        // Older subject nodes may have a display `name` that differs from the
+        // stable `subject` value stored on past-paper sittings. Index both
+        // spellings so a valid official link is never lost at render, but only
+        // claim a display name when it is not another subject's real key.
+        const keyName = n.subject || record?.key || n.name;
+        const level = record?.level || n.level || "";
+        const levelQual = qualificationLabel(qualificationForLevel(level));
+        const qualification = levelQual || n.qualification || "";
+        const index = (name) => {
+          if (!name) return;
+          if (n.examBoard) boardsBySubject[name] = n.examBoard;
+          if (n.officialCourse && n.officialCourse.code) coursesBySubject[name] = n.officialCourse;
+          subjectMeta[name] = {
+            examBoard: n.examBoard || "",
+            qualification,
+            code: (n.officialCourse && n.officialCourse.code) || "",
+            level
+          };
+        };
+        index(keyName);
+        if (n.name && n.name !== keyName && !recordByKey.has(n.name.trim().toLocaleLowerCase()) && !subjectMeta[n.name]) index(n.name);
       }
     } catch (e) { /* ignore */ }
+  }
+
+  function findSubjectNode(subject) {
+    if (!subject) return null;
+    const record = recordFor(subject);
+    if (record) {
+      const byId = subjectNodes.find((n) => n.subjectId === record.id);
+      if (byId) return byId;
+    }
+    return subjectNodes.find((n) => n.subject === subject)
+      || subjectNodes.find((n) => n.name === subject)
+      || null;
+  }
+
+  function levelFor(subject) {
+    const record = recordFor(subject);
+    if (record && record.level) return record.level;
+    const node = findSubjectNode(subject);
+    return (node && node.level) || (record && record.level) || "";
+  }
+
+  function qualificationIdFor(subject) {
+    const fromLevel = qualificationForLevel(levelFor(subject));
+    if (fromLevel) return fromLevel;
+    const node = findSubjectNode(subject);
+    return normalizeQualificationId(node && node.qualification);
+  }
+
+  function subjectLabelFor(subject) {
+    const record = recordFor(subject);
+    return record ? subjectOptionLabel(record) : (subject || "");
   }
 
   // Canonical identity keys for a sitting (Phase D): every stored sitting
@@ -236,26 +285,43 @@ export function initTrackerTool(deps, context = {}) {
     return p ? p.examBoard : "";
   }
 
+  // Level is the authority for qualification. A stored qualification only
+  // supplies an answer when the subject has no level (legacy/pastoral data).
   function qualFor(subject) {
-    const node = subjectNodes.find((s) => (s.name || s.subject) === subject);
+    const fromLevel = qualificationLabel(qualificationForLevel(levelFor(subject)));
+    if (fromLevel) return fromLevel;
+    const node = findSubjectNode(subject);
     return node ? (node.qualification || "") : "";
+  }
+
+  function subjectProjection(subject, fallbackQualification) {
+    const record = recordFor(subject);
+    const qualification = qualificationLabel(qualificationForLevel(record?.level || "")) || (fallbackQualification || "");
+    return {
+      subjectId: record?.id || subjectIdFor(subject),
+      subject: record?.key || subject,
+      name: record?.name || subject,
+      level: record?.level || "",
+      ...(qualification ? { qualification } : {})
+    };
   }
 
   async function ensureSubjectMeta(subject, { examBoard, qualification }) {
     const name = (subject || "").trim();
     if (!name) return;
     const nodes = (await getAllNodes()) || [];
-    const existing = nodes.find((n) => n.type === "subject" && (n.subject === name || n.name === name));
+    const record = recordFor(name);
+    const existing = findSubjectNode(name);
+    const projection = subjectProjection(name, qualification);
     const patch = {};
     if (examBoard != null) patch.examBoard = examBoard.trim();
     if (qualification != null) patch.qualification = qualification.trim();
     if (existing) {
-      await addNode({ ...existing, ...patch, subjectId: existing.subjectId || subjectIdFor(name), updatedAt: Date.now() });
+      await addNode({ ...existing, ...patch, ...projection, updatedAt: Date.now() });
     } else {
       await addNode({
-        type: "subject", subject: name, subjectId: subjectIdFor(name), name: name,
-        examBoard: (examBoard || "").trim(),
-        qualification: (qualification || "").trim(),
+        type: "subject", ...projection,
+        examBoard: (examBoard || (record && record.examBoard) || "").trim(),
         customized: false, officialCourse: null,
         createdAt: Date.now(), updatedAt: Date.now()
       });
@@ -269,18 +335,14 @@ export function initTrackerTool(deps, context = {}) {
     const b = (board || "").trim();
     if (!name) return;
     const nodes = (await getAllNodes()) || [];
-    const existing = nodes.find((n) => n.type === "subject" && (n.subject === name || n.name === name));
+    const existing = findSubjectNode(name);
+    const projection = subjectProjection(name);
     if (existing) {
-      await addNode({ ...existing, subjectId: existing.subjectId || subjectIdFor(name), examBoard: b, updatedAt: Date.now() });
+      await addNode({ ...existing, ...projection, examBoard: b, updatedAt: Date.now() });
     } else {
       await addNode({
-        type: "subject",
-        subject: name,
-        subjectId: subjectIdFor(name),
-        name: name,
-        examBoard: b,
-        createdAt: Date.now(),
-        updatedAt: Date.now()
+        type: "subject", ...projection, examBoard: b,
+        createdAt: Date.now(), updatedAt: Date.now()
       });
     }
     await loadSubjects();
@@ -351,8 +413,12 @@ async function loadSubjectCatalogues() {
 }
 
   function matchSubjectInCatalogue(name) {
-    if (!name || !subjectCatalogue.length) return null;
-    const ranked = matchSubjects(subjectCatalogue, name, {});
+    const courses = availableCourses();
+    if (!name || !courses.length) return null;
+    // A level is a hard qualification filter. Without it an A-Level "Biology"
+    // can score against a GCSE Biology course and silently fetch GCSE numbers.
+    const qual = qualificationIdFor(name);
+    const ranked = matchSubjects(courses, name, qual ? { qual } : {});
     if (!ranked.length) return null;
     const top = ranked.filter((c) => c.score === ranked[0].score);
     if (top.length !== 1) return null; // ambiguous — surfaced by the caller, never guessed
@@ -722,7 +788,9 @@ async function loadSubjectCatalogues() {
     const subject = focusedSubject;
     const course = subject ? coursesBySubject[subject] : null;
     linkHint = null;
-    if (course) {
+    if (course && levelsConflict(levelFor(subject), course.qual)) {
+      el.linkPill.innerHTML = `<button type="button" class="tracker-link-pill suggest" data-act="open" title="This subject's level does not match the linked course. Open to choose a matching course."><i class="fa-solid fa-triangle-exclamation"></i> Level mismatch — ${escapeHtml(courseSummary(course))}</button>`;
+    } else if (course) {
       el.linkPill.innerHTML = `<button type="button" class="tracker-link-pill linked" data-act="open" title="${escapeHtml(courseSummary(course))}"><i class="fa-solid fa-link"></i> ${escapeHtml(courseSummary(course))}</button>`;
     } else {
       const res = subject && !coursesBySubject[subject] ? resolveSubjectMeta(subject) : { course: null, ambiguous: false, candidates: [] };
@@ -754,6 +822,12 @@ async function loadSubjectCatalogues() {
     if (el.colsPop) el.colsPop.hidden = true;
     if (el.linkFilter) el.linkFilter.value = "";
     chipTokens.clear();
+    // Scoped subject: default to its level so an A-Level subject starts on
+    // A-Level courses instead of the GCSE-heavy mixed list. "All" clears it.
+    const qual = qualificationIdFor(subject);
+    if (qual === "aLevel") chipTokens.add("alevel");
+    else if (qual === "gcse") chipTokens.add("gcse");
+    else if (qual === "as") chipTokens.add("as");
     renderLinkPickerList();
     loadLinkPickerCourses();
     if (el.unlinkBtn) el.unlinkBtn.hidden = !(subject && coursesBySubject[subject]);
@@ -774,19 +848,20 @@ async function loadSubjectCatalogues() {
   function loadLinkPickerCourses() {
     renderLinkPickerList();
     const already = availableCourses().length;
-    if (already === 0) {
-      showLinkStatus("Fetching official subjects from AQA and Pearson...");
-      if (el.linkList) el.linkList.innerHTML = `<div class="tracker-course-empty">Fetching official subjects from AQA and Pearson...</div>`;
-    }
-    if (already > 0) {
-      showLinkStatusDone(`${already} official subjects ready — search to link.`);
+    if (subjectCatalogue.length > 0) {
+      const total = availableCourses().length;
+      showLinkStatusDone(`${total || already} official subjects ready — search to link.`);
       return;
     }
-    // Nothing cached yet: load it here and repaint as each board lands, so the
-    // list is never stuck on "fetching" if one board is slow or unreachable.
+    // The verified catalogues are still loading. Keep anything already cached
+    // visible, then repaint as the full board catalogues land.
+    showLinkStatus("Fetching official subjects from AQA and Pearson...");
+    if (already === 0 && el.linkList) {
+      el.linkList.innerHTML = `<div class="tracker-course-empty">Fetching official subjects from AQA and Pearson...</div>`;
+    }
     loadSubjectCatalogues().then((n) => {
       if (el.linkList && !el.linkPop?.hidden) renderLinkPickerList();
-      if (n > 0) showLinkStatusDone(`${n} official subjects ready — search to link.`);
+      if (n > 0) showLinkStatusDone(`${availableCourses().length} official subjects ready — search to link.`);
       else showLinkStatusDone("Could not reach the exam boards — close and reopen to retry.");
     });
   }
@@ -942,15 +1017,23 @@ async function loadSubjectCatalogues() {
 
   const TRACKER_SKELETON_ROWS = 6;
 
-  // Courses offered by the picker. The verified board catalogues come first:
-  // they are read out of the boards' own GCSE publications, so they contain
-  // only real GCSE courses and cannot suggest a specification from another
-  // level (which is how the sweep-only list offered A-level codes for a GCSE
-  // subject). The legacy list remains as a fallback so the picker still offers
-  // something before the catalogues finish loading.
+  // Courses offered by the picker. Verified GCSE catalogues come first; cached
+  // A-Level courses discovered by the scraper are merged in so level-aware
+  // matching can reach them once that data exists. Dedupe by canonical
+  // board+qualification+code+tier identity.
   function availableCourses() {
-    if (subjectCatalogue && subjectCatalogue.length) return subjectCatalogue;
-    return Exam.courseList();
+    const merged = [];
+    const seen = new Set();
+    const put = (course) => {
+      if (!course || !course.code) return;
+      const id = `${course.board}|${course.qual}|${course.code}|${course.tier || "_"}`;
+      if (seen.has(id)) return;
+      seen.add(id);
+      merged.push(course);
+    };
+    for (const course of subjectCatalogue || []) put(course);
+    for (const course of Exam.courseList() || []) put(course);
+    return merged;
   }
 
   function renderLinkPickerList() {
@@ -1003,28 +1086,38 @@ async function loadSubjectCatalogues() {
 
   async function applyOfficialCourse(subject, candidate) {
     if (!subject || !candidate) return;
+    const label = subjectLabelFor(subject);
+    const level = levelFor(subject);
+    if (levelsConflict(level, candidate.qual)) {
+      const ok = await dialog.confirm(
+        `“${label}” is ${level}, but ${courseSummary(candidate)} is ${Exam.qualLabel(candidate.qual) || candidate.qual}.\n\nLinking a course from a different level can produce the wrong grade boundaries. Link it anyway?`,
+        "Link anyway",
+        "danger"
+      );
+      if (!ok) return;
+    }
     if (el.linkList) el.linkList.innerHTML = "";
     try {
-      const nodes = (await getAllNodes()) || [];
-      const existing = nodes.find((n) => n.type === "subject" && (n.subject === subject || n.name === subject));
+      const existing = findSubjectNode(subject);
       const course = { board: candidate.board, code: candidate.code, title: candidate.title, qual: candidate.qual, tier: candidate.tier || "" };
       const boardName = candidate.boardName || Exam.boardLabel(candidate.board);
       const qualName = candidate.qualName || Exam.qualLabel(candidate.qual);
+      const projection = subjectProjection(subject, qualName);
       if (existing) {
         await addNode({
           ...existing,
-          subjectId: existing.subjectId || subjectIdFor(subject),
+          ...projection,
           officialCourse: course,
           customized: false,
           examBoard: existing.examBoard || boardName,
-          qualification: existing.qualification || qualName,
+          qualification: projection.qualification || existing.qualification || qualName,
           updatedAt: Date.now()
         });
       } else {
         await addNode({
-          type: "subject", subject, subjectId: subjectIdFor(subject), name: subject,
+          type: "subject", ...projection,
           examBoard: boardName,
-          qualification: qualName,
+          qualification: projection.qualification || qualName,
           customized: false,
           officialCourse: course,
           createdAt: Date.now(), updatedAt: Date.now()
@@ -1034,35 +1127,36 @@ async function loadSubjectCatalogues() {
       closeLinkPicker();
       renderPapers();
       scheduleWarm();
-      flash(`Linked ${subject} to ${courseSummary(course)}. Boundaries auto-load from the fetched pack.`, true);
+      flash(`Linked ${label} to ${courseSummary(course)}. Boundaries auto-load from the fetched pack.`, true);
     } catch (err) {
-      if (el.linkList) el.linkList.innerHTML = `<div class="tracker-course-empty">Could not link ${escapeHtml(subject)} (${escapeHtml(err && err.message ? err.message : String(err))}).</div>`;
+      if (el.linkList) el.linkList.innerHTML = `<div class="tracker-course-empty">Could not link ${escapeHtml(label)} (${escapeHtml(err && err.message ? err.message : String(err))}).</div>`;
     }
   }
 
   async function unlinkOfficialCourse(subject) {
     if (!subject) return;
     if (el.linkList) el.linkList.innerHTML = "";
-    const confirmed = await dialog.confirm(`Unlink ${subject} from its official course?`, "Unlink", "danger");
+    const label = subjectLabelFor(subject);
+    const confirmed = await dialog.confirm(`Unlink ${label} from its official course?`, "Unlink", "danger");
     if (!confirmed) return;
     try {
-      const nodes = (await getAllNodes()) || [];
-      const existing = nodes.find((n) => n.type === "subject" && (n.subject === subject || n.name === subject));
+      const existing = findSubjectNode(subject);
       if (existing) {
         await addNode({ ...existing, subjectId: existing.subjectId || subjectIdFor(subject), officialCourse: null, updatedAt: Date.now() });
       } else {
+        const projection = subjectProjection(subject);
         await addNode({
-          type: "subject", subject, subjectId: subjectIdFor(subject), name: subject,
-          examBoard: "", qualification: "", customized: false, officialCourse: null,
+          type: "subject", ...projection,
+          examBoard: "", qualification: projection.qualification || "", customized: false, officialCourse: null,
           createdAt: Date.now(), updatedAt: Date.now()
         });
       }
       await loadSubjects();
       closeLinkPicker();
       renderPapers();
-      flash(`Unlinked ${subject}.`, true);
+      flash(`Unlinked ${label}.`, true);
     } catch (err) {
-      if (el.linkList) el.linkList.innerHTML = `<div class="tracker-course-empty">Could not unlink ${escapeHtml(subject)} (${escapeHtml(err && err.message ? err.message : String(err))}).</div>`;
+      if (el.linkList) el.linkList.innerHTML = `<div class="tracker-course-empty">Could not unlink ${escapeHtml(label)} (${escapeHtml(err && err.message ? err.message : String(err))}).</div>`;
     }
   }
 
@@ -1078,9 +1172,26 @@ async function loadSubjectCatalogues() {
 
   // ---- papers list ----
   function refreshSubjectDatalist() {
-    const seen = new Set(allSubjects.map((s) => (typeof s === "string" ? s : s?.name)).filter(Boolean));
-    for (const p of papers) if (p.subject) seen.add(p.subject);
-    el.subjectList.innerHTML = Array.from(seen).map((s) => `<option value="${escapeHtml(s)}">`).join("");
+    const options = subjectRecords.map((record) => `<option value="${escapeHtml(record.key)}">${escapeHtml(subjectOptionLabel(record))}</option>`);
+    const known = new Set(subjectRecords.map((record) => record.key.toLocaleLowerCase()));
+    for (const paper of papers) {
+      if (!paper.subject || known.has(paper.subject.toLocaleLowerCase())) continue;
+      known.add(paper.subject.toLocaleLowerCase());
+      options.push(`<option value="${escapeHtml(paper.subject)}"></option>`);
+    }
+    el.subjectList.innerHTML = options.join("");
+  }
+
+  // The datalist stores the compatibility key as the option value and shows
+  // the disambiguated "Biology · A-Level" label. If the user types a displayed
+  // label instead of selecting, map it back to the unique record key.
+  function resolveSubjectInput(raw) {
+    const text = String(raw || "").trim();
+    if (!text) return "";
+    const byKey = subjectRecords.find((record) => subjectKeyMatches(record.key, text));
+    if (byKey) return byKey.key;
+    const matches = subjectRecords.filter((record) => subjectOptionLabel(record) === text || record.name === text);
+    return matches.length === 1 ? matches[0].key : text;
   }
 
   function sittingAverage(sitting) {
@@ -1654,8 +1765,7 @@ async function loadSubjectCatalogues() {
   }
 
   function highestGradeLabel(subject) {
-    const subjNode = subjectNodes.find((s) => (s.name || s.subject) === subject);
-    const q = subjNode ? (subjNode.qualification || "") : "";
+    const q = qualFor(subject);
     if (/A.?Level/i.test(q)) return "A*";
     if (/GCSE/i.test(q)) return "Grade 9";
     return "Boundary";
@@ -1665,16 +1775,27 @@ async function loadSubjectCatalogues() {
     const want = Array.from(new Set(papers.map((p) => p.subject).filter(Boolean)));
     const missing = [];
     for (const subject of want) {
-      const node = subjectNodes.find((s) => (s.name || s.subject) === subject);
-      if (node && node.qualification) continue; // already set
+      let node = findSubjectNode(subject);
+      const projection = subjectProjection(subject);
       if (!node) {
         await addNode({
-          type: "subject", subject, subjectId: subjectIdFor(subject), name: subject,
-          examBoard: "", qualification: "", customized: false, officialCourse: null,
+          type: "subject", ...projection,
+          examBoard: "", qualification: projection.qualification || "", customized: false, officialCourse: null,
           createdAt: Date.now(), updatedAt: Date.now()
         });
+        node = findSubjectNode(subject);
+      } else if (
+        node.name !== projection.name
+        || (node.level || "") !== (projection.level || "")
+        || (projection.qualification && node.qualification !== projection.qualification)
+      ) {
+        node = { ...node, ...projection, updatedAt: Date.now() };
+        await addNode(node);
       }
-      missing.push(subject);
+      // Level answers the qualification question by itself. Only ask when the
+      // subject has neither a level nor any stored qualification.
+      const qualification = projection.qualification || qualificationLabel(qualificationForLevel(node?.level || "")) || (node && node.qualification) || "";
+      if (!qualification) missing.push(subject);
     }
     if (missing.length === 0) return;
 
@@ -1687,10 +1808,26 @@ async function loadSubjectCatalogues() {
     if (answer === null) return; // user declined
     const qual = (answer || "").trim();
     if (!qual) return;
+    const level = qualificationLabel(normalizeQualificationId(qual)) || qual;
+    const renamed = new Map();
     for (const subject of missing) {
+      const record = recordFor(subject);
+      // Write the answer back to the subject row so the sidebar and every other
+      // tool see the same level, not just this tracker node.
+      if (record && !record.level && typeof setSubjectLevel === "function") {
+        try {
+          const updated = await setSubjectLevel(record.id, level);
+          if (updated) renamed.set(subject, updated.key);
+        } catch { /* collide/rename failed: keep the node-level answer below */ }
+      }
       const nodes = (await getAllNodes()) || [];
-      const n = nodes.find((x) => x.type === "subject" && (x.subject === subject || x.name === subject));
-      if (n) await addNode({ ...n, qualification: qual, updatedAt: Date.now() });
+      const node = nodes.find((n) => n.type === "subject" && record && (n.subjectId === record.id || subjectKeyMatches(n.subject, record.key)))
+        || nodes.find((n) => n.type === "subject" && n.subject === subject);
+      if (node) await addNode({ ...node, level, qualification: level, updatedAt: Date.now() });
+    }
+    if (renamed.size) {
+      if (focusedSubject && renamed.has(focusedSubject)) focusedSubject = renamed.get(focusedSubject);
+      await loadPapers();
     }
     await loadSubjects();
   }
@@ -1998,7 +2135,7 @@ async function loadSubjectCatalogues() {
   }
 
   async function collectSitting() {
-    const subject = el.formSubject.value.trim();
+    const subject = resolveSubjectInput(el.formSubject.value);
     const yearRaw = el.formYear.value.trim();
     const year = yearRaw === "" ? null : Number(yearRaw);
     const series = el.formSeries.value;
@@ -2163,16 +2300,22 @@ async function loadSubjectCatalogues() {
   function exportData() {
     const data = {
       type: "neuronet-pastpapers",
-      version: 3,
+      version: 4,
       exportedAt: nowISO(),
-      subjects: subjectNodes.map((n) => ({
-        name: n.name || n.subject,
-        examBoard: n.examBoard || "",
-        qualification: n.qualification || "",
-        customized: n.customized || false,
-        officialCourse: n.officialCourse ?? null,
-        createdAt: n.createdAt, updatedAt: n.updatedAt
-      })),
+      subjects: subjectNodes.map((n) => {
+        const key = n.subject || n.name;
+        const record = recordFor(key);
+        return {
+          key,
+          name: record?.name || n.name || key,
+          level: record?.level || n.level || "",
+          examBoard: n.examBoard || "",
+          qualification: n.qualification || "",
+          customized: n.customized || false,
+          officialCourse: n.officialCourse ?? null,
+          createdAt: n.createdAt, updatedAt: n.updatedAt
+        };
+      }),
       sittings: papers.map((p) => ({
         subject: p.subject,
         year: p.year,
@@ -2254,15 +2397,17 @@ async function loadSubjectCatalogues() {
     // board / qualification carried in the file.
     const subjectMeta = {};
     for (const s of (data.subjects || [])) {
-      if (s && s.name) subjectMeta[s.name] = s;
+      const key = s && (s.key || s.name);
+      if (key) subjectMeta[key] = s;
     }
     for (const subject of new Set(toAdd.map((p) => p.subject).filter(Boolean))) {
-      const meta = subjectMeta[subject] || {};
+      const meta = subjectMeta[subject] || subjectMeta[recordFor(subject)?.key || ""] || {};
+      const projection = subjectProjection(subject, meta.qualification);
       if (!(await subjectNodeExists(subject))) {
         await addNode({
-          type: "subject", subject, subjectId: subjectIdFor(subject), name: subject,
+          type: "subject", ...projection,
           examBoard: meta.examBoard || "",
-          qualification: meta.qualification || "",
+          qualification: projection.qualification || meta.qualification || "",
           customized: meta.customized || false,
           officialCourse: meta.officialCourse ?? null,
           createdAt: Date.now(), updatedAt: Date.now()
@@ -2281,12 +2426,15 @@ async function loadSubjectCatalogues() {
 
   async function setSubjectMeta(name, meta) {
     const nodes = (await getAllNodes()) || [];
-    const existing = nodes.find((n) => n.type === "subject" && (n.subject === name || n.name === name));
+    const record = recordFor(name);
+    const existing = nodes.find((n) => n.type === "subject" && record && n.subjectId === record.id)
+      || nodes.find((n) => n.type === "subject" && (n.subject === name || (!record && n.name === name)));
+    const projection = subjectProjection(name, meta.qualification);
     if (!existing) {
       await addNode({
-        type: "subject", subject: name, subjectId: subjectIdFor(name), name: name,
+        type: "subject", ...projection,
         examBoard: meta.examBoard || "",
-        qualification: meta.qualification || "",
+        qualification: projection.qualification || meta.qualification || "",
         customized: meta.customized || false,
         officialCourse: meta.officialCourse ?? null,
         createdAt: Date.now(), updatedAt: Date.now()
@@ -2294,8 +2442,9 @@ async function loadSubjectCatalogues() {
     } else {
       await addNode({
         ...existing,
+        ...projection,
         examBoard: meta.examBoard ?? existing.examBoard ?? "",
-        qualification: meta.qualification ?? existing.qualification ?? "",
+        qualification: projection.qualification || (meta.qualification ?? existing.qualification ?? ""),
         customized: meta.customized ?? existing.customized ?? false,
         officialCourse: meta.officialCourse ?? existing.officialCourse ?? null,
         updatedAt: Date.now()
@@ -2306,7 +2455,11 @@ async function loadSubjectCatalogues() {
 
   async function subjectNodeExists(name) {
     const nodes = (await getAllNodes()) || [];
-    return nodes.some((n) => n.type === "subject" && (n.subject === name || n.name === name));
+    const record = recordFor(name);
+    if (record) {
+      return nodes.some((n) => n.type === "subject" && (n.subjectId === record.id || subjectKeyMatches(n.subject, record.key)));
+    }
+    return nodes.some((n) => n.type === "subject" && n.subject === name);
   }
 
   // ---- wire up ----
