@@ -84,6 +84,11 @@ const state = {
     cards: [],
     librarySearch: "",
     librarySort: "deck",
+    // Sort direction is deliberately session-local. The library is a browse
+    // lens, so a click on the header arrow should not travel in JSON exports.
+    // Ascending keeps the old deck-order default unchanged; Created can be
+    // flipped to newest-first with the arrow.
+    librarySortDirection: "asc",
     librarySelectMode: false,
     selectedCardIds: new Set(),
     collapsedDecks: new Set(),
@@ -143,6 +148,7 @@ const state = {
   const libraryHeapBar = document.getElementById("libraryHeapBar");
   const librarySearchInput = document.getElementById("librarySearch");
   const librarySortSelect = document.getElementById("librarySort");
+  const librarySortDirBtn = document.getElementById("librarySortDir");
   const librarySelectToggle = document.getElementById("librarySelectToggle");
   const libraryAddSelectedBtn = document.getElementById("libraryAddSelectedBtn");
   const libraryHeapSelect = document.getElementById("libraryHeapSelect");
@@ -1815,30 +1821,51 @@ const state = {
     return haystack.includes(term);
   }
 
-  function compareNullableAsc(a, b) {
-    const av = a === null || a === undefined ? Infinity : a;
-    const bv = b === null || b === undefined ? Infinity : b;
-    return av - bv;
+  // Session-local sort: field + direction, like a standard file browser. The
+  // direction is not persisted and dates are never printed in the grid — the
+  // control itself is the only UI cost.
+  function compareNullableDirection(a, b, direction) {
+    const aNull = a === null || a === undefined;
+    const bNull = b === null || b === undefined;
+    if (aNull && bNull) return 0;
+    if (aNull) return 1;
+    if (bNull) return -1;
+    return direction * (a - b);
   }
 
   function sortLibraryCards(cards) {
     const sorted = [...cards];
+    const direction = state.librarySortDirection === "asc" ? 1 : -1;
+    const byTitle = (a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+    const byPriority = (a, b) => {
+      const ap = Number.isFinite(Number(a.priority)) ? Number(a.priority) : null;
+      const bp = Number.isFinite(Number(b.priority)) ? Number(b.priority) : null;
+      return compareNullableDirection(ap, bp, direction);
+    };
     switch (state.librarySort) {
-      case "priority-desc":
-        return sorted.sort((a, b) => (b.priority || 0) - (a.priority || 0) || a.title.localeCompare(b.title));
-      case "priority-asc":
-        return sorted.sort((a, b) => (a.priority || 99) - (b.priority || 99) || a.title.localeCompare(b.title));
-      case "recall-asc":
-        return sorted.sort((a, b) => compareNullableAsc(a.recall?.score, b.recall?.score) || a.title.localeCompare(b.title));
-      case "accuracy-asc":
-        return sorted.sort((a, b) => compareNullableAsc(a.accuracy, b.accuracy) || a.title.localeCompare(b.title));
-      case "updated-desc":
-        return sorted.sort((a, b) => b.updatedAt - a.updatedAt || a.title.localeCompare(b.title));
+      case "created":
+        return sorted.sort((a, b) => direction * ((Number(a.createdAt) || 0) - (Number(b.createdAt) || 0)) || byTitle(a, b));
+      case "updated":
+        return sorted.sort((a, b) => direction * ((Number(a.updatedAt) || 0) - (Number(b.updatedAt) || 0)) || byTitle(a, b));
       case "title":
-        return sorted.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }));
+        return sorted.sort(direction === 1 ? byTitle : (a, b) => byTitle(b, a));
+      case "priority":
+        return sorted.sort((a, b) => byPriority(a, b) || byTitle(a, b));
+      case "recall":
+        return sorted.sort((a, b) => compareNullableDirection(a.recall?.score, b.recall?.score, direction) || byTitle(a, b));
+      case "accuracy":
+        return sorted.sort((a, b) => compareNullableDirection(a.accuracy, b.accuracy, direction) || byTitle(a, b));
       default:
-        return sorted.sort(compareCardBrowseOrder);
+        return sorted.sort(direction === 1 ? compareCardBrowseOrder : (a, b) => compareCardBrowseOrder(b, a));
     }
+  }
+
+  function syncLibrarySortDirection() {
+    if (!librarySortDirBtn) return;
+    const ascending = state.librarySortDirection === "asc";
+    librarySortDirBtn.textContent = ascending ? "↑" : "↓";
+    librarySortDirBtn.setAttribute("aria-label", ascending ? "Sort ascending" : "Sort descending");
+    librarySortDirBtn.title = ascending ? "Sort ascending" : "Sort descending";
   }
 
   function buildGridData() {
@@ -5294,8 +5321,15 @@ const state = {
     });
     librarySortSelect?.addEventListener("change", () => {
       state.librarySort = librarySortSelect.value || "deck";
+      syncLibrarySortDirection();
       renderGrid();
     });
+    librarySortDirBtn?.addEventListener("click", () => {
+      state.librarySortDirection = state.librarySortDirection === "asc" ? "desc" : "asc";
+      syncLibrarySortDirection();
+      renderGrid();
+    });
+    syncLibrarySortDirection();
     librarySelectToggle?.addEventListener("click", () => {
       state.librarySelectMode = !state.librarySelectMode;
       if (!state.librarySelectMode) state.selectedCardIds.clear();

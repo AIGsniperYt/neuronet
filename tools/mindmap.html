@@ -677,6 +677,14 @@
     padding: 8px 12px;
   }
 
+  .library-sort-dir {
+    min-width: 38px;
+    min-height: 38px;
+    padding: 7px 0;
+    font-size: 0.95rem;
+    line-height: 1;
+  }
+
   .library-selection-count {
     font-size: var(--text-xs, 0.82rem);
     color: var(--text-muted);
@@ -2251,13 +2259,14 @@
         <input id="librarySearch" class="library-search" type="search" placeholder="Search cards, decks, tags…" aria-label="Search cards" autocomplete="off">
         <select id="librarySort" class="library-sort" aria-label="Sort cards">
           <option value="deck">Deck order</option>
-          <option value="title">Title A–Z</option>
-          <option value="priority-desc">Priority high–low</option>
-          <option value="priority-asc">Priority low–high</option>
-          <option value="recall-asc">Lowest recall</option>
-          <option value="accuracy-asc">Lowest accuracy</option>
-          <option value="updated-desc">Recently updated</option>
+          <option value="created">Created</option>
+          <option value="title">Title</option>
+          <option value="priority">Priority</option>
+          <option value="recall">Recall</option>
+          <option value="accuracy">Accuracy</option>
+          <option value="updated">Updated</option>
         </select>
+        <button type="button" id="librarySortDir" class="btn library-sort-dir" aria-label="Sort descending" title="Sort descending">↓</button>
         <button type="button" id="librarySelectToggle" class="btn" aria-pressed="false">Select</button>
         <button type="button" id="libraryAddSelectedBtn" class="btn primary" disabled>Add selected to heap</button>
         <span id="librarySelectionCount" class="library-selection-count" aria-live="polite"></span>
