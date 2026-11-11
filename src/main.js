@@ -1698,63 +1698,272 @@ function subjectPillMarkup(record) {
 }
 function subjectEditRowMarkup(record, group) {
   const safe = escapeHtml(record.name);
-  return `<div class="subject-edit-row" data-subject-id="${escapeHtml(record.id)}" data-subject="${escapeHtml(record.key)}" data-group="${escapeHtml(group)}"><button type="button" class="subject-drag-handle" title="Drag to reorder" aria-label="Reorder ${safe}"><i class="fa-solid fa-grip-vertical" aria-hidden="true"></i></button><span class="subject-edit-name">${safe}</span><span class="subject-edit-actions"><button type="button" class="subject-row-btn" data-action="rename" title="Rename ${safe}" aria-label="Rename ${safe}"><i class="fa-solid fa-pen" aria-hidden="true"></i></button><button type="button" class="subject-row-btn danger" data-action="delete" title="Delete ${safe}" aria-label="Delete ${safe}"><i class="fa-solid fa-trash" aria-hidden="true"></i></button></span></div>`;
+  return `<div class="subject-edit-row" data-subject-id="${escapeHtml(record.id)}" data-subject="${escapeHtml(record.key)}" data-group="${escapeHtml(group)}" title="Drag to reorder"><span class="subject-drag-handle" aria-hidden="true"><i class="fa-solid fa-grip-vertical"></i></span><span class="subject-edit-name">${safe}</span><span class="subject-edit-actions"><button type="button" class="subject-row-btn" data-action="rename" title="Rename ${safe}" aria-label="Rename ${safe}"><i class="fa-solid fa-pen" aria-hidden="true"></i></button><button type="button" class="subject-row-btn danger" data-action="delete" title="Delete ${safe}" aria-label="Delete ${safe}"><i class="fa-solid fa-trash" aria-hidden="true"></i></button></span></div>`;
 }
-// Pointer-based drag works with mouse, touch and pen. Reordering is confined
-// to the subject's group so qualifier sections stay contiguous.
-function attachSubjectDrag(row, handle) {
+
+const SUBJECT_DRAG_THRESHOLD = 4;
+const SUBJECT_TOUCH_SLOP = 8;
+const SUBJECT_LONG_PRESS_MS = 280;
+
+function subjectRowIds() {
+  return [...document.querySelectorAll(".subject-edit-row")].map((item) => item.dataset.subjectId);
+}
+
+function findSubjectScrollParent(el) {
+  let node = el.parentElement;
+  while (node && node !== document.body) {
+    const style = getComputedStyle(node);
+    if (/(auto|scroll)/.test(style.overflowY) && node.scrollHeight > node.clientHeight + 1) return node;
+    node = node.parentElement;
+  }
+  return null;
+}
+
+// FLIP the siblings around the gap so the list slides instead of jumping.
+function animateSubjectReflow(container, mutate) {
+  if (typeof Element.prototype.animate !== "function") { mutate(); return; }
+  const items = [...container.querySelectorAll(".subject-edit-row:not(.dragging)")];
+  const firstTops = new Map(items.map((item) => [item, item.getBoundingClientRect().top]));
+  mutate();
+  items.forEach((item) => {
+    const delta = firstTops.get(item) - item.getBoundingClientRect().top;
+    if (Math.abs(delta) < 0.5) return;
+    item.getAnimations?.().forEach((animation) => animation.cancel());
+    item.animate(
+      [{ transform: `translateY(${delta}px)` }, { transform: "translateY(0)" }],
+      { duration: 150, easing: "cubic-bezier(0.2, 0.7, 0.2, 1)" }
+    );
+  });
+}
+
+// Whole-row pointer drag with a lifted row and a live drop gap. Reordering is
+// confined to the row's group so qualifier sections stay contiguous. Touch
+// needs a short hold first, otherwise dragging would swallow sidebar scroll.
+function attachSubjectDrag(row) {
+  let press = null;
   let drag = null;
 
-  const finish = async (event, commit) => {
-    if (!drag || event.pointerId !== drag.pointerId) return;
-    const { rows, moved } = drag;
-    row.classList.remove("dragging");
-    try {
-      if (handle.hasPointerCapture?.(event.pointerId)) {
-        handle.releasePointerCapture(event.pointerId);
-      }
-    } catch { /* pointer already released */ }
-    drag = null;
-    if (!commit || !moved) return;
-
-    const ids = [...document.querySelectorAll(".subject-edit-row")].map((item) => item.dataset.subjectId);
-    await setSubjectOrder(ids);
-    renderSidebarSubjects();
+  const clearPress = () => {
+    if (press?.timer) clearTimeout(press.timer);
+    press = null;
   };
 
-  handle.addEventListener("pointerdown", (event) => {
-    if (!subjectEditMode) return;
-    if (event.pointerType === "mouse" && event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    try { handle.setPointerCapture(event.pointerId); } catch { /* unsupported */ }
-    drag = { pointerId: event.pointerId, rows: row.parentElement, moved: false };
-    row.classList.add("dragging");
-  });
+  const positionRow = (clientY) => {
+    if (!drag) return;
+    // Reordering is vertical, so keep the lifted row aligned with the list
+    // instead of letting it drift sideways with the pointer.
+    drag.rowEl.style.transform = `translate3d(0, ${clientY - drag.startY}px, 0)`;
+  };
 
-  handle.addEventListener("pointermove", (event) => {
-    if (!drag || event.pointerId !== drag.pointerId) return;
-    event.preventDefault();
-    const rows = drag.rows;
+  const movePlaceholder = (clientY, animate) => {
+    if (!drag) return;
+    const { rows, placeholder } = drag;
     const siblings = [...rows.querySelectorAll(".subject-edit-row:not(.dragging)")];
     let before = null;
     for (const sibling of siblings) {
       const rect = sibling.getBoundingClientRect();
-      if (event.clientY < rect.top + rect.height / 2) {
+      if (clientY < rect.top + rect.height / 2) {
         before = sibling;
         break;
       }
     }
-    if (before) {
-      if (row.nextElementSibling !== before) rows.insertBefore(row, before);
-    } else if (rows.lastElementChild !== row) {
-      rows.appendChild(row);
-    }
-    drag.moved = true;
-  });
+    if (before ? placeholder.nextElementSibling === before : placeholder === rows.lastElementChild) return;
+    const apply = () => rows.insertBefore(placeholder, before);
+    if (animate) animateSubjectReflow(rows, apply);
+    else apply();
+  };
 
-  handle.addEventListener("pointerup", (event) => finish(event, true));
-  handle.addEventListener("pointercancel", (event) => finish(event, false));
+  const autoScroll = () => {
+    if (!drag) return;
+    drag.frame = null;
+    const scroller = drag.scrollParent;
+    if (!scroller) return;
+    const rect = scroller.getBoundingClientRect();
+    const edge = Math.min(48, rect.height / 3);
+    let delta = 0;
+    if (drag.pointerY < rect.top + edge) delta = -Math.ceil((rect.top + edge - drag.pointerY) / 3);
+    else if (drag.pointerY > rect.bottom - edge) delta = Math.ceil((drag.pointerY - (rect.bottom - edge)) / 3);
+    delta = Math.max(-16, Math.min(16, delta));
+    if (!delta) return;
+    scroller.scrollTop += delta;
+    positionRow(drag.pointerY);
+    movePlaceholder(drag.pointerY, false);
+    drag.frame = requestAnimationFrame(autoScroll);
+  };
+
+  const beginDrag = (pointerType, clientX, clientY) => {
+    if (!press || drag) return;
+    const rows = row.parentElement;
+    if (!rows) return;
+    const rect = row.getBoundingClientRect();
+    const initialOrder = subjectRowIds();
+    const initialNext = row.nextElementSibling;
+    const placeholder = document.createElement("div");
+    placeholder.className = "subject-drop-placeholder";
+    placeholder.style.height = `${rect.height}px`;
+    rows.insertBefore(placeholder, row);
+    document.body.appendChild(row);
+    drag = {
+      pointerId: press.pointerId,
+      rowEl: row,
+      rows,
+      placeholder,
+      initialNext,
+      initialOrder,
+      scrollParent: findSubjectScrollParent(placeholder),
+      startY: clientY,
+      pointerY: clientY,
+      frame: null,
+      touchMove: null
+    };
+    clearPress();
+
+    row.classList.add("dragging");
+    row.style.left = `${rect.left}px`;
+    row.style.top = `${rect.top}px`;
+    row.style.width = `${rect.width}px`;
+    row.style.height = `${rect.height}px`;
+    row.style.margin = "0";
+    document.body.classList.add("subject-reordering");
+
+    if (pointerType === "touch") {
+      // The browser still owns the gesture after a long press; swallowing
+      // touchmove at the document captures it before scrolling begins.
+      drag.touchMove = (event) => { if (event.cancelable) event.preventDefault(); };
+      document.addEventListener("touchmove", drag.touchMove, { passive: false, capture: true });
+      navigator.vibrate?.(8);
+    }
+  };
+
+  const finishDrag = (commit) => {
+    if (!drag) return;
+    const current = drag;
+    drag = null;
+    if (current.frame) cancelAnimationFrame(current.frame);
+    if (current.touchMove) document.removeEventListener("touchmove", current.touchMove, { capture: true });
+    // Measure the lifted row before dropping its fixed styles, otherwise the
+    // inline left/top offsets would throw off the drop animation origin.
+    const from = current.rowEl.getBoundingClientRect();
+    document.body.classList.remove("subject-reordering");
+    current.rowEl.classList.remove("dragging");
+    if (commit) current.rows.insertBefore(current.rowEl, current.placeholder);
+    else current.rows.insertBefore(current.rowEl, current.initialNext);
+    current.placeholder.remove();
+    current.rowEl.removeAttribute("style");
+
+    const to = current.rowEl.getBoundingClientRect();
+    const dx = from.left - to.left;
+    const dy = from.top - to.top;
+    const canAnimate = typeof current.rowEl.animate === "function";
+    if (commit && canAnimate && (dx || dy)) {
+      current.rowEl.animate(
+        [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "translate(0, 0)" }],
+        { duration: 160, easing: "cubic-bezier(0.2, 0.7, 0.2, 1)" }
+      );
+    }
+    if (!commit) return;
+
+    const finalOrder = subjectRowIds();
+    if (finalOrder.join("\u0000") === current.initialOrder.join("\u0000")) return;
+
+    Promise.resolve(setSubjectOrder(finalOrder))
+      .catch(() => {})
+      .then(async () => {
+        if (canAnimate) {
+          const animations = current.rowEl.getAnimations?.() || [];
+          if (animations.length) await Promise.allSettled(animations.map((animation) => animation.finished));
+        }
+        if (!drag) renderSidebarSubjects();
+      });
+  };
+
+  // Listen on <body> with pointer capture instead of on the row itself: the
+  // lifted row is reparented, and moving it out of the sidebar would drop a
+  // capture held by the row mid-gesture.
+  let gesturePointerId = null;
+
+  const stopTracking = () => {
+    document.body.removeEventListener("pointermove", onPointerMove);
+    document.body.removeEventListener("pointerup", onPointerUp);
+    document.body.removeEventListener("pointercancel", onPointerCancel);
+    window.removeEventListener("blur", onWindowBlur);
+    if (gesturePointerId != null) {
+      try {
+        if (document.body.hasPointerCapture?.(gesturePointerId)) {
+          document.body.releasePointerCapture(gesturePointerId);
+        }
+      } catch { /* pointer already released */ }
+      gesturePointerId = null;
+    }
+  };
+
+  const onPointerMove = (event) => {
+    if (event.pointerId !== gesturePointerId) return;
+    if (press) {
+      press.lastX = event.clientX;
+      press.lastY = event.clientY;
+      const distance = Math.hypot(event.clientX - press.startX, event.clientY - press.startY);
+      if (press.pointerType === "touch") {
+        if (distance > SUBJECT_TOUCH_SLOP) clearPress();
+      } else if (distance >= SUBJECT_DRAG_THRESHOLD) {
+        beginDrag(press.pointerType, event.clientX, event.clientY);
+      }
+    }
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    if (event.cancelable) event.preventDefault();
+    drag.pointerY = event.clientY;
+    positionRow(event.clientY);
+    movePlaceholder(event.clientY, true);
+    if (drag.scrollParent && !drag.frame) drag.frame = requestAnimationFrame(autoScroll);
+  };
+
+  const onPointerUp = (event) => {
+    if (event.pointerId !== gesturePointerId) return;
+    clearPress();
+    if (drag) finishDrag(true);
+    stopTracking();
+  };
+
+  const onPointerCancel = (event) => {
+    if (event.pointerId !== gesturePointerId) return;
+    clearPress();
+    if (drag) finishDrag(false);
+    stopTracking();
+  };
+
+  const onWindowBlur = () => {
+    clearPress();
+    if (drag) finishDrag(false);
+    stopTracking();
+  };
+
+  row.addEventListener("pointerdown", (event) => {
+    if (!subjectEditMode || drag || press || gesturePointerId != null) return;
+    if (!event.isPrimary) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    if (event.target.closest?.("button, a, input, textarea, select")) return;
+    press = {
+      pointerId: event.pointerId,
+      pointerType: event.pointerType,
+      startX: event.clientX,
+      startY: event.clientY,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      timer: null
+    };
+    gesturePointerId = event.pointerId;
+    document.body.addEventListener("pointermove", onPointerMove);
+    document.body.addEventListener("pointerup", onPointerUp);
+    document.body.addEventListener("pointercancel", onPointerCancel);
+    window.addEventListener("blur", onWindowBlur);
+    try { document.body.setPointerCapture(event.pointerId); } catch { /* unsupported */ }
+    if (event.pointerType === "touch") {
+      press.timer = setTimeout(() => {
+        if (!press) return;
+        beginDrag("touch", press.lastX, press.lastY);
+      }, SUBJECT_LONG_PRESS_MS);
+    }
+  });
 }
 
 async function renderSidebarSubjects() {
@@ -1766,7 +1975,7 @@ async function renderSidebarSubjects() {
   if (listEl) { listEl.innerHTML = subjects.length ? groups.map((g) => `<div class="subject-group" data-group="${escapeHtml(g.label)}">${showLabels ? `<div class="subject-group-label">${escapeHtml(g.label)}</div>` : ""}<div class="subject-group-rows">${g.subjects.map((record) => subjectEditMode ? subjectEditRowMarkup(record, g.label) : subjectPillMarkup(record)).join("")}</div></div>`).join("") : `<div class="subject-empty">No subjects yet</div>`; if (scrollBox) scrollBox.scrollTop = scrollTop; }
   if (quickListEl) quickListEl.innerHTML = `<button type="button" role="menuitem" class="quick-subject-item ${!currentSubjectId ? "active" : ""}" data-subject=""><span class="quick-subject-dot"></span><span>All subjects</span></button>${groups.map((g) => `${showLabels ? `<div class="quick-group-label">${escapeHtml(g.label)}</div>` : ""}${g.subjects.map((r) => `<button type="button" role="menuitem" class="quick-subject-item ${r.id === currentSubjectId ? "active" : ""}" data-subject-id="${escapeHtml(r.id)}" data-subject="${escapeHtml(r.key)}"><span class="quick-subject-dot"></span><span>${escapeHtml(r.name)}</span></button>`).join("")}`).join("")}`;
   listEl?.querySelectorAll(".subject-pill").forEach((btn) => { btn.addEventListener("click", () => selectSidebarSubject(btn.dataset.subjectId)); btn.addEventListener("contextmenu", (event) => { event.preventDefault(); const menu = ensureSubjectPillMenu(); menu.style.left = `${event.clientX}px`; menu.style.top = `${event.clientY}px`; menu.classList.add("open"); menu.querySelectorAll("button").forEach((action) => { action.onclick = () => action.dataset.action === "rename" ? renameSubjectFromShell(btn.dataset.subjectId) : deleteSubjectFromShell(btn.dataset.subjectId); }); }); });
-  listEl?.querySelectorAll(".subject-edit-row").forEach((row) => { row.querySelector('[data-action="rename"]')?.addEventListener("click", () => renameSubjectFromShell(row.dataset.subjectId)); row.querySelector('[data-action="delete"]')?.addEventListener("click", () => deleteSubjectFromShell(row.dataset.subjectId)); const handle = row.querySelector(".subject-drag-handle"); if (handle) attachSubjectDrag(row, handle); });
+  listEl?.querySelectorAll(".subject-edit-row").forEach((row) => { row.querySelector('[data-action="rename"]')?.addEventListener("click", () => renameSubjectFromShell(row.dataset.subjectId)); row.querySelector('[data-action="delete"]')?.addEventListener("click", () => deleteSubjectFromShell(row.dataset.subjectId)); attachSubjectDrag(row); });
   quickListEl?.querySelectorAll(".quick-subject-item").forEach((btn) => btn.addEventListener("click", () => { selectSidebarSubject(btn.dataset.subjectId || null); document.getElementById("sidebarQuickSubjectsMenu")?.classList.remove("open"); document.getElementById("sidebarQuickSubjects")?.setAttribute("aria-expanded", "false"); }));
 }
 
