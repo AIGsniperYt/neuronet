@@ -1,4 +1,4 @@
-import { initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, getAllSubjects, addSubject, deleteSubject, renameSubject, mergeSubjects, setSubjectOrder, setSubjectLevel, ensureSubjectIdentity, addSubjects, clearSubjects, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForDeckId, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, clearTags, addDeck, addDecks, getAllDecks, getDeck, getDecksForSubject, deleteDeckRecord, deleteDeck, clearDecks, ensureDeckMembership, sortDecksByCreated, buildDeckForest, flattenDeckTree, getDeckDescendantIds, groupDecksBySubject, getDeckPath, describeDeckDeletion, UNSORTED_DECK_NAME, addHeap, addHeaps, getAllHeaps, getHeap, deleteHeap, clearHeaps } from "./db.js";
+import { initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, getAllSubjects, addSubject, deleteSubject, renameSubject, mergeSubjects, setSubjectOrder, setSubjectLevel, ensureSubjectIdentity, addSubjects, clearSubjects, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForDeckId, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, clearTags, addDeck, addDecks, getAllDecks, getDeck, getDecksForSubject, deleteDeckRecord, deleteDeck, clearDecks, ensureDeckMembership, sortDecksByCreated, buildDeckForest, flattenDeckTree, getDeckDescendantIds, groupDecksBySubject, getDeckPath, describeDeckDeletion, UNSORTED_DECK_NAME, addHeap, addHeaps, getAllHeaps, getHeap, deleteHeap, clearHeaps, addTask, addTasks, getAllTasks, deleteTask, clearTasks } from "./db.js";
 import { syncLocalWithCloud, syncToCloud, deleteCloudNode, deleteCloudQuote, deleteCloudCue, fetchCloudNodes, fetchCloudQuotes, fetchCloudCues } from "./sync.js";
 import { initAnalysisToolV2 } from "./tools/analysisTool.js";
 import { dialog } from "./tools/dialog.js";
@@ -7,6 +7,7 @@ import { initMindmapTool } from "./tools/mindmapTool.js";
 import { initTrackerTool } from "./tools/trackerTool.js";
 import { install as installDiag } from "./tools/diag.js";
 import { initScraperTool } from "./tools/scraperTool.js";
+import { initTasksTool } from "./tools/tasksTool.js";
 import { flushBoundaryCache } from "./tools/gradeBoundaries.js";
 import { SCHEMA_VERSION, assertCurrentDataset } from "./schema.js";
 import { initCanvas } from "./canvas.js";
@@ -188,6 +189,17 @@ const tools = {
       escapeHtml,
       activityToast
     }, context)
+  },
+  tasks: {
+    name: "Tasks",
+    file: "tasks.html",
+    init: (context) => initTasksTool({
+      getAllTasks,
+      addTask,
+      deleteTask,
+      getSubjects,
+      escapeHtml
+    }, context)
   }
 };
 
@@ -196,7 +208,8 @@ const toolDefinitions = {
   memory: { name: "Memory", file: "memory.html", icon: "fa-solid fa-brain", desc: "Flashcard study across subjects to memorise nodes you analyse" },
   mindmap: { name: "Mindmap", file: "mindmap.html", icon: "fa-solid fa-diagram-project", desc: "Visual database overview for establishing connections" },
   tracker: { name: "Tracker", file: "tracker.html", icon: "fa-solid fa-chart-column", desc: "Track study progress with past paper data" },
-  scraper: { name: "Scraper", file: "scraper.html", icon: "fa-solid fa-download", desc: "Fetch grade boundaries from exam board spreadsheets" }
+  scraper: { name: "Scraper", file: "scraper.html", icon: "fa-solid fa-download", desc: "Fetch grade boundaries from exam board spreadsheets" },
+  tasks: { name: "Tasks", file: "tasks.html", icon: "fa-solid fa-list-check", desc: "Track schoolwork, revision and assignments in one list" }
 };
 
 // ========== AUTH & API ==========
@@ -723,14 +736,15 @@ async function fetchDemoPayload() {
 }
 
 async function exportDatabaseJson() {
-  const [nodes, quotes, cues, cards, heaps, decks, subjects] = await Promise.all([
+  const [nodes, quotes, cues, cards, heaps, decks, subjects, tasks] = await Promise.all([
     getAllNodes(),
     getAllQuotes(),
     getAllCues(),
     getAllCards(),
     getAllHeaps(),
     getAllDecks(),
-    getAllSubjects()
+    getAllSubjects(),
+    getAllTasks()
   ]);
   const payload = {
     schemaVersion: SCHEMA_VERSION,
@@ -741,7 +755,8 @@ async function exportDatabaseJson() {
     cards,
     heaps,
     decks,
-    subjects
+    subjects,
+    tasks
   };
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
@@ -813,6 +828,7 @@ async function importPayload(payload) {
   const cards = dataset.cards;
   const heaps = dataset.heaps;
   const decks = dataset.decks;
+  const tasks = dataset.tasks;
 
   await clearNodes();
   await clearQuotes();
@@ -821,6 +837,7 @@ async function importPayload(payload) {
   await clearTags();
   await clearHeaps();
   await clearDecks();
+  await clearTasks();
   await addNodes(nodes);
   await addQuotes(quotes);
   await addCues(cues);
@@ -829,6 +846,7 @@ async function importPayload(payload) {
   await clearSubjects();
   await addSubjects(dataset.subjects || []);
   await addHeaps(heaps);
+  await addTasks(tasks);
   await ensureSubjectIdentity();
   await ensureDeckMembership();
   // Rebuild the derived tag index from the final imported records. This also
@@ -982,6 +1000,7 @@ async function wipeDatabase() {
   await clearHeaps();
   await clearDecks();
   await clearSubjects();
+  await clearTasks();
   if (USE_BACKEND && window.currentUser) {
     try {
       const [cloudNodes, cloudQuotes, cloudCues] = await Promise.all([

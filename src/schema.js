@@ -9,7 +9,7 @@
 
 export const SCHEMA_VERSION = 8;
 
-const COLLECTIONS = ["nodes", "quotes", "cues", "cards", "heaps", "decks", "subjects"];
+const COLLECTIONS = ["nodes", "quotes", "cues", "cards", "heaps", "decks", "subjects", "tasks"];
 
 export function assertCurrentDataset(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {

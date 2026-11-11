@@ -1,7 +1,7 @@
 import { createSubjectRecord, parseSubjectName, subjectKey, subjectKeyMatches, migrateSubjectIdentity, compareSubjectRecords } from "./subjectModel.js";
 let db;
 
-const DB_VERSION = 12;
+const DB_VERSION = 13;
 
 // Decks are canonical folders inside a subject. Cards point at one deck via
 // deckId; the legacy `card.deck` string remains the subject owner until the
@@ -161,6 +161,14 @@ export function initDB() {
       if (!db.objectStoreNames.contains("heaps")) {
         const heapStore = db.createObjectStore("heaps", { keyPath: "id" });
         heapStore.createIndex("updatedAt", "updatedAt", { unique: false });
+      }
+
+      if (!db.objectStoreNames.contains("tasks")) {
+        const taskStore = db.createObjectStore("tasks", { keyPath: "id" });
+        taskStore.createIndex("done", "done", { unique: false });
+        taskStore.createIndex("dueDate", "dueDate", { unique: false });
+        taskStore.createIndex("subjectId", "subjectId", { unique: false });
+        taskStore.createIndex("createdAt", "createdAt", { unique: false });
       }
     };
 
@@ -2417,4 +2425,139 @@ export function getFormattedQuote(quoteNode, sourceNode) {
      return formatFallback(quoteText);
    }
   return result;
+}
+
+// ========== TASKS ==========
+//
+// Tasks are a standalone todo layer, not nodes: they must never leak into the
+// mindmap, analysis counts or study queues. `subject` mirrors the key used by
+// other records so a task can follow a renamed subject; `subjectId` is the
+// stable identity when available. `source` is reserved for the future Google
+// Classroom import ("classroom") versus tasks created here ("local").
+
+function taskStoreExists() {
+  return db && db.objectStoreNames.contains("tasks");
+}
+
+function normalizeTaskRecord(task = {}) {
+  const now = Date.now();
+  const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(String(task.dueDate || "")) ? String(task.dueDate) : "";
+  const done = !!task.done;
+  return {
+    ...task,
+    id: task.id || crypto.randomUUID(),
+    type: "task",
+    title: String(task.title || "").trim(),
+    notes: String(task.notes || "").trim(),
+    subject: String(task.subject || "").trim(),
+    subjectId: String(task.subjectId || "").trim(),
+    dueDate,
+    done,
+    completedAt: done ? (Number(task.completedAt) || now) : null,
+    source: task.source === "classroom" ? "classroom" : "local",
+    createdAt: Number(task.createdAt) || now,
+    updatedAt: now
+  };
+}
+
+export function addTask(task) {
+  return new Promise((resolve, reject) => {
+    if (!db || !taskStoreExists()) {
+      reject(new Error("Tasks store not available"));
+      return;
+    }
+
+    const record = normalizeTaskRecord(task);
+    const tx = db.transaction("tasks", "readwrite");
+    const req = tx.objectStore("tasks").put(record);
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => {
+      emitDBChange({ type: "upsert-task", ids: [record.id] });
+      resolve(record);
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export function addTasks(tasks) {
+  return new Promise((resolve, reject) => {
+    if (!db || !taskStoreExists()) {
+      resolve([]);
+      return;
+    }
+
+    const records = (tasks || []).map(normalizeTaskRecord);
+    if (records.length === 0) {
+      resolve([]);
+      return;
+    }
+
+    const tx = db.transaction("tasks", "readwrite");
+    const store = tx.objectStore("tasks");
+    for (const record of records) store.put(record);
+    tx.oncomplete = () => {
+      emitDBChange({ type: "bulk-upsert-task", ids: records.map((record) => record.id) });
+      resolve(records);
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export function getAllTasks() {
+  return new Promise((resolve, reject) => {
+    if (!db || !taskStoreExists()) {
+      resolve([]);
+      return;
+    }
+
+    const tx = db.transaction("tasks", "readonly");
+    const req = tx.objectStore("tasks").getAll();
+    req.onsuccess = () => {
+      const tasks = req.result || [];
+      tasks.sort((a, b) => (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0));
+      resolve(tasks);
+    };
+    req.onerror = () => reject(req.error);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export function deleteTask(id) {
+  return new Promise((resolve, reject) => {
+    if (!db || !taskStoreExists()) {
+      resolve(id);
+      return;
+    }
+
+    const tx = db.transaction("tasks", "readwrite");
+    const req = tx.objectStore("tasks").delete(id);
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => {
+      emitDBChange({ type: "delete-task", ids: [id] });
+      resolve(id);
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export function clearTasks() {
+  return new Promise((resolve, reject) => {
+    if (!db || !taskStoreExists()) {
+      resolve();
+      return;
+    }
+
+    const tx = db.transaction("tasks", "readwrite");
+    const req = tx.objectStore("tasks").clear();
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => {
+      emitDBChange({ type: "clear", store: "tasks" });
+      resolve();
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
 }
