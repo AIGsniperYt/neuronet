@@ -1,5 +1,13 @@
 import { dialog } from "./dialog.js";
 import { createEditor, format as formatMarkdown, formatSafe } from "../vendor/md-format/mdeditor.js";
+import {
+  computeCardDurationMs,
+  estimateRemainingMs,
+  formatEta,
+  isTrustworthySample,
+  median,
+  summarizeCalibration
+} from "./sessionEta.js";
 export async function initMemoryTool(deps, context = {}) {
   const {
     getAllNodes,
@@ -65,6 +73,10 @@ export async function initMemoryTool(deps, context = {}) {
   };
 
   const ROUTER_DEBUG_MAX_STEPS = 20;
+
+  const ETA_HIDDEN_KEY = "neuronet:memoryEtaHidden";
+  const ETA_HISTORY_KEY = "neuronet:memoryEtaSessions";
+  const ETA_HISTORY_LIMIT = 12;
 
   if (typeof window.__neuronetMemoryCleanup === "function") {
     window.__neuronetMemoryCleanup();
@@ -183,8 +195,10 @@ export async function initMemoryTool(deps, context = {}) {
       learningRoute: null,
       systemState: null,
       routeRerouteCounter: 0,
-      focusedBlockKeys: new Set()
+      focusedBlockKeys: new Set(),
+      eta: createEtaSessionState()
     },
+    etaVisibilityBound: false,
     userProfile: loadUserLearningProfile(),
     stats: {
       totalStudied: 0,
@@ -293,6 +307,7 @@ export async function initMemoryTool(deps, context = {}) {
   let gradingControls, gradeDidntKnowBtn, gradeKindaBtn, gradeEasyBtn, priorityControls, priorityToggle;
   let evidenceMatchingContainer, evidencePrompt, quoteOptions, evidenceFeedback;
   let memoryStats, statsContent, closeStatsBtn, roundProgress, resetMemoryBtn;
+  let memoryEtaPill, memoryEtaMain, memoryEtaRange, memoryEtaCards, memoryEtaClose;
   let memoryBody;
   let systemThinkingText;
   // Deck builder elements
@@ -383,8 +398,13 @@ export async function initMemoryTool(deps, context = {}) {
     memoryBody = document.getElementById("memoryBody");
     statsContent = document.getElementById("statsContent");
     closeStatsBtn = document.getElementById("closeStatsBtn");
-    roundProgress = document.getElementById("roundProgress");
+    roundProgress = document.getElementById("roundProgressDots");
     resetMemoryBtn = document.getElementById("resetMemoryBtn");
+    memoryEtaPill = document.getElementById("memoryEtaPill");
+    memoryEtaMain = document.getElementById("memoryEtaMain");
+    memoryEtaRange = document.getElementById("memoryEtaRange");
+    memoryEtaCards = document.getElementById("memoryEtaCards");
+    memoryEtaClose = document.getElementById("memoryEtaClose");
     systemThinkingText = document.getElementById("systemThinkingText");
 
     // Deck builder elements
@@ -806,6 +826,20 @@ export async function initMemoryTool(deps, context = {}) {
       });
     }
 
+    if (memoryEtaClose && !memoryEtaClose.dataset.bound) {
+      memoryEtaClose.dataset.bound = "1";
+      memoryEtaClose.addEventListener("click", () => {
+        setEtaHidden(true);
+        renderEtaPill();
+        renderSidebar();
+      });
+    }
+
+    if (!state.etaVisibilityBound) {
+      state.etaVisibilityBound = true;
+      document.addEventListener("visibilitychange", handleEtaVisibility);
+    }
+
     // Sidebar tab event binding
     const sidebarModeTabs = document.getElementById("sidebarModeTabs");
     if (sidebarModeTabs && !sidebarModeTabs.dataset.bound) {
@@ -821,6 +855,13 @@ export async function initMemoryTool(deps, context = {}) {
     if (statsContent && !statsContent.dataset.sidebarBound) {
       statsContent.dataset.sidebarBound = "1";
       statsContent.addEventListener("click", async (event) => {
+        const etaBtn = event.target.closest("[data-show-eta]");
+        if (etaBtn) {
+          setEtaHidden(false);
+          renderEtaPill();
+          renderSidebar();
+          return;
+        }
         const peekBtn = event.target.closest("[data-peek-card]");
         if (peekBtn) {
           openCardPeek(peekBtn.dataset.peekCard, peekBtn);
@@ -1381,6 +1422,7 @@ export async function initMemoryTool(deps, context = {}) {
     const shownAt = state.session.shownAt ?? nowMs;
     const revealedAt = state.session.revealedAt ?? nowMs;
     const responseTimeMs = clampNumber(revealedAt - shownAt, 200, 240000) * 1;
+    const dwellMs = Math.max(0, nowMs - revealedAt);
 
     const isBlurt = currentCard.type === "blurt";
     const persistKind = isBlurt ? currentCard.targetKind : currentCard.memoryKind;
@@ -1479,6 +1521,15 @@ export async function initMemoryTool(deps, context = {}) {
       state.session.heap.push({ priority: nextPriority, card: cardForHeap });
     }
 
+    markEtaCardGraded(currentCard);
+    recordEtaSample({
+      grade,
+      gradedAt: nowMs,
+      flipMs: responseTimeMs,
+      dwellMs
+    });
+    maybeFinishEtaSession();
+
     renderUI();
     state.session.lastGradeReaction = grade;
     // Always trigger reactive thought/impulse on grade
@@ -1564,6 +1615,7 @@ export async function initMemoryTool(deps, context = {}) {
         state.isFlipped = false;
         state.session.shownAt = Date.now();
         state.session.revealedAt = null;
+        resetEtaCardTimer();
 
         if (state.currentMode === "evidence-matching") {
           await loadEvidenceMatchingForAnalysis(state.flashcards[index].id);
@@ -1909,6 +1961,7 @@ export async function initMemoryTool(deps, context = {}) {
     state.session.systemState = null;
     state.session.routeRerouteCounter = 0;
     state.session.focusedBlockKeys = new Set();
+    resetEtaSession();
 
     if (state.currentMode === "manual") {
       await buildManualHeapQueue();
@@ -2051,6 +2104,281 @@ export async function initMemoryTool(deps, context = {}) {
     if (kind === "analysis") return 8000;
     if (kind === "blurt") return 15000;
     return 4000;
+  }
+
+  // ========== SESSION ETA ==========
+  //
+  // The estimate is intentionally small: a prior by card kind (plus each
+  // card's historical flip time, with an allowance for answer review), blended
+  // with this session's full card durations, then inflated by the observed
+  // miss rate. Blurt and evidence-matching are out of scope for v1.
+
+  function createEtaSessionState() {
+    return {
+      durationsMs: [],
+      misses: 0,
+      graded: 0,
+      // A session is one pass through the queue's unique cards. Routes such as
+      // global_srs deliberately re-insert every graded card, so counting raw
+      // heap size would freeze at the deck size and never let the estimate
+      // finish. Repeats still cost time; the miss-rate inflation below accounts
+      // for them.
+      gradedKeys: new Set(),
+      hiddenMs: 0,
+      hiddenStartedAt: null,
+      studyMs: 0,
+      early: null,
+      finished: false
+    };
+  }
+
+  function resetEtaSession() {
+    state.session.eta = createEtaSessionState();
+    state.session.eta.hiddenStartedAt = document.hidden ? Date.now() : null;
+  }
+
+  function resetEtaCardTimer() {
+    const eta = state.session.eta;
+    if (!eta) return;
+    eta.hiddenMs = 0;
+    eta.hiddenStartedAt = document.hidden ? Date.now() : null;
+  }
+
+  function handleEtaVisibility() {
+    const eta = state.session.eta;
+    if (!eta) return;
+    if (document.hidden) {
+      if (eta.hiddenStartedAt == null) eta.hiddenStartedAt = Date.now();
+    } else if (eta.hiddenStartedAt != null) {
+      eta.hiddenMs += Math.max(0, Date.now() - eta.hiddenStartedAt);
+      eta.hiddenStartedAt = null;
+    }
+  }
+
+  function isEtaHidden() {
+    try { return window.localStorage?.getItem(ETA_HIDDEN_KEY) === "1"; } catch { return false; }
+  }
+
+  function setEtaHidden(hidden) {
+    try {
+      if (hidden) window.localStorage?.setItem(ETA_HIDDEN_KEY, "1");
+      else window.localStorage?.removeItem(ETA_HIDDEN_KEY);
+    } catch { /* storage can be unavailable */ }
+  }
+
+  function readEtaHistory() {
+    try {
+      const parsed = JSON.parse(window.localStorage?.getItem(ETA_HISTORY_KEY) || "[]");
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function saveEtaHistoryEntry(entry) {
+    try {
+      const next = [entry, ...readEtaHistory()].slice(0, ETA_HISTORY_LIMIT);
+      window.localStorage?.setItem(ETA_HISTORY_KEY, JSON.stringify(next));
+    } catch { /* storage can be unavailable */ }
+  }
+
+  function isEtaModeEligible() {
+    return state.view === "study"
+      && state.currentMode !== "blurt"
+      && state.currentMode !== "evidence-matching";
+  }
+
+  function getEtaRemainingCards() {
+    if (!isEtaModeEligible()) return 0;
+    const eta = state.session.eta;
+    const gradedKeys = eta?.gradedKeys || new Set();
+    const pendingKeys = new Set();
+
+    const consider = (card) => {
+      const key = getCardQueueKey(card);
+      if (key && !gradedKeys.has(key)) pendingKeys.add(key);
+    };
+
+    (state.session.heap?.items || []).forEach((item) => consider(item?.card));
+    (state.session.surprisePool || []).forEach(consider);
+    consider(state.flashcards[state.currentIndex]);
+
+    return pendingKeys.size;
+  }
+
+  function markEtaCardGraded(card) {
+    const eta = state.session.eta;
+    if (!eta || eta.finished) return;
+    const key = getCardQueueKey(card);
+    if (key) eta.gradedKeys.add(key);
+  }
+
+  function getEtaPriorMs() {
+    const cards = [
+      ...(state.session.heap?.items || []).map((item) => item.card),
+      state.flashcards[state.currentIndex]
+    ].filter(Boolean);
+
+    // avgTime is flip-only, so add a small allowance for reading the answer and
+    // choosing a grade. Session observations replace this quickly.
+    const historical = cards
+      .map((card) => Number(card?.memoryState?.avgTime))
+      .filter((seconds) => Number.isFinite(seconds) && seconds > 0 && seconds < 600);
+    if (historical.length >= 3) return median(historical) * 1000 + 4000;
+
+    const priors = cards.map((card) => {
+      const kind = card?.memoryKind || card?.type || "card";
+      if (kind === "analysis") return 18000;
+      if (kind === "quote") return 12000;
+      return 8000;
+    });
+    return priors.length ? median(priors) : 9000;
+  }
+
+  function recordEtaSample({ grade, gradedAt, flipMs, dwellMs }) {
+    if (!isEtaModeEligible()) return;
+    const eta = state.session.eta;
+    if (!eta || eta.finished) return;
+    if (!isTrustworthySample({ flipMs, dwellMs })) return;
+
+    const hidden = eta.hiddenMs
+      + (eta.hiddenStartedAt != null ? Math.max(0, gradedAt - eta.hiddenStartedAt) : 0);
+    const cardMs = computeCardDurationMs({
+      shownAt: state.session.shownAt,
+      gradedAt,
+      hiddenMs: hidden
+    });
+    if (cardMs == null) return;
+
+    eta.durationsMs.push(cardMs);
+    if (eta.durationsMs.length > 60) eta.durationsMs.shift();
+    eta.studyMs += cardMs;
+    eta.graded += 1;
+    if (grade !== "easy") eta.misses += 1;
+    eta.hiddenMs = 0;
+    eta.hiddenStartedAt = document.hidden ? Date.now() : null;
+  }
+
+  function maybeFinishEtaSession() {
+    const eta = state.session.eta;
+    if (!eta || eta.finished) return;
+    if (getEtaRemainingCards() > 0) return;
+    eta.finished = true;
+    if (!eta.early || eta.graded === 0) return;
+    saveEtaHistoryEntry({
+      at: Date.now(),
+      actualMs: eta.studyMs,
+      predictedMs: eta.early.predictedMs,
+      lowMs: eta.early.lowMs,
+      highMs: eta.early.highMs,
+      cards: eta.early.cards,
+      graded: eta.graded
+    });
+  }
+
+  function getEtaEstimate() {
+    const remaining = getEtaRemainingCards();
+    if (remaining <= 0) return null;
+    const eta = state.session.eta;
+    const missRate = eta?.graded ? eta.misses / eta.graded : 0;
+    const raw = estimateRemainingMs({
+      durationsMs: eta?.durationsMs || [],
+      priorMs: getEtaPriorMs(),
+      remainingCards: remaining,
+      missRate
+    });
+
+    // Pace should drift, not jump. Cap per-card movement at ~25% per update so
+    // one slow card cannot swing the promise wildly; the total still falls
+    // naturally as the remaining count drops.
+    let perCardMs = raw.perCardMs;
+    const previousPerCard = Number(eta?.lastPerCardMs) || 0;
+    if (previousPerCard > 0 && raw.sampleCount >= 2) {
+      perCardMs = clampNumber(perCardMs, previousPerCard * 0.75, previousPerCard * 1.25);
+    }
+    if (eta) eta.lastPerCardMs = perCardMs;
+
+    const totalMs = perCardMs * remaining;
+    const lowRatio = raw.totalMs > 0 ? raw.lowMs / raw.totalMs : 0.6;
+    const highRatio = raw.totalMs > 0 ? raw.highMs / raw.totalMs : 1.4;
+    const lowMs = totalMs * lowRatio;
+    const highMs = totalMs * highRatio;
+
+    // Snapshot the promise the learner actually saw, once, so calibration
+    // compares like with like.
+    if (eta && eta.graded >= 3 && !eta.early && remaining > 0) {
+      eta.early = {
+        predictedMs: eta.studyMs + totalMs,
+        lowMs: eta.studyMs + lowMs,
+        highMs: eta.studyMs + highMs,
+        cards: remaining
+      };
+    }
+
+    return {
+      remaining,
+      totalMs,
+      lowMs,
+      highMs,
+      perCardMs,
+      sampleCount: raw.sampleCount
+    };
+  }
+
+  function renderEtaPill() {
+    if (!memoryEtaPill) return;
+    const remaining = getEtaRemainingCards();
+    if (!isEtaModeEligible() || isEtaHidden() || remaining <= 0) {
+      memoryEtaPill.hidden = true;
+      return;
+    }
+
+    const estimate = getEtaEstimate();
+    if (!estimate) {
+      memoryEtaPill.hidden = true;
+      return;
+    }
+
+    const formatted = formatEta({
+      totalMs: estimate.totalMs,
+      lowMs: estimate.lowMs,
+      highMs: estimate.highMs,
+      cardsLeft: remaining,
+      sampleCount: estimate.sampleCount
+    });
+    if (!formatted.visible) {
+      memoryEtaPill.hidden = true;
+      return;
+    }
+
+    memoryEtaPill.hidden = false;
+    if (memoryEtaMain) memoryEtaMain.textContent = formatted.main;
+    if (memoryEtaRange) {
+      memoryEtaRange.textContent = formatted.range ? `· ${formatted.range}` : "";
+      memoryEtaRange.hidden = !formatted.range;
+    }
+    if (memoryEtaCards) memoryEtaCards.textContent = formatted.cards;
+    memoryEtaPill.title = formatted.range
+      ? `Estimated study time: ${formatted.range} remaining`
+      : "Estimated study time remaining";
+  }
+
+  function renderEtaStatsPanel() {
+    let html = "";
+    if (isEtaHidden()) {
+      html += `<div class="eta-stats-row">
+        <span>Session estimate is hidden.</span>
+        <button type="button" class="eta-stats-btn" data-show-eta>Show</button>
+      </div>`;
+    }
+    const summary = summarizeCalibration(readEtaHistory());
+    if (summary) {
+      const maeMinutes = Math.max(1, Math.round(summary.maeMs / 60000));
+      html += `<div class="eta-stats-row">
+        <span>Estimate check: ±${maeMinutes} min · range held ${summary.hits}/${summary.count}</span>
+      </div>`;
+    }
+    return html;
   }
 
   function mergeMemoryStateIntoMeta(existingMeta = {}, memoryState) {
@@ -2957,6 +3285,7 @@ export async function initMemoryTool(deps, context = {}) {
     state.showAnalysis = false;
     state.session.shownAt = Date.now();
     state.session.revealedAt = null;
+    resetEtaCardTimer();
     updateSystemThought();
   }
 
@@ -3649,6 +3978,7 @@ export async function initMemoryTool(deps, context = {}) {
     }
 
     renderRoundProgress();
+    renderEtaPill();
 
     // Stats used to poll every second, which rebuilt the panel and stole
     // focus. Refresh it only when the study state actually changes.
@@ -4341,6 +4671,10 @@ export async function initMemoryTool(deps, context = {}) {
     }
     // Delegate to existing stats renderer but inject the strip first
     renderStats();
+    const etaPanel = renderEtaStatsPanel();
+    if (statsContent && etaPanel) {
+      statsContent.insertAdjacentHTML("afterbegin", etaPanel);
+    }
     if (statsContent && routeStrip) {
       statsContent.insertAdjacentHTML("afterbegin", routeStrip);
     }
@@ -6804,6 +7138,7 @@ export async function initMemoryTool(deps, context = {}) {
   window.__neuronetMemoryCleanup = () => {
     document.removeEventListener("db-change", handleDBChange);
     document.removeEventListener("keydown", handleKeyDown);
+    document.removeEventListener("visibilitychange", handleEtaVisibility);
     if (activeModal) {
       activeModal = null;
       setBackgroundInert(false);

@@ -376,7 +376,15 @@
   <div id="memoryBody">
   <div id="memoryContent" style="display: none;">
     <div id="memoryMainArea">
-      <div id="roundProgress"></div>
+      <div id="roundProgress">
+        <div id="roundProgressDots"></div>
+        <div id="memoryEtaPill" hidden>
+          <span id="memoryEtaMain" class="eta-main"></span>
+          <span id="memoryEtaRange" class="eta-range"></span>
+          <span id="memoryEtaCards" class="eta-cards"></span>
+          <button id="memoryEtaClose" class="eta-close" type="button" title="Hide session estimate" aria-label="Hide session estimate">&times;</button>
+        </div>
+      </div>
       <div id="studyStage">
         <div id="flashcardContainer">
           <div id="flashcard" class="flashcard">
@@ -732,6 +740,84 @@
     padding: 20px;
     background: rgba(0,0,0,0.1);
     border-bottom: 1px solid var(--glass-border);
+    position: relative;
+  }
+
+  #roundProgressDots {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+  }
+
+  #memoryEtaPill {
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: baseline;
+    gap: 7px;
+    padding: 5px 8px 5px 11px;
+    border: 1px solid rgba(44,255,179,0.18);
+    border-radius: 999px;
+    background: rgba(8,22,17,0.72);
+    color: var(--text-muted);
+    font-size: var(--text-xs, 0.75rem);
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  #memoryEtaPill[hidden] { display: none; }
+
+  .eta-main {
+    color: var(--text-main);
+    font-weight: 600;
+    font-size: var(--text-sm, 0.86rem);
+  }
+
+  .eta-range,
+  .eta-cards { color: var(--text-muted); }
+
+  .eta-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    margin-left: 2px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-muted);
+    font: inherit;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .eta-close:hover {
+    background: rgba(255,255,255,0.08);
+    color: var(--text-main);
+  }
+
+  .eta-close:focus-visible {
+    outline: 2px solid rgba(44,255,179,0.45);
+    outline-offset: 1px;
+  }
+
+  @media (max-width: 760px) {
+    #roundProgress {
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 14px 12px;
+    }
+    #memoryEtaPill {
+      position: static;
+      transform: none;
+      flex-basis: 100%;
+      justify-content: center;
+    }
   }
 
   .progress-dot {
@@ -3818,6 +3904,31 @@
     color: var(--accent);
     font-weight: 600;
   }
+  .eta-stats-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 10px;
+    padding: 8px 10px;
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 8px;
+    background: rgba(0,0,0,0.2);
+    color: var(--text-muted);
+    font-size: var(--text-xs, 0.8rem);
+    line-height: 1.4;
+  }
+  .eta-stats-btn {
+    flex: 0 0 auto;
+    padding: 3px 10px;
+    border: 1px solid rgba(44,255,179,0.35);
+    border-radius: 999px;
+    background: rgba(44,255,179,0.08);
+    color: var(--accent);
+    font: inherit;
+    cursor: pointer;
+  }
+  .eta-stats-btn:hover { background: rgba(44,255,179,0.16); }
   .stats-header {
     display: flex;
     justify-content: space-between;
