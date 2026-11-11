@@ -2309,6 +2309,29 @@ select {
   </main>
 </div>
 
+<script>
+// A deploy can leave an old module in the browser cache while the shell is
+// fresh (GitHub Pages serves assets with a short max-age). The mismatch shows
+// up as "does not provide an export named ..." and blanks the app. Refresh the
+// modules already loaded for this page once, then reload. The timestamp guard
+// stops a genuine code error from turning into a reload loop.
+(function () {
+  const key = "nn-cache-heal-at";
+  window.addEventListener("error", async (event) => {
+    const message = String(event?.message || "");
+    if (!/does not provide an export named|Importing a module script failed/i.test(message)) return;
+    let last = 0;
+    try { last = Number(sessionStorage.getItem(key) || 0); } catch {}
+    if (Date.now() - last < 60000) return;
+    try { sessionStorage.setItem(key, String(Date.now())); } catch {}
+    const modules = performance.getEntriesByType("resource")
+      .map((entry) => entry.name)
+      .filter((url) => url.startsWith(location.origin) && /\.js(\?|$)/.test(url));
+    await Promise.all(modules.map((url) => fetch(url, { cache: "reload" }).catch(() => {})));
+    location.reload();
+  });
+})();
+</script>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>
