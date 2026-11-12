@@ -1338,6 +1338,254 @@ select {
   border-color: var(--accent);
 }
 
+/* Dashboard: Today */
+.dash-today-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.dash-today-heading { min-width: 0; }
+.dash-today-summary {
+  margin: 6px 0 0;
+  color: rgba(230,255,245,0.78);
+  font-size: var(--text-base);
+  line-height: var(--leading-ui);
+}
+.dash-today-streak {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.dash-today-streak-label {
+  font-size: var(--text-sm);
+  color: rgba(230,255,245,0.62);
+  white-space: nowrap;
+}
+.dash-today-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+.dash-today-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 13px;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.035);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.dash-today-row:hover {
+  background: rgba(255,255,255,0.055);
+  border-color: rgba(255,255,255,0.12);
+}
+.dash-today-icon {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: rgba(44, 255, 179, 0.1);
+  border: 1px solid rgba(44, 255, 179, 0.2);
+  color: var(--accent);
+}
+.dash-today-icon.repeat {
+  background: rgba(120, 200, 255, 0.1);
+  border-color: rgba(120, 200, 255, 0.22);
+  color: #a9dcff;
+}
+.dash-today-icon.task {
+  background: rgba(255,255,255,0.05);
+  border-color: rgba(255,255,255,0.1);
+  color: rgba(230,255,245,0.82);
+}
+.dash-today-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.dash-today-title {
+  font-size: var(--text-compact);
+  font-weight: 600;
+  color: var(--text-main);
+  overflow-wrap: anywhere;
+}
+.dash-today-meta {
+  font-size: var(--text-sm);
+  color: rgba(230,255,245,0.62);
+  line-height: 1.4;
+}
+.dash-today-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+}
+.dash-today-btn {
+  min-height: 34px;
+  padding: 6px 13px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.05);
+  color: var(--text-main);
+  font: inherit;
+  font-size: var(--text-base);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+.dash-today-btn:hover:not(:disabled) {
+  background: rgba(255,255,255,0.1);
+  border-color: rgba(255,255,255,0.2);
+}
+.dash-today-btn.primary {
+  border-color: rgba(44, 255, 179, 0.35);
+  background: rgba(44, 255, 179, 0.12);
+  color: var(--accent);
+}
+.dash-today-btn.primary:hover:not(:disabled) {
+  background: rgba(44, 255, 179, 0.2);
+  border-color: var(--accent);
+}
+.dash-today-btn.ghost { color: rgba(230,255,245,0.75); }
+.dash-today-btn:disabled { cursor: wait; opacity: 0.55; }
+.dash-today-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.dash-today-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 24px 16px;
+  border: 1px dashed rgba(255,255,255,0.12);
+  border-radius: 12px;
+  text-align: center;
+  color: rgba(230,255,245,0.65);
+}
+.dash-today-state > i {
+  color: rgba(44, 255, 179, 0.7);
+  font-size: 1.35rem;
+}
+.dash-today-state p {
+  margin: 0;
+  color: var(--text-main);
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+.dash-today-state span {
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+.dash-today-state.clear > i { color: var(--accent); }
+.dash-today-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.dash-today-note {
+  margin: 10px 0 0;
+  padding: 9px 12px;
+  border-left: 3px solid rgba(255, 190, 90, 0.7);
+  border-radius: 0 8px 8px 0;
+  background: rgba(255, 190, 90, 0.08);
+  color: rgba(255, 232, 190, 0.9);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+.dash-today-bonus-list-root { margin-top: 10px; }
+.dash-today-bonus {
+  margin-top: 8px;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.02);
+  overflow: hidden;
+}
+.dash-today-bonus summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  color: rgba(230,255,245,0.68);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+.dash-today-bonus summary::-webkit-details-marker { display: none; }
+.dash-today-bonus summary:hover { color: var(--text-main); }
+.dash-today-bonus-tag {
+  margin-left: auto;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  color: rgba(230,255,245,0.55);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+.dash-today-bonus-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 12px 10px;
+}
+.dash-today-bonus-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: var(--text-sm);
+}
+.dash-today-bonus-name {
+  color: rgba(230,255,245,0.82);
+  overflow-wrap: anywhere;
+}
+.dash-today-bonus-meta {
+  color: rgba(230,255,245,0.5);
+  flex-shrink: 0;
+}
+.dash-today-bonus-more {
+  margin: 2px 0 0;
+  color: rgba(230,255,245,0.5);
+  font-size: var(--text-xs);
+}
+.dash-today-bonus-open {
+  margin: 0 12px 12px;
+  padding: 6px 11px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.04);
+  color: rgba(230,255,245,0.78);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.dash-today-bonus-open:hover {
+  background: rgba(255,255,255,0.08);
+  color: var(--text-main);
+}
+.dash-today-foot {
+  margin: 12px 0 0;
+  color: rgba(230,255,245,0.5);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
 /* Dashboard: Due for Review */
 .dash-due .kicker { display: block; margin-bottom: 10px; }
 .dash-due-list { display: flex; flex-direction: column; gap: 10px; }
@@ -1795,6 +2043,10 @@ select {
   .dash-action-card { padding: 14px; }
   .dash-streak-body { flex-direction: column; align-items: flex-start; gap: 14px; }
   .dash-due-row { flex-wrap: wrap; gap: 8px; }
+  .dash-today-head { flex-direction: column; align-items: stretch; gap: 12px; }
+  .dash-today-streak { margin-left: 0; justify-content: space-between; }
+  .dash-today-row { flex-wrap: wrap; }
+  .dash-today-actions { width: 100%; justify-content: flex-end; }
 
   #nnToastRoot { left: 8px; right: 8px; bottom: 12px; transform: none; align-items: stretch; }
   .nn-toast { font-size: var(--text-base); padding: 12px 15px; }
@@ -1834,6 +2086,8 @@ select {
   .subject-pill,
   .dash-action-card,
   .dash-due-btn,
+  .dash-today-btn,
+  .dash-today-bonus-open,
   .tool-action-btn { min-height: 44px; }
 }
 
@@ -2243,24 +2497,30 @@ select {
     <!-- Global Launchpad (outside toolContainer) -->
     <div id="globalLaunchpad" class="launchpad entering">
 
-        <!-- Study Streak (greeting) -->
-        <section class="panel dash-streak" id="dashStreak">
-          <div class="dash-streak-body">
-            <span class="dash-streak-flame"><i class="fa-solid fa-fire"></i></span>
-            <div class="dash-streak-info">
-              <span class="kicker">Study Streak</span>
-              <p class="dash-streak-msg" id="dashStreakMsg">Start studying to build your streak!</p>
+        <!-- Today (daily minimum + streak) -->
+        <section class="panel dash-today" id="dashToday" aria-labelledby="dashTodayTitle">
+          <div class="dash-today-head">
+            <div class="dash-today-heading">
+              <span class="kicker" id="dashTodayTitle">Today</span>
+              <p class="dash-today-summary" id="dashTodaySummary" aria-live="polite">Loading today's plan…</p>
             </div>
-            <div class="dash-streak-days" id="dashStreakDays">
-              <div class="dash-day" data-day="0"><span class="dash-day-label">M</span><span class="dash-day-dot"></span></div>
-              <div class="dash-day" data-day="1"><span class="dash-day-label">T</span><span class="dash-day-dot"></span></div>
-              <div class="dash-day" data-day="2"><span class="dash-day-label">W</span><span class="dash-day-dot"></span></div>
-              <div class="dash-day" data-day="3"><span class="dash-day-label">T</span><span class="dash-day-dot"></span></div>
-              <div class="dash-day" data-day="4"><span class="dash-day-label">F</span><span class="dash-day-dot"></span></div>
-              <div class="dash-day" data-day="5"><span class="dash-day-label">S</span><span class="dash-day-dot"></span></div>
-              <div class="dash-day" data-day="6"><span class="dash-day-label">S</span><span class="dash-day-dot"></span></div>
+            <div class="dash-today-streak">
+              <span class="dash-today-streak-label" id="dashStreakMsg">Start your streak today</span>
+              <div class="dash-streak-days" id="dashStreakDays" aria-label="This week's study streak">
+                <div class="dash-day" data-day="0"><span class="dash-day-label">M</span><span class="dash-day-dot"></span></div>
+                <div class="dash-day" data-day="1"><span class="dash-day-label">T</span><span class="dash-day-dot"></span></div>
+                <div class="dash-day" data-day="2"><span class="dash-day-label">W</span><span class="dash-day-dot"></span></div>
+                <div class="dash-day" data-day="3"><span class="dash-day-label">T</span><span class="dash-day-dot"></span></div>
+                <div class="dash-day" data-day="4"><span class="dash-day-label">F</span><span class="dash-day-dot"></span></div>
+                <div class="dash-day" data-day="5"><span class="dash-day-label">S</span><span class="dash-day-dot"></span></div>
+                <div class="dash-day" data-day="6"><span class="dash-day-label">S</span><span class="dash-day-dot"></span></div>
+              </div>
             </div>
           </div>
+          <div id="dashTodayList" class="dash-today-list" role="list" aria-live="polite"></div>
+          <p id="dashTodayNote" class="dash-today-note" hidden></p>
+          <div id="dashTodayBonus" class="dash-today-bonus-list-root"></div>
+          <p id="dashTodayFoot" class="dash-today-foot">This is the minimum. Anything else is a bonus.</p>
         </section>
 
         <!-- Quick Actions -->
@@ -2288,12 +2548,6 @@ select {
               <span class="dash-action-sub">Capture new material</span>
             </button>
           </div>
-        </section>
-
-        <!-- Due for Review -->
-        <section class="panel dash-due" id="dashDue">
-          <span class="kicker">Due for Review</span>
-          <div id="dashDueList" class="dash-due-list"></div>
         </section>
 
         <!-- Recent Activity -->

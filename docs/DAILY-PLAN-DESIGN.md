@@ -1,7 +1,7 @@
 # Daily plan and recurring commitments — design note
 
-**Status:** In progress. Slices 1–3 (commitments store/schema, pure models, and
-Tasks UI) are implemented; the launchpad Today panel and auto-credit remain.
+**Status:** In progress. Slices 1–4 (store/schema, pure models, Tasks UI, and the
+launchpad Today panel) are implemented; auto-credit and final polish remain.
 **Scope:** Recurring commitments plus a task-first "Today" plan on the launchpad.
 **Created:** 2026-11-12
 

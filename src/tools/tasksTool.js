@@ -862,6 +862,14 @@ export async function initTasksTool(deps, context = {}) {
     if (el.quickWeekdays) el.quickWeekdays.innerHTML = weekdayChips([]);
     updateQuickRepeatUi();
     render();
+    if (context.intent === "habit") {
+      if (el.quickRepeat) el.quickRepeat.value = "weekly";
+      updateQuickRepeatUi({ seed: true });
+      if (el.recurring) el.recurring.open = true;
+      el.quickTitle?.focus();
+    } else if (context.intent === "task") {
+      el.quickTitle?.focus();
+    }
   } catch {
     setStatus("Could not load tasks.", true);
   }

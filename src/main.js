@@ -8,6 +8,10 @@ import { initTrackerTool } from "./tools/trackerTool.js";
 import { install as installDiag } from "./tools/diag.js";
 import { initScraperTool } from "./tools/scraperTool.js";
 import { initTasksTool } from "./tools/tasksTool.js";
+import { buildDailyPlan } from "./tools/planModel.js";
+import { addDays, completeOccurrence, formatCadence, skipOccurrence } from "./tools/commitmentsModel.js";
+import { estimateCardsMs } from "./tools/sessionEta.js";
+import { formatDueLabel, toDateKey } from "./tools/tasksModel.js";
 import { flushBoundaryCache } from "./tools/gradeBoundaries.js";
 import { SCHEMA_VERSION, assertCurrentDataset } from "./schema.js";
 import { initCanvas } from "./canvas.js";
@@ -1109,7 +1113,7 @@ function logActivity(subject, toolName, details = {}) {
       sourceMode: details.sourceMode || ""
     }));
     const sessions = JSON.parse(localStorage.getItem(SESSIONS_KEY) || "[]");
-    const today = new Date().toISOString().slice(0, 10);
+    const today = toDateKey();
     const lastSession = sessions[sessions.length - 1];
     if (!lastSession || lastSession.date !== today) {
       sessions.push({ date: today, subject, tool: toolName });
@@ -1246,39 +1250,33 @@ async function renderStudyStreak() {
   const daysEl = document.getElementById("dashStreakDays");
   if (!msgEl || !daysEl) return;
 
-  const studiedDates = new Set(sessions.map(s => s.date));
-  const today = new Date();
-  const todayStr = today.toISOString().slice(0, 10);
-  const studiedToday = studiedDates.has(todayStr);
+  // Activity dates are local YYYY-MM-DD keys. Compare them as dates rather
+  // than as UTC instants so the streak agrees with Today near midnight.
+  const studiedDates = new Set(
+    sessions.map((session) => String(session?.date || "")).filter(Boolean)
+  );
+  const todayKey = toDateKey();
+  const studiedToday = studiedDates.has(todayKey);
 
   let streak = 0;
-  const d = new Date(today);
-  while (true) {
-    const ds = d.toISOString().slice(0, 10);
-    if (studiedDates.has(ds)) { streak++; d.setDate(d.getDate() - 1); }
-    else break;
+  let cursor = studiedToday ? todayKey : addDays(todayKey, -1);
+  while (cursor && studiedDates.has(cursor)) {
+    streak += 1;
+    cursor = addDays(cursor, -1);
   }
 
   if (studiedToday) {
-    if (streak <= 1) {
-      msgEl.innerHTML = `Great to see you here today. Ready to make progress?`;
-    } else {
-      msgEl.innerHTML = `Back again day ${streak} in a row \u2014 great consistency.`;
-    }
+    msgEl.textContent = streak > 1
+      ? `${streak}-day streak`
+      : "Day 1 of your streak";
+  } else if (streak > 0) {
+    msgEl.textContent = `Study today to keep a ${streak}-day streak`;
   } else {
-    const lastSession = sessions.length > 0 ? sessions[sessions.length - 1] : null;
-    if (lastSession) {
-      const diff = Math.floor((today - new Date(lastSession.date)) / 86400000);
-      msgEl.textContent = diff === 1
-        ? "You studied yesterday. Pick up where you left off?"
-        : `It's been a few days \u2014 jump back in when you're ready.`;
-    } else {
-      msgEl.textContent = "Welcome \u2014 start a subject to begin studying.";
-    }
+    msgEl.textContent = "Start your streak today";
   }
 
   const dayLabels = ["M", "T", "W", "T", "F", "S", "S"];
-  const startOfWeek = new Date(today);
+  const startOfWeek = new Date(`${todayKey}T00:00:00`);
   const dayOfWeek = (startOfWeek.getDay() + 6) % 7;
   startOfWeek.setDate(startOfWeek.getDate() - dayOfWeek);
 
@@ -1286,43 +1284,350 @@ async function renderStudyStreak() {
   dots.forEach((dot, i) => {
     const d = new Date(startOfWeek);
     d.setDate(d.getDate() + i);
-    const ds = d.toISOString().slice(0, 10);
+    const ds = toDateKey(d);
     dot.classList.toggle("studied", studiedDates.has(ds));
-    dot.classList.toggle("today", ds === todayStr);
+    dot.classList.toggle("today", ds === todayKey);
     dot.querySelector(".dash-day-label").textContent = dayLabels[i];
   });
 }
 
-async function renderDueForReview() {
-  const list = document.getElementById("dashDueList");
-  if (!list) return;
-  const subjects = await getSubjects();
-  const rows = [];
+const ETA_HISTORY_KEY = "neuronet:memoryEtaSessions";
 
-  for (const s of subjects) {
-    const [dueCards, dueA] = await Promise.all([
-      getDueCardsForDeck(s.key, { limit: 999 }),
-      getDueAnalysisNodesForSubject(s.key, { limit: 999 })
+function readEtaHistory() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(ETA_HISTORY_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function todayDateLabel(todayKey) {
+  const date = new Date(`${todayKey}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return "Today";
+  return `Today \u00b7 ${date.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }).replace(",", "")}`;
+}
+
+function plural(count, singular, pluralForm = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : pluralForm}`;
+}
+
+async function collectReviewRows(subjects, records) {
+  const rows = [];
+  for (const subject of subjects) {
+    const [dueCards, dueAnalysis] = await Promise.all([
+      getDueCardsForDeck(subject.key, { limit: 999 }),
+      getDueAnalysisNodesForSubject(subject.key, { limit: 999 })
     ]);
-    const total = dueCards.length + dueA.length;
-    if (total > 0) {
-      rows.push(`
-        <div class="dash-due-row">
-          <span class="dash-due-name">${escapeHtml(s.name)}${s.level ? ` · ${escapeHtml(s.level)}` : ""}</span>
-          <div class="dash-due-counts">
-            ${dueCards.length ? `<span><span class="count">${dueCards.length}</span> cards</span>` : ""}
-            ${dueA.length ? `<span><span class="count">${dueA.length}</span> analyses</span>` : ""}
-          </div>
-          <button class="dash-due-btn" data-subject="${escapeHtml(s.key)}" data-subject-id="${escapeHtml(s.id)}">Study</button>
-        </div>
-      `);
-    }
+    const cards = dueCards.length;
+    const nodes = dueAnalysis.length;
+    if (cards + nodes === 0) continue;
+    rows.push({
+      subject: subject.name,
+      subjectId: subject.id || "",
+      cards,
+      nodes,
+      estimatedMs: estimateCardsMs({ cards, records })
+    });
+  }
+  return rows;
+}
+
+function todaySubjectLabel(record, subjectById, subjectByKey) {
+  const subject = subjectById.get(record.subjectId) || subjectByKey.get(record.subject);
+  if (!subject) return String(record.subject || "");
+  return [subject.name, subject.level].filter(Boolean).join(" \u00b7 ");
+}
+
+function todayReviewRow(review, reviewSubjects, bestSubject, showTime) {
+  const parts = [];
+  if (reviewSubjects === 1 && bestSubject) {
+    parts.push([bestSubject.name, bestSubject.level].filter(Boolean).join(" \u00b7 "));
+  } else if (reviewSubjects > 1) {
+    parts.push(`across ${plural(reviewSubjects, "subject")}`);
+  }
+  if (review.cards) parts.push(plural(review.cards, "card"));
+  if (review.nodes) parts.push(plural(review.nodes, "analysis", "analyses"));
+  if (showTime) parts.push(`~${Math.max(1, Math.round(review.estimatedMs / 60000))} min`);
+
+  const subjectKey = bestSubject?.key || bestSubject?.subject || "";
+  return `<div class="dash-today-row" role="listitem">
+    <span class="dash-today-icon"><i class="fa-solid fa-brain" aria-hidden="true"></i></span>
+    <div class="dash-today-info">
+      <span class="dash-today-title">Memory review</span>
+      <span class="dash-today-meta">${escapeHtml(parts.join(" \u00b7 "))}</span>
+    </div>
+    <div class="dash-today-actions">
+      <button type="button" class="dash-today-btn primary" data-today-action="review"
+        data-subject="${escapeHtml(subjectKey)}"
+        data-subject-id="${escapeHtml(bestSubject?.id || "")}"
+        data-subject-label="${escapeHtml(bestSubject?.name || "")}"
+        data-subject-level="${escapeHtml(bestSubject?.level || "")}">Start</button>
+    </div>
+  </div>`;
+}
+
+function todayCommitmentRow(row, subjectLabel) {
+  const commitment = row.commitment;
+  const meta = [
+    subjectLabel,
+    formatCadence(commitment.recurrence)
+  ].filter(Boolean).join(" \u00b7 ");
+  return `<div class="dash-today-row" role="listitem">
+    <span class="dash-today-icon repeat"><i class="fa-solid fa-rotate" aria-hidden="true"></i></span>
+    <div class="dash-today-info">
+      <span class="dash-today-title">${escapeHtml(commitment.title)}</span>
+      <span class="dash-today-meta">${escapeHtml(meta)}</span>
+    </div>
+    <div class="dash-today-actions">
+      <button type="button" class="dash-today-btn primary" data-today-action="commitment-done" data-commitment-id="${escapeHtml(commitment.id)}">Done</button>
+      <button type="button" class="dash-today-btn ghost" data-today-action="commitment-skip" data-commitment-id="${escapeHtml(commitment.id)}">Skip</button>
+    </div>
+  </div>`;
+}
+
+function todayTaskRow(task, subjectLabel, todayKey) {
+  const meta = [subjectLabel, formatDueLabel(task.dueDate, todayKey)].filter(Boolean).join(" \u00b7 ");
+  return `<div class="dash-today-row" role="listitem">
+    <span class="dash-today-icon task"><i class="fa-solid fa-list-check" aria-hidden="true"></i></span>
+    <div class="dash-today-info">
+      <span class="dash-today-title">${escapeHtml(task.title)}</span>
+      <span class="dash-today-meta">${escapeHtml(meta || "Due today")}</span>
+    </div>
+    <div class="dash-today-actions">
+      <button type="button" class="dash-today-btn primary" data-today-action="task-done" data-task-id="${escapeHtml(task.id)}">Done</button>
+    </div>
+  </div>`;
+}
+
+function todayBonusMarkup(plan, todayKey, subjectLabelFor) {
+  const overdue = plan.bonus.overdue.slice(0, 5);
+  const sections = [];
+
+  if (overdue.length) {
+    const rows = overdue.map((task) => `<div class="dash-today-bonus-row">
+      <span class="dash-today-bonus-name">${escapeHtml(task.title)}</span>
+      <span class="dash-today-bonus-meta">${escapeHtml([
+        subjectLabelFor(task),
+        formatDueLabel(task.dueDate, todayKey)
+      ].filter(Boolean).join(" \u00b7 "))}</span>
+    </div>`).join("");
+    const more = plan.bonus.overdue.length > overdue.length
+      ? `<p class="dash-today-bonus-more">+${plan.bonus.overdue.length - overdue.length} more in Tasks</p>`
+      : "";
+    sections.push(`<details class="dash-today-bonus">
+      <summary><span>${plural(plan.bonus.overdue.length, "overdue task")}</span><span class="dash-today-bonus-tag">bonus</span></summary>
+      <div class="dash-today-bonus-list">${rows}${more}</div>
+      <button type="button" class="dash-today-bonus-open" data-today-action="open-tasks">Open Tasks</button>
+    </details>`);
   }
 
-  list.innerHTML = rows.length > 0 ? rows.join("") : dashEmpty("Nothing due for review");
-  list.querySelectorAll(".dash-due-btn").forEach(btn => {
-    btn.addEventListener("click", () => loadTool("memory", { subject: btn.dataset.subject, subjectId: btn.dataset.subjectId }));
-  });
+  if (plan.isMinimumDone && plan.bonus.upcoming.length) {
+    const rows = plan.bonus.upcoming.map((task) => `<div class="dash-today-bonus-row">
+      <span class="dash-today-bonus-name">${escapeHtml(task.title)}</span>
+      <span class="dash-today-bonus-meta">${escapeHtml([
+        subjectLabelFor(task),
+        formatDueLabel(task.dueDate, todayKey)
+      ].filter(Boolean).join(" \u00b7 "))}</span>
+    </div>`).join("");
+    sections.push(`<details class="dash-today-bonus">
+      <summary><span>Coming up</span><span class="dash-today-bonus-tag">optional head start</span></summary>
+      <div class="dash-today-bonus-list">${rows}</div>
+      <button type="button" class="dash-today-bonus-open" data-today-action="open-tasks">Open Tasks</button>
+    </details>`);
+  }
+
+  return sections.join("");
+}
+
+async function renderToday() {
+  const list = document.getElementById("dashTodayList");
+  if (!list) return;
+
+  const titleEl = document.getElementById("dashTodayTitle");
+  const summaryEl = document.getElementById("dashTodaySummary");
+  const noteEl = document.getElementById("dashTodayNote");
+  const bonusEl = document.getElementById("dashTodayBonus");
+  const footEl = document.getElementById("dashTodayFoot");
+  const todayKey = toDateKey();
+
+  try {
+    const subjects = await getSubjects();
+    const [tasks, commitments] = await Promise.all([getAllTasks(), getAllCommitments()]);
+    const records = readEtaHistory();
+    const reviews = await collectReviewRows(subjects, records);
+    const plan = buildDailyPlan({
+      tasks,
+      commitments,
+      reviews,
+      todayKey,
+      upcomingLimit: 3
+    });
+
+    const subjectById = new Map(subjects.map((subject) => [subject.id, subject]));
+    const subjectByKey = new Map(subjects.map((subject) => [subject.key, subject]));
+    const subjectLabelFor = (record) => todaySubjectLabel(record, subjectById, subjectByKey);
+
+    const reviewRows = plan.required.reviews;
+    const reviewCards = reviewRows.reduce((sum, row) => sum + row.cards, 0);
+    const reviewNodes = reviewRows.reduce((sum, row) => sum + row.nodes, 0);
+    const reviewSubjects = reviewRows.length;
+    const bestReview = reviewRows.slice().sort((a, b) => (
+      (b.cards + b.nodes) - (a.cards + a.nodes)
+    ))[0];
+    const bestSubject = bestReview
+      ? subjectById.get(bestReview.subjectId) || subjectByKey.get(bestReview.subject)
+      : null;
+    const showReviewTime = records.length > 0 && reviewCards >= 3 && plan.estimatedReviewMs > 0;
+    const reviewEstimate = reviewRows.length
+      ? {
+          cards: reviewCards,
+          nodes: reviewNodes,
+          estimatedMs: plan.estimatedReviewMs
+        }
+      : null;
+
+    const dueCommitments = plan.required.commitments.filter((row) => row.status === "due");
+    const dueTasks = plan.required.tasksDueToday.filter((row) => row.status === "due");
+    const rowCount = (reviewRows.length ? 1 : 0) + dueCommitments.length + dueTasks.length;
+
+    if (titleEl) titleEl.textContent = todayDateLabel(todayKey);
+
+    if (summaryEl) {
+      if (rowCount) {
+        const parts = [plural(rowCount, "thing")];
+        if (reviewCards) parts.push(plural(reviewCards, "card"));
+        if (reviewNodes) parts.push(plural(reviewNodes, "analysis", "analyses"));
+        if (showReviewTime) parts.push(`~${Math.max(1, Math.round(plan.estimatedReviewMs / 60000))} min`);
+        summaryEl.textContent = parts.join(" \u00b7 ");
+      } else if (plan.counts.required > 0) {
+        summaryEl.textContent = "Minimum done \u00b7 you're clear for today";
+      } else {
+        summaryEl.textContent = "Nothing required today";
+      }
+    }
+
+    const rows = [];
+    if (reviewEstimate) {
+      rows.push(todayReviewRow(reviewEstimate, reviewSubjects, bestSubject, showReviewTime));
+    }
+    for (const row of dueCommitments) {
+      rows.push(todayCommitmentRow(row, subjectLabelFor(row.commitment)));
+    }
+    for (const row of dueTasks) {
+      rows.push(todayTaskRow(row.task, subjectLabelFor(row.task), todayKey));
+    }
+
+    if (rows.length) {
+      list.innerHTML = rows.join("");
+    } else if (plan.counts.required > 0) {
+      list.innerHTML = `<div class="dash-today-state clear">
+        <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
+        <p>Minimum done</p>
+        <span>You're clear for today. Anything else is a bonus.</span>
+        <div class="dash-today-state-actions">
+          <button type="button" class="dash-today-btn ghost" data-today-action="open-tasks">Open Tasks</button>
+        </div>
+      </div>`;
+    } else {
+      list.innerHTML = `<div class="dash-today-state">
+        <i class="fa-solid fa-circle-dot" aria-hidden="true"></i>
+        <p>Nothing required today</p>
+        <span>Set a weekly revision habit, or add a task for later.</span>
+        <div class="dash-today-state-actions">
+          <button type="button" class="dash-today-btn primary" data-today-action="new-habit">Set a weekly habit</button>
+          <button type="button" class="dash-today-btn ghost" data-today-action="new-task">Add a task</button>
+        </div>
+      </div>`;
+    }
+
+    if (noteEl) {
+      const showOverload = plan.isOverloaded && reviewRows.length > 0;
+      noteEl.hidden = !showOverload;
+      if (showOverload) {
+        const minutes = Math.max(1, Math.round(plan.estimatedReviewMs / 60000));
+        noteEl.textContent = `That's a big review day \u2014 about ${minutes} min. Start with the reviews; the rest can keep.`;
+      }
+    }
+
+    if (bonusEl) bonusEl.innerHTML = todayBonusMarkup(plan, todayKey, subjectLabelFor);
+
+    if (footEl) {
+      if (plan.counts.cleared > 0) {
+        const cleared = `${plural(plan.counts.cleared, "item")} cleared today.`;
+        footEl.textContent = rowCount
+          ? `${cleared} This is the minimum. Anything else is a bonus.`
+          : `${cleared} Anything else is a bonus.`;
+      } else if (rowCount) {
+        footEl.textContent = "This is the minimum. Anything else is a bonus.";
+      } else {
+        footEl.textContent = "Add a repeat or a task to give the day a shape.";
+      }
+    }
+  } catch (error) {
+    console.error("Could not render today's plan:", error);
+    if (summaryEl) summaryEl.textContent = "Could not load today's plan.";
+    list.innerHTML = `<div class="dash-today-state">
+      <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+      <p>Today's plan is unavailable</p>
+      <span>Your data is still safe. Reopen the launchpad to try again.</span>
+    </div>`;
+  }
+}
+
+async function handleTodayAction(event) {
+  const button = event.target.closest("[data-today-action]");
+  if (!button) return;
+  const action = button.dataset.todayAction;
+
+  if (action === "review") {
+    loadTool("memory", {
+      subject: button.dataset.subject || "",
+      subjectId: button.dataset.subjectId || "",
+      subjectLabel: button.dataset.subjectLabel || "",
+      subjectLevel: button.dataset.subjectLevel || ""
+    });
+    return;
+  }
+  if (action === "open-tasks") {
+    loadTool("tasks");
+    return;
+  }
+  if (action === "new-habit") {
+    loadTool("tasks", { intent: "habit" });
+    return;
+  }
+  if (action === "new-task") {
+    loadTool("tasks", { intent: "task" });
+    return;
+  }
+
+  button.disabled = true;
+  try {
+    if (action === "task-done") {
+      const tasks = await getAllTasks();
+      const task = tasks.find((item) => item.id === button.dataset.taskId);
+      if (!task) return;
+      await addTask({ ...task, done: true, completedAt: Date.now() });
+      toast("Task done.");
+    } else if (action === "commitment-done" || action === "commitment-skip") {
+      const commitments = await getAllCommitments();
+      const commitment = commitments.find((item) => item.id === button.dataset.commitmentId);
+      if (!commitment) return;
+      const updated = action === "commitment-done"
+        ? completeOccurrence(commitment, toDateKey())
+        : skipOccurrence(commitment, toDateKey());
+      await addCommitment(updated);
+      toast(action === "commitment-done" ? "Done for today." : "Skipped today.");
+    } else {
+      return;
+    }
+    await renderDashboard();
+  } catch (error) {
+    console.error("Today action failed:", error);
+    button.disabled = false;
+    toast("Could not update today's plan.", { sticky: true });
+  }
 }
 
 function timeAgo(ts) {
@@ -1498,14 +1803,19 @@ async function renderRecentActivity() {
 
 async function renderDashboard() {
   await Promise.all([
+    renderToday(),
     renderQuickActions(),
     renderStudyStreak(),
-    renderDueForReview(),
     renderRecentActivity()
   ]);
 }
 
 async function initLaunchpad() {
+  document.getElementById("dashToday")?.addEventListener("click", handleTodayAction);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && !currentToolName) renderDashboard();
+  });
+
   await renderDashboard();
   await renderSidebarSubjects();
 

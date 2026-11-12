@@ -22,6 +22,8 @@ const today = "2026-11-11";
 // ---- Date keys -------------------------------------------------------------
 eq("local date key pads month and day", toDateKey(new Date(2026, 10, 5)), "2026-11-05");
 eq("date key is stable at midnight", toDateKey(new Date(2026, 0, 1, 0, 0, 0)), "2026-01-01");
+eq("date key stays local just before midnight", toDateKey(new Date(2026, 10, 12, 23, 59, 59)), "2026-11-12");
+eq("date key rolls over after local midnight", toDateKey(new Date(2026, 10, 13, 0, 0, 1)), "2026-11-13");
 
 const tasks = [
   { id: "undated", title: "Undated", dueDate: "", done: false, createdAt: 50, subject: "Biology" },
