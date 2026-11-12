@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 8,
+  "schemaVersion": 9,
   "exportedAt": "2026-11-09T18:12:44.523Z",
   "nodes": [
     {
@@ -4513,6 +4513,54 @@
       "order": 11,
       "createdAt": 0,
       "updatedAt": 0
+    }
+  ],
+  "tasks": [],
+  "commitments": [
+    {
+      "id": "commit_demo_biology_recall",
+      "type": "commitment",
+      "title": "Biology recall",
+      "notes": "A short daily recall session on the current Biology topic.",
+      "subject": "Biology",
+      "subjectId": "subj_5403c1f9-37bf-4ed6-b5a8-0f88f9f56061",
+      "recurrence": {
+        "frequency": "daily",
+        "weekdays": [],
+        "startDate": "2026-09-01",
+        "endDate": "2027-06-30"
+      },
+      "completions": {
+        "2026-11-09": {
+          "completedAt": 1794182400000,
+          "via": "manual"
+        },
+        "2026-11-11": {
+          "skipped": true,
+          "at": 1794355200000
+        }
+      },
+      "archivedAt": null,
+      "createdAt": 1788220800000,
+      "updatedAt": 1788220800000
+    },
+    {
+      "id": "commit_demo_past_paper",
+      "type": "commitment",
+      "title": "Past paper practice",
+      "notes": "One timed section every Saturday.",
+      "subject": "Maths",
+      "subjectId": "subj_1a8f5893-8521-4e1c-8135-1f0242d6efb2",
+      "recurrence": {
+        "frequency": "weekly",
+        "weekdays": [6],
+        "startDate": "2026-09-01",
+        "endDate": "2027-06-30"
+      },
+      "completions": {},
+      "archivedAt": null,
+      "createdAt": 1788220800000,
+      "updatedAt": 1788220800000
     }
   ]
 }

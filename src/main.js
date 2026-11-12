@@ -1,4 +1,4 @@
-import { initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, getAllSubjects, addSubject, deleteSubject, renameSubject, mergeSubjects, setSubjectOrder, setSubjectLevel, ensureSubjectIdentity, addSubjects, clearSubjects, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForDeckId, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, clearTags, addDeck, addDecks, getAllDecks, getDeck, getDecksForSubject, deleteDeckRecord, deleteDeck, clearDecks, ensureDeckMembership, sortDecksByCreated, buildDeckForest, flattenDeckTree, getDeckDescendantIds, groupDecksBySubject, getDeckPath, describeDeckDeletion, UNSORTED_DECK_NAME, addHeap, addHeaps, getAllHeaps, getHeap, deleteHeap, clearHeaps, addTask, addTasks, getAllTasks, deleteTask, clearTasks } from "./db.js";
+import { initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, getAllSubjects, addSubject, deleteSubject, renameSubject, mergeSubjects, setSubjectOrder, setSubjectLevel, ensureSubjectIdentity, addSubjects, clearSubjects, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForDeckId, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, clearTags, addDeck, addDecks, getAllDecks, getDeck, getDecksForSubject, deleteDeckRecord, deleteDeck, clearDecks, ensureDeckMembership, sortDecksByCreated, buildDeckForest, flattenDeckTree, getDeckDescendantIds, groupDecksBySubject, getDeckPath, describeDeckDeletion, UNSORTED_DECK_NAME, addHeap, addHeaps, getAllHeaps, getHeap, deleteHeap, clearHeaps, addTask, addTasks, getAllTasks, deleteTask, clearTasks, addCommitment, addCommitments, getAllCommitments, deleteCommitment, clearCommitments } from "./db.js";
 import { syncLocalWithCloud, syncToCloud, deleteCloudNode, deleteCloudQuote, deleteCloudCue, fetchCloudNodes, fetchCloudQuotes, fetchCloudCues } from "./sync.js";
 import { initAnalysisToolV2 } from "./tools/analysisTool.js";
 import { dialog } from "./tools/dialog.js";
@@ -197,6 +197,9 @@ const tools = {
       getAllTasks,
       addTask,
       deleteTask,
+      getAllCommitments,
+      addCommitment,
+      deleteCommitment,
       getSubjects,
       escapeHtml
     }, context)
@@ -736,7 +739,7 @@ async function fetchDemoPayload() {
 }
 
 async function exportDatabaseJson() {
-  const [nodes, quotes, cues, cards, heaps, decks, subjects, tasks] = await Promise.all([
+  const [nodes, quotes, cues, cards, heaps, decks, subjects, tasks, commitments] = await Promise.all([
     getAllNodes(),
     getAllQuotes(),
     getAllCues(),
@@ -744,7 +747,8 @@ async function exportDatabaseJson() {
     getAllHeaps(),
     getAllDecks(),
     getAllSubjects(),
-    getAllTasks()
+    getAllTasks(),
+    getAllCommitments()
   ]);
   const payload = {
     schemaVersion: SCHEMA_VERSION,
@@ -756,7 +760,8 @@ async function exportDatabaseJson() {
     heaps,
     decks,
     subjects,
-    tasks
+    tasks,
+    commitments
   };
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
@@ -829,6 +834,7 @@ async function importPayload(payload) {
   const heaps = dataset.heaps;
   const decks = dataset.decks;
   const tasks = dataset.tasks;
+  const commitments = dataset.commitments;
 
   await clearNodes();
   await clearQuotes();
@@ -838,6 +844,7 @@ async function importPayload(payload) {
   await clearHeaps();
   await clearDecks();
   await clearTasks();
+  await clearCommitments();
   await addNodes(nodes);
   await addQuotes(quotes);
   await addCues(cues);
@@ -847,6 +854,7 @@ async function importPayload(payload) {
   await addSubjects(dataset.subjects || []);
   await addHeaps(heaps);
   await addTasks(tasks);
+  await addCommitments(commitments);
   await ensureSubjectIdentity();
   await ensureDeckMembership();
   // Rebuild the derived tag index from the final imported records. This also

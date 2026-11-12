@@ -7,9 +7,9 @@
  * loads it exactly as written.
  */
 
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
-const COLLECTIONS = ["nodes", "quotes", "cues", "cards", "heaps", "decks", "subjects", "tasks"];
+const COLLECTIONS = ["nodes", "quotes", "cues", "cards", "heaps", "decks", "subjects", "tasks", "commitments"];
 
 export function assertCurrentDataset(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {

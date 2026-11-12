@@ -82,6 +82,30 @@ export function estimateRemainingMs({
   };
 }
 
+// Planner-friendly estimate for a known number of review cards. This is
+// deliberately read-only: it borrows the calibrated pace from finished
+// sessions but never feeds anything back into SRS scheduling.
+export function estimateCardsMs({ cards = 0, records = [], priorMs = ETA_DEFAULT_PRIOR_MS } = {}) {
+  const count = Math.max(0, Math.floor(Number(cards) || 0));
+  if (count === 0) return 0;
+
+  const samples = (records || [])
+    .map((record) => {
+      const actual = Number(record?.actualMs);
+      const graded = Number(record?.graded);
+      const seen = graded > 0 ? graded : Number(record?.cards);
+      if (!(actual > 0) || !(seen > 0)) return null;
+      return actual / seen;
+    })
+    .filter((value) => Number.isFinite(value) && value > 0);
+
+  const prior = clampNumber(Number(priorMs) || ETA_DEFAULT_PRIOR_MS, 1500, 120000);
+  const perCardMs = samples.length
+    ? clampNumber(median(samples), 1500, 120000)
+    : prior;
+  return Math.round(perCardMs * count);
+}
+
 function stepForMinutes(minutes) {
   if (minutes < 30) return 1;
   if (minutes < 120) return 5;

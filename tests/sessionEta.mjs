@@ -1,6 +1,7 @@
 // tests/sessionEta.mjs — pure ETA timing, estimation and formatting helpers.
 import {
   computeCardDurationMs,
+  estimateCardsMs,
   estimateRemainingMs,
   formatEta,
   isTrustworthySample,
@@ -97,6 +98,47 @@ eq("no cards hides the pill", formatEta({ totalMs: 60000, cardsLeft: 0 }).visibl
 
 const tight = formatEta({ totalMs: 4 * 60000, lowMs: 3.6 * 60000, highMs: 4.4 * 60000, cardsLeft: 2, sampleCount: 8 });
 eq("a tight range is hidden", tight.range, "");
+
+// ---- Planner estimates ----------------------------------------------------
+eq("zero planner cards cost nothing", estimateCardsMs({ cards: 0 }), 0);
+eq("planner cold start uses the prior", estimateCardsMs({ cards: 4, records: [] }), 36000);
+eq("planner uses the calibrated pace", estimateCardsMs({
+  cards: 20,
+  records: [{ actualMs: 60000, graded: 10 }]
+}), 120000);
+eq("planner takes the median pace", estimateCardsMs({
+  cards: 10,
+  records: [
+    { actualMs: 60000, graded: 10 },
+    { actualMs: 90000, graded: 10 },
+    { actualMs: 120000, graded: 10 }
+  ]
+}), 90000);
+eq("planner falls back to the card count", estimateCardsMs({
+  cards: 10,
+  records: [{ actualMs: 60000, cards: 20 }]
+}), 30000);
+eq("planner ignores invalid calibration rows", estimateCardsMs({
+  cards: 10,
+  records: [
+    { actualMs: 0, graded: 10 },
+    { actualMs: 60000, graded: 0 },
+    { actualMs: 30000, graded: 10 }
+  ]
+}), 30000);
+eq("planner clamps an implausibly fast pace", estimateCardsMs({
+  cards: 10,
+  records: [{ actualMs: 1000, graded: 10 }]
+}), 15000);
+eq("planner clamps an implausibly slow pace", estimateCardsMs({
+  cards: 2,
+  records: [{ actualMs: 6000000, graded: 10 }]
+}), 240000);
+eq("planner rounds the total", estimateCardsMs({
+  cards: 2,
+  records: [{ actualMs: 10000, graded: 3 }]
+}), 6667);
+eq("planner accepts a custom prior", estimateCardsMs({ cards: 3, priorMs: 5000 }), 15000);
 
 // ---- Calibration ----------------------------------------------------------
 const summary = summarizeCalibration([

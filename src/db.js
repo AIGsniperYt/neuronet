@@ -1,7 +1,7 @@
 import { createSubjectRecord, parseSubjectName, subjectKey, subjectKeyMatches, migrateSubjectIdentity, compareSubjectRecords } from "./subjectModel.js";
 let db;
 
-const DB_VERSION = 13;
+const DB_VERSION = 14;
 
 // Decks are canonical folders inside a subject. Cards point at one deck via
 // deckId; the legacy `card.deck` string remains the subject owner until the
@@ -169,6 +169,12 @@ export function initDB() {
         taskStore.createIndex("dueDate", "dueDate", { unique: false });
         taskStore.createIndex("subjectId", "subjectId", { unique: false });
         taskStore.createIndex("createdAt", "createdAt", { unique: false });
+      }
+
+      if (!db.objectStoreNames.contains("commitments")) {
+        const commitmentStore = db.createObjectStore("commitments", { keyPath: "id" });
+        commitmentStore.createIndex("subjectId", "subjectId", { unique: false });
+        commitmentStore.createIndex("createdAt", "createdAt", { unique: false });
       }
     };
 
@@ -2555,6 +2561,166 @@ export function clearTasks() {
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
       emitDBChange({ type: "clear", store: "tasks" });
+      resolve();
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+// ========== COMMITMENTS ==========
+//
+// A commitment is a recurring responsibility, not a task with a repeat flag.
+// It has no single `done` state or due date; completion is recorded per local
+// date in `completions`. Occurrences are derived from `recurrence`, so there
+// are no generated daily records to clean up.
+
+function commitmentStoreExists() {
+  return db && db.objectStoreNames.contains("commitments");
+}
+
+function normalizeCommitmentRecord(commitment = {}) {
+  const now = Date.now();
+  const dateKey = (value) => (
+    /^\d{4}-\d{2}-\d{2}$/.test(String(value || "")) ? String(value) : ""
+  );
+  const recurrence = commitment.recurrence || {};
+  const frequency = recurrence.frequency === "weekly" ? "weekly" : "daily";
+  const weekdays = [...new Set(
+    (Array.isArray(recurrence.weekdays) ? recurrence.weekdays : [])
+      .map(Number)
+      .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6)
+  )].sort((a, b) => a - b);
+
+  const completions = {};
+  for (const [key, value] of Object.entries(commitment.completions || {})) {
+    if (!dateKey(key) || !value || typeof value !== "object") continue;
+    if (value.skipped) {
+      completions[key] = { skipped: true, at: Number(value.at) || now };
+    } else if (Number.isFinite(Number(value.completedAt)) && Number(value.completedAt) > 0) {
+      completions[key] = {
+        completedAt: Number(value.completedAt),
+        via: value.via === "memory" ? "memory" : "manual"
+      };
+    }
+  }
+
+  return {
+    ...commitment,
+    id: commitment.id || crypto.randomUUID(),
+    type: "commitment",
+    title: String(commitment.title || "").trim(),
+    notes: String(commitment.notes || "").trim(),
+    subject: String(commitment.subject || "").trim(),
+    subjectId: String(commitment.subjectId || "").trim(),
+    recurrence: {
+      frequency,
+      weekdays: frequency === "weekly" ? weekdays : [],
+      startDate: dateKey(recurrence.startDate),
+      endDate: dateKey(recurrence.endDate)
+    },
+    completions,
+    archivedAt: Number(commitment.archivedAt) || null,
+    createdAt: Number(commitment.createdAt) || now,
+    updatedAt: now
+  };
+}
+
+export function addCommitment(commitment) {
+  return new Promise((resolve, reject) => {
+    if (!db || !commitmentStoreExists()) {
+      reject(new Error("Commitments store not available"));
+      return;
+    }
+
+    const record = normalizeCommitmentRecord(commitment);
+    const tx = db.transaction("commitments", "readwrite");
+    const req = tx.objectStore("commitments").put(record);
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => {
+      emitDBChange({ type: "upsert-commitment", ids: [record.id] });
+      resolve(record);
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export function addCommitments(commitments) {
+  return new Promise((resolve, reject) => {
+    if (!db || !commitmentStoreExists()) {
+      resolve([]);
+      return;
+    }
+
+    const records = (commitments || []).map(normalizeCommitmentRecord);
+    if (records.length === 0) {
+      resolve([]);
+      return;
+    }
+
+    const tx = db.transaction("commitments", "readwrite");
+    const store = tx.objectStore("commitments");
+    for (const record of records) store.put(record);
+    tx.oncomplete = () => {
+      emitDBChange({ type: "bulk-upsert-commitment", ids: records.map((record) => record.id) });
+      resolve(records);
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export function getAllCommitments() {
+  return new Promise((resolve, reject) => {
+    if (!db || !commitmentStoreExists()) {
+      resolve([]);
+      return;
+    }
+
+    const tx = db.transaction("commitments", "readonly");
+    const req = tx.objectStore("commitments").getAll();
+    req.onsuccess = () => {
+      const commitments = req.result || [];
+      commitments.sort((a, b) => (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0));
+      resolve(commitments);
+    };
+    req.onerror = () => reject(req.error);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export function deleteCommitment(id) {
+  return new Promise((resolve, reject) => {
+    if (!db || !commitmentStoreExists()) {
+      resolve(id);
+      return;
+    }
+
+    const tx = db.transaction("commitments", "readwrite");
+    const req = tx.objectStore("commitments").delete(id);
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => {
+      emitDBChange({ type: "delete-commitment", ids: [id] });
+      resolve(id);
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export function clearCommitments() {
+  return new Promise((resolve, reject) => {
+    if (!db || !commitmentStoreExists()) {
+      resolve();
+      return;
+    }
+
+    const tx = db.transaction("commitments", "readwrite");
+    const req = tx.objectStore("commitments").clear();
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => {
+      emitDBChange({ type: "clear", store: "commitments" });
       resolve();
     };
     tx.onerror = () => reject(tx.error);

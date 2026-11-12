@@ -10,7 +10,10 @@ import { run as runTrackerViewModel } from "./examdata/tracker-view-model.mjs";
 import { run as runDecks } from "./decks.mjs";
 import { run as runSubjects } from "./subjects.mjs";
 import { run as runTasks } from "./tasks.mjs";
+import { run as runCommitments } from "./commitments.mjs";
+import { run as runPlan } from "./plan.mjs";
 import { run as runSessionEta } from "./sessionEta.mjs";
+import { run as runSchema } from "./schema.mjs";
 
 async function main() {
   console.log("==================================================");
@@ -30,7 +33,10 @@ async function main() {
     { name: "decks", fn: runDecks },
     { name: "subjects", fn: runSubjects },
     { name: "tasks", fn: runTasks },
-    { name: "sessionEta", fn: runSessionEta }
+    { name: "commitments", fn: runCommitments },
+    { name: "plan", fn: runPlan },
+    { name: "sessionEta", fn: runSessionEta },
+    { name: "schema", fn: runSchema }
   ];
 
   for (const suite of suites) {
