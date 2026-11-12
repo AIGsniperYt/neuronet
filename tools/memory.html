@@ -735,12 +735,12 @@
 
   #roundProgress {
     display: flex;
+    align-items: center;
     justify-content: center;
     gap: 16px;
     padding: 20px;
     background: rgba(0,0,0,0.1);
     border-bottom: 1px solid var(--glass-border);
-    position: relative;
   }
 
   #roundProgressDots {
@@ -748,13 +748,13 @@
     align-items: center;
     justify-content: center;
     gap: 16px;
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
   #memoryEtaPill {
-    position: absolute;
-    right: 16px;
-    top: 50%;
-    transform: translateY(-50%);
+    order: -1;
+    flex: 0 0 auto;
     display: inline-flex;
     align-items: baseline;
     gap: 7px;
@@ -813,8 +813,6 @@
       padding: 14px 12px;
     }
     #memoryEtaPill {
-      position: static;
-      transform: none;
       flex-basis: 100%;
       justify-content: center;
     }
