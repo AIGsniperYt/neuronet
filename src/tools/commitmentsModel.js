@@ -8,6 +8,7 @@ import { formatDueLabel, toDateKey } from "./tasksModel.js";
 // Storage order is JS getDay() order (0 = Sunday). UI order is Monday first.
 export const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 export const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+export const AUTO_CREDIT_MIN_GRADED = 5;
 
 export function isDateKey(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
@@ -138,6 +139,44 @@ export function commitmentsDueOn(commitments = [], dateKey = toDateKey()) {
 
 export function countDueCommitments(commitments = [], dateKey = toDateKey()) {
   return (commitments || []).filter((commitment) => occurrenceStatus(commitment, dateKey) === "due").length;
+}
+
+// A study session counts as enough to clear a commitment when the learner has
+// finished the first pass, or has graded at least a small proof-of-work set.
+// This is an observer rule only: it never writes SRS state.
+export function shouldAutoCredit({ graded = 0, firstPassComplete = false } = {}) {
+  if (firstPassComplete === true) return true;
+  return Number(graded) >= AUTO_CREDIT_MIN_GRADED;
+}
+
+function normalizeSubject(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function commitmentSubjectMatches(commitment, subject, subjectId) {
+  if (subjectId && commitment?.subjectId && commitment.subjectId === subjectId) return true;
+  const key = normalizeSubject(subject);
+  return Boolean(key) && normalizeSubject(commitment?.subject) === key;
+}
+
+function isSubjectFree(commitment) {
+  return !normalizeSubject(commitment?.subject) && !String(commitment?.subjectId || "").trim();
+}
+
+// Credits at most one due commitment. Exact subject/subjectId matches win over
+// a subject-free commitment; everything else stays untouched.
+export function findAutoCreditCommitment(
+  commitments = [],
+  { todayKey = toDateKey(), subject = "", subjectId = "" } = {}
+) {
+  const due = (commitments || [])
+    .filter((commitment) => occurrenceStatus(commitment, todayKey) === "due")
+    .slice()
+    .sort(compareCommitments);
+
+  const exact = due.find((commitment) => commitmentSubjectMatches(commitment, subject, subjectId));
+  if (exact) return exact;
+  return due.find(isSubjectFree) || null;
 }
 
 export function isCommitmentActive(commitment, todayKey = toDateKey()) {

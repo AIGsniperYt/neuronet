@@ -1,16 +1,19 @@
 // tests/commitments.mjs — pure recurring-commitment helpers. No IndexedDB.
 import {
+  AUTO_CREDIT_MIN_GRADED,
   WEEKDAY_ORDER,
   activeCommitments,
   addDays,
   commitmentsDueOn,
   completeOccurrence,
   countDueCommitments,
+  findAutoCreditCommitment,
   formatCadence,
   nextOccurrenceDate,
   nextOccurrenceLabel,
   occurrenceStatus,
   occursOn,
+  shouldAutoCredit,
   skipOccurrence,
   startOfWeek,
   summarizeCommitment,
@@ -226,6 +229,45 @@ export async function run() {
   const empty = summarizeCommitment(weekly([0]), { todayKey: today, windowDays: 7 });
   eq("no scheduled days means no adherence", empty.adherence, 0);
   eq("no completions means no last date", empty.lastCompletedDate, "");
+
+  // ---- Auto-credit ----------------------------------------------------------
+  eq("auto-credit threshold is five graded cards", AUTO_CREDIT_MIN_GRADED, 5);
+  eq("no grading is not enough", shouldAutoCredit({ graded: 0 }), false);
+  eq("four graded cards is not enough", shouldAutoCredit({ graded: 4 }), false);
+  eq("five graded cards is enough", shouldAutoCredit({ graded: 5 }), true);
+  eq("exhausted first pass is enough", shouldAutoCredit({ graded: 0, firstPassComplete: true }), true);
+  eq("firstPassComplete must be true", shouldAutoCredit({ graded: 0, firstPassComplete: "yes" }), false);
+
+  const bioCommitment = daily({ id: "c-bio", title: "Biology recall", subject: "Biology", subjectId: "subj-bio" });
+  const chemCommitment = daily({ id: "c-chem", title: "Chemistry recall", subject: "Chemistry", subjectId: "subj-chem" });
+  const genericCommitment = daily({ id: "c-generic", title: "Daily recall", subject: "", subjectId: "" });
+  const autoPool = [genericCommitment, chemCommitment, bioCommitment];
+
+  eq("exact subjectId wins", findAutoCreditCommitment(autoPool, {
+    todayKey: today, subject: "Biology", subjectId: "subj-bio"
+  })?.id, "c-bio");
+  eq("subject key matches without an id", findAutoCreditCommitment(autoPool, {
+    todayKey: today, subject: "biology", subjectId: ""
+  })?.id, "c-bio");
+  eq("subjectId matches without a subject", findAutoCreditCommitment(autoPool, {
+    todayKey: today, subject: "", subjectId: "subj-chem"
+  })?.id, "c-chem");
+  eq("unknown subject falls back to a subject-free commitment", findAutoCreditCommitment(autoPool, {
+    todayKey: today, subject: "History", subjectId: "subj-history"
+  })?.id, "c-generic");
+  eq("no due commitments credits nothing", findAutoCreditCommitment([
+    daily({ completions: { [today]: { completedAt: 1 } } }),
+    daily({ id: "c-off", ...weekly([5]) })
+  ], { todayKey: today, subject: "Biology" }), null);
+  eq("archived commitments are not credited", findAutoCreditCommitment([
+    daily({ id: "c-archived", archivedAt: 1 })
+  ], { todayKey: today, subject: "Biology" }), null);
+  eq("skipped commitments are not credited", findAutoCreditCommitment([
+    daily({ id: "c-skipped", completions: { [today]: { skipped: true, at: 1 } } })
+  ], { todayKey: today, subject: "Biology" }), null);
+  eq("no subject context still credits a subject-free commitment", findAutoCreditCommitment([
+    genericCommitment
+  ], { todayKey: today }), genericCommitment);
 
   return { passed, failed };
 }

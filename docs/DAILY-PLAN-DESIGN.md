@@ -1,7 +1,8 @@
 # Daily plan and recurring commitments — design note
 
-**Status:** In progress. Slices 1–4 (store/schema, pure models, Tasks UI, and the
-launchpad Today panel) are implemented; auto-credit and final polish remain.
+**Status:** Implemented. Slices 1–5 are complete (store/schema, pure models,
+Tasks UI, launchpad Today panel, and auto-credit); only the real iPad/Safari
+acceptance pass is outstanding.
 **Scope:** Recurring commitments plus a task-first "Today" plan on the launchpad.
 **Created:** 2026-11-12
 
@@ -338,7 +339,7 @@ This keeps the list honest without flooding Done with a daily habit.
 
 ### Auto-credit
 
-When a Memory session ends, the Memory tool emits a lightweight event:
+When a Memory session crosses the credit threshold (or exhausts its first pass), the Memory tool emits a lightweight event once for that session:
 
 ```js
 window.dispatchEvent(new CustomEvent("neuronet:study-complete", {
@@ -354,7 +355,9 @@ The launchpad listens and credits a matching commitment for today only if:
 - `firstPassComplete` is true **or** at least 5 cards were graded.
 
 Credit sets `completions[todayKey] = { completedAt, via: "memory" }` and shows a
-toast: "Credited: Biology revision". The user can undo the credit from the row.
+toast: "“Biology recall” done — credited from study." with an Undo action. Undo
+only removes a credit that is still tagged `via: "memory"`. The done row stays
+on Today for the rest of the day with its own durable Undo.
 
 This is an observer only. It does not alter the session, the queue, grading,
 `responseTimeMs`, or SRS state. A manual check-off always remains available.

@@ -2,14 +2,14 @@ import { initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, 
 import { syncLocalWithCloud, syncToCloud, deleteCloudNode, deleteCloudQuote, deleteCloudCue, fetchCloudNodes, fetchCloudQuotes, fetchCloudCues } from "./sync.js";
 import { initAnalysisToolV2 } from "./tools/analysisTool.js";
 import { dialog } from "./tools/dialog.js";
-import { initMemoryTool } from "./tools/memoryTool.js";
+import { initMemoryTool, STUDY_COMPLETE_EVENT } from "./tools/memoryTool.js";
 import { initMindmapTool } from "./tools/mindmapTool.js";
 import { initTrackerTool } from "./tools/trackerTool.js";
 import { install as installDiag } from "./tools/diag.js";
 import { initScraperTool } from "./tools/scraperTool.js";
 import { initTasksTool } from "./tools/tasksTool.js";
 import { buildDailyPlan } from "./tools/planModel.js";
-import { addDays, completeOccurrence, formatCadence, skipOccurrence } from "./tools/commitmentsModel.js";
+import { addDays, completeOccurrence, findAutoCreditCommitment, formatCadence, skipOccurrence, undoOccurrence } from "./tools/commitmentsModel.js";
 import { estimateCardsMs } from "./tools/sessionEta.js";
 import { formatDueLabel, toDateKey } from "./tools/tasksModel.js";
 import { flushBoundaryCache } from "./tools/gradeBoundaries.js";
@@ -1367,21 +1367,28 @@ function todayReviewRow(review, reviewSubjects, bestSubject, showTime) {
   </div>`;
 }
 
-function todayCommitmentRow(row, subjectLabel) {
+function todayCommitmentRow(row, subjectLabel, todayKey) {
   const commitment = row.commitment;
+  const done = row.status === "done";
+  const entry = commitment.completions?.[todayKey] || {};
   const meta = [
     subjectLabel,
-    formatCadence(commitment.recurrence)
+    done
+      ? (entry.via === "memory" ? "Done \u00b7 credited from study" : "Done today")
+      : formatCadence(commitment.recurrence)
   ].filter(Boolean).join(" \u00b7 ");
-  return `<div class="dash-today-row" role="listitem">
-    <span class="dash-today-icon repeat"><i class="fa-solid fa-rotate" aria-hidden="true"></i></span>
+  const actions = done
+    ? `<button type="button" class="dash-today-btn ghost" data-today-action="commitment-undo" data-commitment-id="${escapeHtml(commitment.id)}">Undo</button>`
+    : `<button type="button" class="dash-today-btn primary" data-today-action="commitment-done" data-commitment-id="${escapeHtml(commitment.id)}">Done</button>
+      <button type="button" class="dash-today-btn ghost" data-today-action="commitment-skip" data-commitment-id="${escapeHtml(commitment.id)}">Skip</button>`;
+  return `<div class="dash-today-row${done ? " done" : ""}" role="listitem">
+    <span class="dash-today-icon repeat"><i class="fa-solid ${done ? "fa-circle-check" : "fa-rotate"}" aria-hidden="true"></i></span>
     <div class="dash-today-info">
       <span class="dash-today-title">${escapeHtml(commitment.title)}</span>
       <span class="dash-today-meta">${escapeHtml(meta)}</span>
     </div>
     <div class="dash-today-actions">
-      <button type="button" class="dash-today-btn primary" data-today-action="commitment-done" data-commitment-id="${escapeHtml(commitment.id)}">Done</button>
-      <button type="button" class="dash-today-btn ghost" data-today-action="commitment-skip" data-commitment-id="${escapeHtml(commitment.id)}">Skip</button>
+      ${actions}
     </div>
   </div>`;
 }
@@ -1488,6 +1495,7 @@ async function renderToday() {
       : null;
 
     const dueCommitments = plan.required.commitments.filter((row) => row.status === "due");
+    const doneCommitments = plan.required.commitments.filter((row) => row.status === "done");
     const dueTasks = plan.required.tasksDueToday.filter((row) => row.status === "due");
     const rowCount = (reviewRows.length ? 1 : 0) + dueCommitments.length + dueTasks.length;
 
@@ -1512,10 +1520,13 @@ async function renderToday() {
       rows.push(todayReviewRow(reviewEstimate, reviewSubjects, bestSubject, showReviewTime));
     }
     for (const row of dueCommitments) {
-      rows.push(todayCommitmentRow(row, subjectLabelFor(row.commitment)));
+      rows.push(todayCommitmentRow(row, subjectLabelFor(row.commitment), todayKey));
     }
     for (const row of dueTasks) {
       rows.push(todayTaskRow(row.task, subjectLabelFor(row.task), todayKey));
+    }
+    for (const row of doneCommitments) {
+      rows.push(todayCommitmentRow(row, subjectLabelFor(row.commitment), todayKey));
     }
 
     if (rows.length) {
@@ -1619,6 +1630,12 @@ async function handleTodayAction(event) {
         : skipOccurrence(commitment, toDateKey());
       await addCommitment(updated);
       toast(action === "commitment-done" ? "Done for today." : "Skipped today.");
+    } else if (action === "commitment-undo") {
+      const commitments = await getAllCommitments();
+      const commitment = commitments.find((item) => item.id === button.dataset.commitmentId);
+      if (!commitment) return;
+      await addCommitment(undoOccurrence(commitment, toDateKey()));
+      toast("Marked not done.");
     } else {
       return;
     }
@@ -1627,6 +1644,48 @@ async function handleTodayAction(event) {
     console.error("Today action failed:", error);
     button.disabled = false;
     toast("Could not update today's plan.", { sticky: true });
+  }
+}
+
+// Memory emits this observer event when a session has done enough work. It
+// never changes SRS state; it only credits a matching commitment for today.
+async function handleStudyComplete(event) {
+  const detail = event?.detail || {};
+  try {
+    const commitments = await getAllCommitments();
+    const todayKey = toDateKey();
+    const match = findAutoCreditCommitment(commitments, {
+      todayKey,
+      subject: detail.subject,
+      subjectId: detail.subjectId
+    });
+    if (!match) return;
+
+    await addCommitment(completeOccurrence(match, todayKey, { via: "memory" }));
+    toast(`“${match.title}” done — credited from study.`, {
+      action: {
+        label: "Undo",
+        onClick: async () => {
+          try {
+            const fresh = (await getAllCommitments()).find((item) => item.id === match.id);
+            const entry = fresh?.completions?.[todayKey];
+            if (!entry || entry.via !== "memory") {
+              toast("That study credit is no longer there.");
+              return;
+            }
+            await addCommitment(undoOccurrence(fresh, todayKey));
+            toast("Study credit undone.");
+            if (!currentToolName) await renderDashboard();
+          } catch (error) {
+            console.error("Could not undo study credit:", error);
+            toast("Could not undo that credit.", { sticky: true });
+          }
+        }
+      }
+    });
+    if (!currentToolName) await renderDashboard();
+  } catch (error) {
+    console.error("Could not credit today's commitment:", error);
   }
 }
 
@@ -2696,6 +2755,9 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Initialize pinned tools sidebar
   await initPinnedToolsSidebar();
+
+  // Credit today's commitment when a Memory session crosses the threshold.
+  window.addEventListener(STUDY_COMPLETE_EVENT, handleStudyComplete);
 
   // Initialize launchpad
   await initLaunchpad();

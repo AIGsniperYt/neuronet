@@ -8,6 +8,10 @@ import {
   median,
   summarizeCalibration
 } from "./sessionEta.js";
+import { shouldAutoCredit } from "./commitmentsModel.js";
+
+export const STUDY_COMPLETE_EVENT = "neuronet:study-complete";
+
 export async function initMemoryTool(deps, context = {}) {
   const {
     getAllNodes,
@@ -196,6 +200,8 @@ export async function initMemoryTool(deps, context = {}) {
       systemState: null,
       routeRerouteCounter: 0,
       focusedBlockKeys: new Set(),
+      gradedCount: 0,
+      studyCompleteEmitted: false,
       eta: createEtaSessionState()
     },
     etaVisibilityBound: false,
@@ -1504,6 +1510,7 @@ export async function initMemoryTool(deps, context = {}) {
     } else {
       state.stats.streak = 0;
     }
+    state.session.gradedCount += 1;
 
     await maybeEnqueueSurpriseCard();
 
@@ -1529,6 +1536,7 @@ export async function initMemoryTool(deps, context = {}) {
       dwellMs
     });
     maybeFinishEtaSession();
+    maybeEmitStudyComplete();
 
     renderUI();
     state.session.lastGradeReaction = grade;
@@ -1961,6 +1969,8 @@ export async function initMemoryTool(deps, context = {}) {
     state.session.systemState = null;
     state.session.routeRerouteCounter = 0;
     state.session.focusedBlockKeys = new Set();
+    state.session.gradedCount = 0;
+    state.session.studyCompleteEmitted = false;
     resetEtaSession();
 
     if (state.currentMode === "manual") {
@@ -2274,6 +2284,28 @@ export async function initMemoryTool(deps, context = {}) {
       cards: eta.early.cards,
       graded: eta.graded
     });
+  }
+
+  // Observer event for the planner. This never writes SRS state; main.js uses
+  // it to credit today's matching commitment only.
+  function maybeEmitStudyComplete() {
+    if (!isEtaModeEligible()) return;
+    const session = state.session;
+    if (session.studyCompleteEmitted) return;
+    const graded = Number(session.gradedCount) || 0;
+    if (graded < 1) return;
+    const firstPassComplete = getEtaRemainingCards() === 0;
+    if (!shouldAutoCredit({ graded, firstPassComplete })) return;
+    session.studyCompleteEmitted = true;
+    window.dispatchEvent(new CustomEvent(STUDY_COMPLETE_EVENT, {
+      detail: {
+        subject: state.currentSubject,
+        subjectId: state.currentSubjectId,
+        graded,
+        firstPassComplete,
+        at: Date.now()
+      }
+    }));
   }
 
   function getEtaEstimate() {
