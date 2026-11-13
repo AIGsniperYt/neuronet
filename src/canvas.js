@@ -1,6 +1,27 @@
 let canvas, ctx;
 let nodes = [];
 
+// Canvas colours cannot resolve CSS variables, so keep the current theme's
+// RGB channels in sync with the shell and refresh on palette changes.
+let themePalette = {
+  node: "160, 255, 220",
+  edge: "140, 230, 200",
+  wave: "180, 255, 230"
+};
+
+function refreshThemePalette() {
+  const styles = getComputedStyle(document.documentElement);
+  const read = (name, fallback) => styles.getPropertyValue(name).trim() || fallback;
+  themePalette = {
+    node: read("--node-rgb", "160, 255, 220"),
+    edge: read("--node-soft-rgb", "140, 230, 200"),
+    wave: read("--node-bright-rgb", "180, 255, 230")
+  };
+}
+
+refreshThemePalette();
+window.addEventListener("neuronet-theme-change", refreshThemePalette);
+
 const nodeCount = 100;
 const maxDist = 150;
 const separationStrength = 0.02;
@@ -91,7 +112,7 @@ class Node {
 
     ctx.beginPath();
     ctx.arc(this.x, this.y, this.radius * (1 + e * 1.8), 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(160, 255, 220, ${0.3 + e * 0.35})`;
+    ctx.fillStyle = `rgba(${themePalette.node}, ${0.3 + e * 0.35})`;
     ctx.fill();
   }
 }
@@ -156,7 +177,7 @@ function connect() {
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
-      ctx.strokeStyle = `rgba(140, 230, 200, ${0.1 + energy * 0.4})`;
+      ctx.strokeStyle = `rgba(${themePalette.edge}, ${0.1 + energy * 0.4})`;
       ctx.lineWidth = 0.8 + energy * 1.5;
       ctx.stroke();
     }
@@ -278,13 +299,13 @@ function drawField() {
             ctx.moveTo(ax, ay);
             ctx.lineTo(bx, by);
 
-            ctx.strokeStyle = `rgba(180, 255, 230, ${intensity * 0.35})`;
+            ctx.strokeStyle = `rgba(${themePalette.wave}, ${intensity * 0.35})`;
             ctx.lineWidth = 1.8;
             ctx.stroke();
 
             ctx.beginPath();
             ctx.arc(x, y, 2.5, 0, Math.PI * 2);
-            ctx.fillStyle = `rgba(160, 255, 220, ${Math.min(0.8, intensity * 0.8)})`;
+            ctx.fillStyle = `rgba(${themePalette.node}, ${Math.min(0.8, intensity * 0.8)})`;
             ctx.fill();
           }
         });
@@ -348,8 +369,19 @@ function triggerRandomNodes(count = 5, strength = 1) {
 // ========== ANIMATION ==========
 
 let buzzFactor = 0.004;
+let loopActive = false;
+
+function neuralEnabled() {
+  return document.documentElement.dataset.neural !== "off";
+}
 
 function animate() {
+  if (!neuralEnabled()) {
+    loopActive = false;
+    return;
+  }
+  loopActive = true;
+
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   nodes.forEach((n) => {
@@ -367,6 +399,17 @@ function animate() {
 
   requestAnimationFrame(animate);
 }
+
+function resumeLoop() {
+  if (!loopActive && neuralEnabled() && canvas) {
+    loopActive = true;
+    requestAnimationFrame(animate);
+  }
+}
+
+window.addEventListener("neuronet-neural-change", (event) => {
+  if (event.detail?.enabled) resumeLoop();
+});
 
 function initCanvas() {
   canvas = document.getElementById("neuronet");

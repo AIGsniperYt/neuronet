@@ -33,26 +33,26 @@
 
     .tracker-btn {
       width: auto; padding: 8px 14px;
-      background: rgba(255,255,255,0.05);
-      border: 1px solid rgba(255,255,255,0.12);
-      color: #e6fff5; border-radius: 999px; cursor: pointer;
+      background: rgba(var(--overlay-rgb),0.05);
+      border: 1px solid rgba(var(--overlay-rgb),0.12);
+      color: var(--text-main); border-radius: 999px; cursor: pointer;
       font: inherit; font-size: var(--text-base, 0.92rem); transition: all 0.2s ease;
     }
-    .tracker-btn:hover { border-color: rgba(44,255,179,0.45); background: rgba(44,255,179,0.08); }
-    .tracker-btn.active { background: rgba(44,255,179,0.15); border-color: var(--accent); color: var(--accent); }
+    .tracker-btn:hover { border-color: rgba(var(--accent-rgb),0.45); background: rgba(var(--accent-rgb),0.08); }
+    .tracker-btn.active { background: rgba(var(--accent-rgb),0.15); border-color: var(--accent); color: var(--accent); }
     .tracker-btn.primary {
-      background: linear-gradient(130deg, rgba(44,255,179,0.24), rgba(44,255,179,0.11));
-      border-color: rgba(44,255,179,0.45); color: #e6fff5; font-weight: 500;
+      background: linear-gradient(130deg, rgba(var(--accent-rgb),0.24), rgba(var(--accent-rgb),0.11));
+      border-color: rgba(var(--accent-rgb),0.45); color: var(--text-main); font-weight: 500;
     }
     .tracker-btn.primary:hover {
-      background: linear-gradient(130deg, rgba(44,255,179,0.32), rgba(44,255,179,0.18));
+      background: linear-gradient(130deg, rgba(var(--accent-rgb),0.32), rgba(var(--accent-rgb),0.18));
       transform: translateY(-1px);
     }
     .tracker-btn.danger { border-color: rgba(255,107,107,0.4); color: #ff8c8c; }
     .tracker-btn.danger:hover { background: rgba(255,107,107,0.1); border-color: rgba(255,107,107,0.7); }
     .tracker-btn:disabled { cursor: not-allowed; opacity: 0.5; }
-    .tracker-btn:disabled:hover { background: rgba(255,255,255,0.03); transform: none; }
-    .tracker-sep { width: 1px; height: 20px; background: rgba(255,255,255,0.14); margin: 0 6px; }
+    .tracker-btn:disabled:hover { background: rgba(var(--overlay-rgb),0.03); transform: none; }
+    .tracker-sep { width: 1px; height: 20px; background: rgba(var(--overlay-rgb),0.14); margin: 0 6px; }
 
     #trackerContent { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
     #trackerPapers, #trackerStats { flex: 1; min-height: 0; overflow: auto; padding: 24px; }
@@ -69,8 +69,8 @@
     #trackerDropBtn { margin-left: auto; }
     #trackerToolbar input[type="text"] {
       flex: 1; min-width: 200px; padding: 10px 12px; border-radius: 10px;
-      border: 1px solid rgba(255,255,255,0.12); font: inherit; font-size: max(16px, var(--text-base, 0.92rem));
-      background: rgba(255,255,255,0.05); color: var(--text-main);
+      border: 1px solid rgba(var(--overlay-rgb),0.12); font: inherit; font-size: max(16px, var(--text-base, 0.92rem));
+      background: rgba(var(--overlay-rgb),0.05); color: var(--text-main);
     }
     #trackerToolbar input[type="text"]:focus { outline: 2px solid var(--accent-soft); }
     #trackerResultCount { color: var(--text-muted); font-size: var(--text-base, 0.92rem); }
@@ -83,7 +83,7 @@
     }
     .tracker-subject-group .count {
       font-size: var(--text-sm, 0.87rem); color: var(--text-muted);
-      background: rgba(44,255,179,0.1); border: 1px solid rgba(44,255,179,0.25);
+      background: rgba(var(--accent-rgb),0.1); border: 1px solid rgba(var(--accent-rgb),0.25);
       border-radius: 999px; padding: 2px 8px;
     }
 
@@ -95,20 +95,20 @@
     .tracker-sitting-head {
       display: flex; align-items: center; gap: 12px; padding: 13px 16px; cursor: pointer;
     }
-    .tracker-sitting-head:hover { background: rgba(255,255,255,0.02); }
+    .tracker-sitting-head:hover { background: rgba(var(--overlay-rgb),0.02); }
     .tracker-sitting-title { font-weight: 600; min-width: 0; font-size: var(--text-md, 1.03rem); }
     .tracker-sitting-title .series { color: var(--text-muted); font-weight: 400; font-size: var(--text-base, 0.92rem); margin-left: 6px; }
-    .tracker-sitting-badge { font-size: var(--text-xs, 0.82rem); padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.14); color: var(--text-muted); }
-    .tracker-sitting-badge.bnd { border-color: rgba(44,255,179,0.25); color: var(--accent); }
-    .tracker-sitting-badge.bnd.bnd-unknown { border-style: dashed; border-color: rgba(255,255,255,0.2); color: var(--text-muted); opacity: 0.65; cursor: help; }
-    .tracker-sitting-badge.bnd.bnd-proj { border-style: dashed; border-color: rgba(44,255,179,0.45); color: var(--accent); opacity: 0.8; }
+    .tracker-sitting-badge { font-size: var(--text-xs, 0.82rem); padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(var(--overlay-rgb),0.14); color: var(--text-muted); }
+    .tracker-sitting-badge.bnd { border-color: rgba(var(--accent-rgb),0.25); color: var(--accent); }
+    .tracker-sitting-badge.bnd.bnd-unknown { border-style: dashed; border-color: rgba(var(--overlay-rgb),0.2); color: var(--text-muted); opacity: 0.65; cursor: help; }
+    .tracker-sitting-badge.bnd.bnd-proj { border-style: dashed; border-color: rgba(var(--accent-rgb),0.45); color: var(--accent); opacity: 0.8; }
     .tracker-sitting-chev { display: inline-flex; align-items: center; justify-content: center; min-width: 32px; min-height: 32px; margin-left: auto; padding: 4px 8px; border-radius: 7px; color: var(--text-muted); transition: transform 0.2s ease; }
     .tracker-sitting.open .tracker-sitting-chev { transform: rotate(0deg); }
     .head-scores { display: flex; flex-wrap: wrap; gap: 6px; font-size: var(--text-sm, 0.87rem); }
     .head-score {
       display: inline-flex; align-items: center; justify-content: center; gap: 5px;
       min-width: 84px; box-sizing: border-box; flex: 0 1 auto;
-      padding: 3px 8px; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; background: rgba(255,255,255,0.03);
+      padding: 3px 8px; border: 1px solid rgba(var(--overlay-rgb),0.12); border-radius: 8px; background: rgba(var(--overlay-rgb),0.03);
       white-space: nowrap;
     }
     .head-score .head-score-name { color: var(--text-muted); flex: 0 0 auto; }
@@ -117,13 +117,13 @@
     .head-score i { font-style: normal; color: var(--text-muted); }
     .head-score em { font-style: normal; color: var(--text-muted); }
     .head-score .head-grade {
-      font-style: normal; display: inline-block; background: rgba(44,255,179,0.15);
+      font-style: normal; display: inline-block; background: rgba(var(--accent-rgb),0.15);
       color: var(--accent); border-radius: 5px; padding: 1px 5px;
       font-size: var(--text-xs, 0.82rem); font-weight: 700; line-height: 1.3;
     }
     .head-grade { margin-top: 6px; display: inline-block; border-radius: 6px; padding: 2px 7px; font-size: var(--text-xs, 0.82rem); font-weight: 700; line-height: 1.4; }
-    .head-grade.real { background: rgba(44,255,179,0.13); color: var(--accent); border: 1px solid rgba(44,255,179,0.4); }
-    .head-grade.proj { background: rgba(255,196,0,0.12); color: #ffd166; border: 1px dashed rgba(255,196,0,0.45); }
+    .head-grade.real { background: rgba(var(--accent-rgb),0.13); color: var(--accent); border: 1px solid rgba(var(--accent-rgb),0.4); }
+    .head-grade.proj { background: rgba(255,196,0,0.12); color: var(--warning); border: 1px dashed rgba(255,196,0,0.45); }
     .head-grade.proj .proj-label { font-style: normal; font-size: var(--text-xs, 0.82rem); font-weight: 600; opacity: 0.8; text-transform: uppercase; letter-spacing: 0.5px; }
 
     /* sitting table: fixed columns, collapsible note rows */
@@ -139,11 +139,11 @@
       font-weight: 600; white-space: nowrap;
     }
     .sit-table tbody td {
-      padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.05); vertical-align: middle;
+      padding: 10px 14px; border-bottom: 1px solid rgba(var(--overlay-rgb),0.05); vertical-align: middle;
       font-size: var(--text-base, 0.92rem);
     }
     .sit-table tbody tr:last-child td { border-bottom: none; }
-    .sit-table tbody tr.row-main:hover { background: rgba(255,255,255,0.02); }
+    .sit-table tbody tr.row-main:hover { background: rgba(var(--overlay-rgb),0.02); }
     .sit-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     .col-session { width: 100px; }
     .col-papers { width: auto; }
@@ -162,17 +162,17 @@
       padding: 6px; border-radius: 8px; cursor: pointer;
       transition: background 0.15s ease, color 0.15s ease;
     }
-    .row-btn:hover { background: rgba(255,255,255,0.1); color: var(--text-main); }
+    .row-btn:hover { background: rgba(var(--overlay-rgb),0.1); color: var(--text-main); }
     .row-btn.danger:hover { background: rgba(255,107,107,0.15); color: #ff8c8c; }
     .row-btn.note-toggle { opacity: 0.6; font-size: var(--text-md, 1.03rem); }
     .row-btn svg { width: 1.1em; height: 1.1em; display: block; vertical-align: middle; }
     .row-btn.note-toggle.open { opacity: 1; color: var(--accent); }
     tr.note-row > td {
-      padding: 0; border-bottom: 1px solid rgba(255,255,255,0.05); background: rgba(255,255,255,0.025);
+      padding: 0; border-bottom: 1px solid rgba(var(--overlay-rgb),0.05); background: rgba(var(--overlay-rgb),0.025);
     }
     .note-inner { padding: 9px 16px 11px; font-size: var(--text-base, 0.92rem); color: var(--text-muted); white-space: pre-line; line-height: 1.5; }
 
-    .tracker-empty { color: var(--text-muted); border: 1px dashed rgba(255,255,255,0.15); border-radius: 16px; padding: 32px; text-align: center; }
+    .tracker-empty { color: var(--text-muted); border: 1px dashed rgba(var(--overlay-rgb),0.15); border-radius: 16px; padding: 32px; text-align: center; }
     .tracker-empty button { margin-top: 12px; }
 
     .tracker-stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; margin-top: 16px; }
@@ -183,8 +183,8 @@
     .tracker-stat-card h4 { margin: 0 0 10px; font-size: var(--text-md, 1.03rem); font-weight: 600; color: var(--accent); }
     .tracker-stat-card .stat { font-size: 1.5rem; font-weight: 700; }
     .tracker-stat-card .stat-sub { font-size: var(--text-sm, 0.87rem); color: var(--text-muted); margin-top: 4px; }
-    .tracker-bar { height: 8px; border-radius: 999px; background: rgba(255,255,255,0.08); margin-top: 10px; overflow: hidden; }
-    .tracker-bar > div { height: 100%; background: linear-gradient(90deg, rgba(44,255,179,0.3), var(--accent)); border-radius: 999px; transition: width 0.3s ease; }
+    .tracker-bar { height: 8px; border-radius: 999px; background: rgba(var(--overlay-rgb),0.08); margin-top: 10px; overflow: hidden; }
+    .tracker-bar > div { height: 100%; background: linear-gradient(90deg, rgba(var(--accent-rgb),0.3), var(--accent)); border-radius: 999px; transition: width 0.3s ease; }
     .tracker-trend { margin-top: 10px; font-size: var(--text-sm, 0.87rem); color: var(--text-muted); line-height: 1.6; }
 
     #trackerModal { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; z-index: 50; }
@@ -192,7 +192,7 @@
     #trackerModalOverlay { position: absolute; inset: 0; background: rgba(0,0,0,0.55); backdrop-filter: blur(2px); }
     #trackerModalBox {
       position: relative; width: min(560px, 92%); max-height: 86%; overflow: auto;
-      background: linear-gradient(135deg, var(--panel-strong), #1a1a1a);
+      background: linear-gradient(135deg, var(--panel-strong), var(--bg-2));
       border: 1px solid var(--glass-border); border-radius: 20px; padding: 22px; box-sizing: border-box;
     }
     #trackerModalTitle { margin: 0 0 16px; font-size: 1.15rem; font-weight: 600; color: var(--accent); }
@@ -203,15 +203,15 @@
     .tracker-cus-wrap { position: relative; }
     #trackerCustomiseBtn {
       display: inline-flex; align-items: center; gap: 7px;
-      background: linear-gradient(130deg, rgba(44,255,179,0.26), rgba(44,255,179,0.12));
-      border: 1px solid rgba(44,255,179,0.5); color: #eafff5;
+      background: linear-gradient(130deg, rgba(var(--accent-rgb),0.26), rgba(var(--accent-rgb),0.12));
+      border: 1px solid rgba(var(--accent-rgb),0.5); color: var(--text-main);
       border-radius: 10px; padding: 8px 15px; font: inherit; font-size: var(--text-base, 0.92rem); font-weight: 600;
       cursor: pointer; transition: all 0.2s ease;
     }
-    #trackerCustomiseBtn:hover { background: linear-gradient(130deg, rgba(44,255,179,0.4), rgba(44,255,179,0.2)); transform: translateY(-1px); }
+    #trackerCustomiseBtn:hover { background: linear-gradient(130deg, rgba(var(--accent-rgb),0.4), rgba(var(--accent-rgb),0.2)); transform: translateY(-1px); }
     #trackerCustomisePop {
       position: absolute; top: calc(100% + 8px); right: 0; z-index: 30;
-      width: 320px; max-width: calc(100vw - 32px); background: #1c1c1e;
+      width: 320px; max-width: calc(100vw - 32px); background: var(--bg-2);
       border: 1px solid var(--glass-border); border-radius: 14px; padding: 14px;
       box-shadow: 0 14px 36px rgba(0,0,0,0.5); box-sizing: border-box;
     }
@@ -227,7 +227,7 @@
     /* AI-style fetch status, matching the tracker/scraper scratch buffers: a
        bright green peak sweeps across the text instead of a ring spinner. */
     .tracker-cus-busy-text {
-      background-image: linear-gradient(100deg, rgba(230,255,245,0.55) 30%, rgba(44,255,179,0.95) 50%, rgba(230,255,245,0.55) 70%);
+      background-image: linear-gradient(100deg, rgba(var(--text-rgb),0.55) 30%, rgba(var(--accent-rgb),0.95) 50%, rgba(var(--text-rgb),0.55) 70%);
       background-size: 200% 100%;
       -webkit-background-clip: text; background-clip: text;
       -webkit-text-fill-color: transparent; color: transparent;
@@ -249,7 +249,7 @@
       background: none; border: none; color: var(--text-main); font: inherit; font-size: var(--text-base, 0.92rem);
       padding: 6px 8px; border-radius: 8px; cursor: pointer;
     }
-    .tracker-col-toggle:hover { background: rgba(255,255,255,0.05); }
+    .tracker-col-toggle:hover { background: rgba(var(--overlay-rgb),0.05); }
     .tracker-col-toggle .check { width: 15px; color: var(--accent); font-weight: 700; }
     .tracker-col-toggle.off .check { color: transparent; }
     .tracker-cus-reset { margin-top: 12px; background: none; border: none; color: var(--text-muted); font-size: var(--text-sm, 0.87rem); cursor: pointer; padding: 2px 0; }
@@ -260,28 +260,28 @@
     .tracker-link-pill {
       display: inline-flex; align-items: center; gap: 7px;
       max-width: none;
-      background: none; border: 1px dashed rgba(255,255,255,0.22); color: var(--text-muted);
+      background: none; border: 1px dashed rgba(var(--overlay-rgb),0.22); color: var(--text-muted);
       border-radius: 999px; padding: 5px 14px; font: inherit; font-size: var(--text-sm, 0.87rem); cursor: pointer;
       transition: all 0.15s ease; white-space: nowrap; flex: 0 0 auto; box-sizing: border-box;
     }
     .tracker-link-pill:hover { border-color: var(--accent-soft); color: var(--accent); }
-    .tracker-link-pill.linked { border-style: solid; border-color: rgba(44,255,179,0.4); color: var(--accent); background: rgba(44,255,179,0.08); }
-    .tracker-link-pill.suggest { border-style: solid; border-color: rgba(64,173,255,0.45); color: #7cc4ff; background: rgba(64,173,255,0.09); }
+    .tracker-link-pill.linked { border-style: solid; border-color: rgba(var(--accent-rgb),0.4); color: var(--accent); background: rgba(var(--accent-rgb),0.08); }
+    .tracker-link-pill.suggest { border-style: solid; border-color: rgba(64,173,255,0.45); color: var(--info); background: rgba(64,173,255,0.09); }
     .tracker-link-pill.suggest::after {
       content: "?";
-      color: #8ecbff;
+      color: var(--info-soft);
       font-size: var(--text-base, 0.92rem); font-weight: 700; line-height: 1; flex: 0 0 auto;
     }
     #trackerLinkPop {
       position: absolute; top: calc(100% + 6px); left: 0; z-index: 30;
-      width: 300px; max-width: calc(100vw - 32px); background: #1c1c1e;
+      width: 300px; max-width: calc(100vw - 32px); background: var(--bg-2);
       border: 1px solid var(--glass-border); border-radius: 14px; padding: 12px;
       box-shadow: 0 14px 36px rgba(0,0,0,0.5); box-sizing: border-box;
     }
     #trackerLinkPop[hidden] { display: none; }
     #trackerLinkFilter {
-      padding: 9px 11px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.12);
-      font: inherit; font-size: var(--text-base, 0.92rem); background: rgba(255,255,255,0.05); color: var(--text-main);
+      padding: 9px 11px; border-radius: 9px; border: 1px solid rgba(var(--overlay-rgb),0.12);
+      font: inherit; font-size: var(--text-base, 0.92rem); background: rgba(var(--overlay-rgb),0.05); color: var(--text-main);
       width: 100%; box-sizing: border-box;
     }
     #trackerLinkFilter:focus { outline: 2px solid var(--accent-soft); }
@@ -289,10 +289,10 @@
     .tracker-course-list { max-height: 230px; overflow: auto; margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
     .tracker-course-board { font-size: var(--text-xs, 0.82rem); text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin: 8px 0 2px; }
     .tracker-course-item {
-      text-align: left; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
+      text-align: left; background: rgba(var(--overlay-rgb),0.04); border: 1px solid rgba(var(--overlay-rgb),0.1);
       color: var(--text-main); border-radius: 8px; padding: 7px 10px; font: inherit; font-size: var(--text-base, 0.92rem); cursor: pointer;
     }
-    .tracker-course-item:hover { border-color: var(--accent-soft); background: rgba(44,255,179,0.07); }
+    .tracker-course-item:hover { border-color: var(--accent-soft); background: rgba(var(--accent-rgb),0.07); }
     .tracker-course-item.sel { border-color: var(--accent); color: var(--accent); }
     .tracker-course-item .course-qual { color: var(--text-muted); font-size: var(--text-xs, 0.82rem); }
     .tracker-course-item .course-code { color: var(--accent); font-weight: 600; }
@@ -301,7 +301,7 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: var(--text-xs, 0.82rem); color: var(--text-muted); margin-top: 8px;
       padding: 8px 10px; border-radius: 10px; line-height: 1.5;
-      background: rgba(0,0,0,0.25); border: 1px solid var(--glass-border);
+      background: var(--field-surface); border: 1px solid var(--glass-border);
       display: flex; align-items: center; justify-content: center; text-align: center;
       white-space: pre-wrap; word-break: break-word;
       /* Fixed height for two stacked lines so the popover never jumps between
@@ -314,7 +314,7 @@
        with a bright green peak sweeping across the text while busy, a fill
        sweep on completion, then a gentle glow. Scoped to #trackerTool so the
        global .shimmer-text can't hijack it. */
-    #trackerTool .tracker-log-text { color: rgba(230,255,245,0.55); }
+    #trackerTool .tracker-log-text { color: rgba(var(--text-rgb),0.55); }
     @keyframes tracker-log-sweep {
       0% { background-position: 200% 0; }
       100% { background-position: -200% 0; }
@@ -328,7 +328,7 @@
       animation: tracker-log-sweep 1.25s linear infinite;
       background-image: linear-gradient(
         100deg,
-        rgba(230,255,245,0.55) 30%, rgba(44,255,179,0.95) 50%, rgba(230,255,245,0.55) 70%
+        rgba(var(--text-rgb),0.55) 30%, rgba(var(--accent-rgb),0.95) 50%, rgba(var(--text-rgb),0.55) 70%
       );
     }
     @keyframes tracker-log-fill {
@@ -342,17 +342,17 @@
       color: transparent;
       background-image: linear-gradient(
         100deg,
-        rgba(44,255,179,0.95) 0%, rgba(44,255,179,0.95) 47%,
-        rgba(44,255,179,0.95) 49%, rgba(230,255,245,0.55) 51%,
-        rgba(230,255,245,0.55) 100%
+        rgba(var(--accent-rgb),0.95) 0%, rgba(var(--accent-rgb),0.95) 47%,
+        rgba(var(--accent-rgb),0.95) 49%, rgba(var(--text-rgb),0.55) 51%,
+        rgba(var(--text-rgb),0.55) 100%
       );
       background-size: 200% 100%;
       background-position: 200% 0;
       animation: tracker-log-fill 2s cubic-bezier(0.22, 0.8, 0.36, 1) 1 forwards;
     }
     @keyframes tracker-log-breathe {
-      0%, 100% { opacity: 0.94; filter: drop-shadow(0 0 3px rgba(44,255,179,0.42)); }
-      50%       { opacity: 1; filter: drop-shadow(0 0 11px rgba(44,255,179,0.72)); }
+      0%, 100% { opacity: 0.94; filter: drop-shadow(0 0 3px rgba(var(--accent-rgb),0.42)); }
+      50%       { opacity: 1; filter: drop-shadow(0 0 11px rgba(var(--accent-rgb),0.72)); }
     }
     @keyframes tracker-log-glow-sweep {
       0%, 20%  { background-position: 100% 0, 0 0; }
@@ -365,8 +365,8 @@
       -webkit-text-fill-color: transparent;
       color: transparent;
       background-image:
-        linear-gradient(100deg, transparent 34%, rgba(112,255,198,0.78) 50%, transparent 66%),
-        linear-gradient(100deg, rgba(44,255,179,0.95), rgba(44,255,179,0.95));
+        linear-gradient(100deg, transparent 34%, rgba(var(--accent-mid-rgb),0.78) 50%, transparent 66%),
+        linear-gradient(100deg, rgba(var(--accent-rgb),0.95), rgba(var(--accent-rgb),0.95));
       background-size: 200% 100%, 100% 100%;
       background-position: 100% 0, 0 0;
       animation:
@@ -377,11 +377,11 @@
     .tracker-track-skel { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
     .tracker-track-skel-row {
       height: 30px; border-radius: 8px;
-      background: linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.14) 50%, rgba(255,255,255,0.05) 75%);
+      background: linear-gradient(90deg, rgba(var(--overlay-rgb),0.05) 25%, rgba(var(--overlay-rgb),0.14) 50%, rgba(var(--overlay-rgb),0.05) 75%);
       background-size: 200% 100%; animation: tracker-track-sweep 1.2s linear infinite;
     }
     #trackerLinkFilter.tracker-input-skeleton {
-      background: linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.14) 50%, rgba(255,255,255,0.05) 75%);
+      background: linear-gradient(90deg, rgba(var(--overlay-rgb),0.05) 25%, rgba(var(--overlay-rgb),0.14) 50%, rgba(var(--overlay-rgb),0.05) 75%);
       background-size: 200% 100%; animation: tracker-track-sweep 1.2s linear infinite;
     }
     @keyframes tracker-track-sweep { from { background-position: 200% 0; } to { background-position: -200% 0; } }
@@ -389,20 +389,20 @@
     .tracker-form-row { margin-bottom: 12px; display: flex; flex-direction: column; gap: 6px; }
     .tracker-form-row label { font-size: var(--text-sm, 0.87rem); color: var(--text-muted); }
     .tracker-form-row input, .tracker-form-row select, .tracker-form-row textarea {
-      padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.12);
-      font: inherit; font-size: max(16px, var(--text-base, 0.92rem)); background: rgba(255,255,255,0.05); color: var(--text-main);
+      padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(var(--overlay-rgb),0.12);
+      font: inherit; font-size: max(16px, var(--text-base, 0.92rem)); background: rgba(var(--overlay-rgb),0.05); color: var(--text-main);
       width: 100%; box-sizing: border-box;
     }
     .tracker-form-row textarea { min-height: 60px; resize: vertical; }
     .tracker-form-row input:focus, .tracker-form-row select:focus, .tracker-form-row textarea:focus { outline: 2px solid var(--accent-soft); }
     .tracker-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
 
-    .tracker-slot-editor { border: 1px solid var(--glass-border); border-radius: 14px; padding: 12px 14px; margin-bottom: 12px; background: rgba(255,255,255,0.02); }
+    .tracker-slot-editor { border: 1px solid var(--glass-border); border-radius: 14px; padding: 12px 14px; margin-bottom: 12px; background: rgba(var(--overlay-rgb),0.02); }
     .tracker-slot-editor .head { display: flex; justify-content: space-between; align-items: center; font-size: var(--text-sm, 0.87rem); color: var(--text-muted); margin-bottom: 10px; gap: 10px; }
     .tracker-slot-paper {
       flex: 1; min-width: 0; padding: 8px 11px; border-radius: 9px; width: auto;
-      border: 1px solid rgba(255,255,255,0.12); font: inherit; font-size: var(--text-base, 0.92rem); font-weight: 600;
-      background: rgba(255,255,255,0.05); color: var(--text-main); box-sizing: border-box;
+      border: 1px solid rgba(var(--overlay-rgb),0.12); font: inherit; font-size: var(--text-base, 0.92rem); font-weight: 600;
+      background: rgba(var(--overlay-rgb),0.05); color: var(--text-main); box-sizing: border-box;
     }
     .tracker-slot-paper:focus { outline: 2px solid var(--accent-soft); }
     .tracker-slot-editor .head .tracker-slot-paper { flex: 1; min-width: 0; }
@@ -416,8 +416,8 @@
     .tracker-slot-editor .attempt-row .tracker-att-date { flex: 1; }
     .tracker-slot-editor .attempt-row input,
     .tracker-slot-editor .attempt-row label {
-      padding: 9px 11px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.12);
-      font: inherit; font-size: max(16px, var(--text-base, 0.92rem)); background: rgba(255,255,255,0.05); color: var(--text-main); box-sizing: border-box;
+      padding: 9px 11px; border-radius: 9px; border: 1px solid rgba(var(--overlay-rgb),0.12);
+      font: inherit; font-size: max(16px, var(--text-base, 0.92rem)); background: rgba(var(--overlay-rgb),0.05); color: var(--text-main); box-sizing: border-box;
     }
     .tracker-slot-editor .attempt-row label { background: transparent; border-color: transparent; padding: 0; font-weight: 600; color: var(--text-muted); }
 
@@ -428,15 +428,15 @@
 
     /* linked subject + auto grade boundaries */
     .tracker-chip {
-      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(var(--overlay-rgb),0.04); border: 1px solid rgba(var(--overlay-rgb),0.12);
       color: var(--text-muted); border-radius: 999px; padding: 4px 12px;
       font: inherit; font-size: var(--text-xs, 0.82rem); cursor: pointer; transition: all 0.15s ease;
     }
     .tracker-chip:hover { border-color: var(--accent-soft); color: var(--accent); }
-    .tracker-chip.active { background: rgba(44,255,179,0.15); border-color: var(--accent); color: var(--accent); }
+    .tracker-chip.active { background: rgba(var(--accent-rgb),0.15); border-color: var(--accent); color: var(--accent); }
     /* Remove paper — a boxy remove that reads as a destructive action */
     .tracker-slot-del {
-      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,107,107,0.35);
+      background: rgba(var(--overlay-rgb),0.04); border: 1px solid rgba(255,107,107,0.35);
       color: #ff8c8c; border-radius: 9px; padding: 6px 14px;
       font: inherit; font-size: var(--text-sm, 0.87rem); font-weight: 600; cursor: pointer; flex: none;
       transition: all 0.15s ease;
@@ -445,7 +445,7 @@
     .tracker-slot-del:disabled { opacity: 0.4; cursor: not-allowed; }
     /* Remove attempt — a boxy button matching the input field height so it stays aligned */
     .tracker-att-del {
-      background: rgba(255,255,255,0.06); border: 1px solid rgba(255,107,107,0.35);
+      background: rgba(var(--overlay-rgb),0.06); border: 1px solid rgba(255,107,107,0.35);
       color: var(--text-muted); width: 38px; height: 38px; flex: none; box-sizing: border-box;
       border-radius: 9px; font-size: 1.15rem; line-height: 1; cursor: pointer;
       transition: all 0.15s ease;
@@ -455,20 +455,20 @@
     /* + Attempt add: compact pill, visually joined to the attempt list with top spacing — pills are for
        quick/adjacent actions only, kept visually distinct from the boxy remove buttons */
     .tracker-att-add {
-      background: rgba(255,255,255,0.06); border: 1px dashed rgba(255,255,255,0.25);
+      background: rgba(var(--overlay-rgb),0.06); border: 1px dashed rgba(var(--overlay-rgb),0.25);
       color: var(--accent); border-radius: 999px; padding: 5px 13px;
       font: inherit; font-size: var(--text-sm, 0.87rem); font-weight: 600; cursor: pointer; margin-top: 10px;
       transition: all 0.15s ease;
     }
-    .tracker-att-add:hover { border-color: var(--accent); background: rgba(44,255,179,0.1); }
+    .tracker-att-add:hover { border-color: var(--accent); background: rgba(var(--accent-rgb),0.1); }
     .tracker-slot-add {
       align-self: flex-start; margin-top: 6px;
-      background: rgba(44,255,179,0.08); border: 1px solid rgba(44,255,179,0.35);
+      background: rgba(var(--accent-rgb),0.08); border: 1px solid rgba(var(--accent-rgb),0.35);
       color: var(--accent); border-radius: 999px; padding: 7px 15px;
       font: inherit; font-size: var(--text-sm, 0.87rem); font-weight: 600; cursor: pointer;
       transition: all 0.15s ease;
     }
-    .tracker-slot-add:hover { background: rgba(44,255,179,0.14); border-color: var(--accent); }
+    .tracker-slot-add:hover { background: rgba(var(--accent-rgb),0.14); border-color: var(--accent); }
 
     @media (max-width: 700px), (pointer: coarse) and (hover: none) {
       #trackerTool,

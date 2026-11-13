@@ -12,15 +12,15 @@ function ensureRoot() {
       #nnDialogRoot{position:fixed;inset:0;z-index:200;display:none;align-items:center;justify-content:center;}
       #nnDialogRoot.open{display:flex;}
       #nnDialogOverlay{position:absolute;inset:0;background:rgba(0,0,0,0.55);backdrop-filter:blur(2px);}
-      #nnDialogBox{position:relative;width:min(440px,92%);background:linear-gradient(135deg,var(--panel-strong,#242424),#1a1a1a);border:1px solid var(--glass-border);border-radius:16px;padding:20px;
+      #nnDialogBox{position:relative;width:min(440px,92%);background:linear-gradient(135deg,var(--panel-strong,#242424),var(--bg-2));border:1px solid var(--glass-border);border-radius:16px;padding:20px;
         box-shadow:0 20px 60px rgba(0,0,0,.5);}
       #nnDialogMsg{font-size:.95rem;color:var(--text-main);margin:0 0 6px;line-height:1.5;white-space:pre-line;}
       #nnDialogInput{width:100%;box-sizing:border-box;margin-top:10px;padding:10px 12px;border-radius:10px;border:1px solid var(--glass-border);
-        background:rgba(255,255,255,.05);color:var(--text-main);font:inherit;font-size:max(16px,.9rem);}
+        background:rgba(var(--overlay-rgb),.05);color:var(--text-main);font:inherit;font-size:max(16px,.9rem);}
       #nnDialogActions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;}
-      .nn-dialog-btn{border:1px solid var(--glass-border);background:rgba(255,255,255,.06);color:var(--text-main);padding:8px 16px;border-radius:10px;font:inherit;font-size:.85rem;cursor:pointer;}
-      .nn-dialog-btn:hover{background:rgba(255,255,255,.12);}
-      .nn-dialog-btn.primary{background:var(--accent, #2cffb3);border-color:transparent;color:#06281c;font-weight:600;}
+      .nn-dialog-btn{border:1px solid var(--glass-border);background:rgba(var(--overlay-rgb),.06);color:var(--text-main);padding:8px 16px;border-radius:10px;font:inherit;font-size:.85rem;cursor:pointer;}
+      .nn-dialog-btn:hover{background:rgba(var(--overlay-rgb),.12);}
+      .nn-dialog-btn.primary{background:var(--accent, #2cffb3);border-color:transparent;color:var(--accent-contrast);font-weight:600;}
       .nn-dialog-btn.danger{background:#ff8c8c;border-color:transparent;color:#2a0000;font-weight:600;}
     </style>
     <div id="nnDialogOverlay"></div>

@@ -248,11 +248,11 @@ function enforceUserSelect() {
   function getPriorityColor(priority) {
     switch (clampPriority(priority)) {
       case 1: return "#9aa4ad";
-      case 2: return "#4ba3ff";
-      case 3: return "#3fd07d";
-      case 4: return "#ff9b39";
+      case 2: return "var(--info)";
+      case 3: return "var(--success)";
+      case 4: return "var(--quote)";
       case 5: return "#ff4d4d";
-      default: return "#3fd07d";
+      default: return "var(--success)";
     }
   }
 
@@ -1422,7 +1422,7 @@ function htmlToPlainText(html) {
         const stars = [1, 2, 3, 4, 5]
           .map((value) => {
             const active = value <= priority;
-            const color = active ? getPriorityColor(value) : "rgba(230,255,245,0.2)";
+            const color = active ? getPriorityColor(value) : "rgba(var(--text-rgb),0.2)";
             return `<button type="button" class="icon-btn" title="Set priority ${value}" aria-label="Set priority ${value}" onclick="setQuotePriorityForAnalysis(${idx}, ${value})" style="margin: 0; color: ${color};">${active ? "★" : "☆"}</button>`;
           })
           .join("");
@@ -1433,16 +1433,16 @@ function htmlToPlainText(html) {
         const cueBtnLabel = hasCue ? "Edit Cue" : "Add Cue";
 
         return `
-            <div class="quote-ref-form-row" style="background: rgba(44, 255, 179, 0.08); padding: 8px; border-radius: 6px; font-size: 0.85rem;">
+            <div class="quote-ref-form-row" style="background: rgba(var(--accent-rgb), 0.08); padding: 8px; border-radius: 6px; font-size: 0.85rem;">
               <div style="display: flex; justify-content: space-between; align-items: start; gap: 8px;">
                 <span style="flex: 1; line-height: 1.3; font-style: italic;">"${truncated}"</span>
                 <div style="display: flex; gap: 4px;">
-                  <button type="button" class="btn cue-btn" data-quote-id="${quoteId || ''}" style="padding: 4px 8px; font-size: 0.75rem; ${hasCue ? 'background: rgba(44, 255, 179, 0.2);' : ''}">${cueBtnLabel}</button>
+                  <button type="button" class="btn cue-btn" data-quote-id="${quoteId || ''}" style="padding: 4px 8px; font-size: 0.75rem; ${hasCue ? 'background: rgba(var(--accent-rgb), 0.2);' : ''}">${cueBtnLabel}</button>
                   <button type="button" data-idx="${idx}" class="btn" style="padding: 4px 8px; font-size: 0.75rem;" onclick="removeQuoteRefFromAnalysis(${idx})">Remove</button>
                 </div>
               </div>
               <div style="display: flex; align-items: center; gap: 4px; margin-top: 8px;">
-                <span style="font-size: 0.75rem; color: rgba(230,255,245,0.7);">Priority</span>
+                <span style="font-size: 0.75rem; color: rgba(var(--text-rgb),0.7);">Priority</span>
                 <div style="display: flex; align-items: center; gap: 2px;">${stars}</div>
               </div>
               ${origin}
@@ -1971,8 +1971,8 @@ function htmlToPlainText(html) {
       const existingTagTitles = new Set(subjectTags.map(t => t.title.toLowerCase()));
 
       container.innerHTML = `
-        <div style="background: rgba(16,43,32,0.95); border: 1px solid rgba(44,255,179,0.3); border-radius: 6px; padding: 8px; margin-top: 4px; max-height: 150px; overflow-y: auto;">
-          <div style="font-size: 0.75rem; color: rgba(230,255,245,0.7); margin-bottom: 6px;">Select existing tags or type new ones:</div>
+        <div style="background: rgba(var(--surface-rgb),0.95); border: 1px solid rgba(var(--accent-rgb),0.3); border-radius: 6px; padding: 8px; margin-top: 4px; max-height: 150px; overflow-y: auto;">
+          <div style="font-size: 0.75rem; color: rgba(var(--text-rgb),0.7); margin-bottom: 6px;">Select existing tags or type new ones:</div>
           ${subjectTags.length > 0 ? `
             <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px;">
               ${subjectTags.map(tag => `
@@ -1981,13 +1981,13 @@ function htmlToPlainText(html) {
                   border-radius: 4px;
                   font-size: 0.75rem;
                   cursor: pointer;
-                  background: ${currentTags.includes(tag.title) ? 'rgba(44,255,179,0.3)' : 'rgba(44,255,179,0.1)'};
-                  color: ${currentTags.includes(tag.title) ? '#e6fff5' : 'rgba(230,255,245,0.7)'};
-                  border: 1px solid rgba(44,255,179,${currentTags.includes(tag.title) ? '0.5' : '0.2'});
+                  background: ${currentTags.includes(tag.title) ? 'rgba(var(--accent-rgb),0.3)' : 'rgba(var(--accent-rgb),0.1)'};
+                  color: ${currentTags.includes(tag.title) ? 'var(--text-main)' : 'rgba(var(--text-rgb),0.7)'};
+                  border: 1px solid rgba(var(--accent-rgb),${currentTags.includes(tag.title) ? '0.5' : '0.2'});
                 ">${escapeHtml(tag.title)}</button>
               `).join("")}
             </div>
-          ` : '<div style="font-size: 0.75rem; color: rgba(230,255,245,0.5);">No existing tags yet. Type to create new ones.</div>'}
+          ` : '<div style="font-size: 0.75rem; color: rgba(var(--text-rgb),0.5);">No existing tags yet. Type to create new ones.</div>'}
         </div>
       `;
 
@@ -2003,15 +2003,15 @@ function htmlToPlainText(html) {
           if (tagIndex !== -1) {
             // Remove tag
             currentTags.splice(tagIndex, 1);
-            btn.style.background = 'rgba(44,255,179,0.1)';
-            btn.style.color = 'rgba(230,255,245,0.7)';
-            btn.style.border = '1px solid rgba(44,255,179,0.2)';
+            btn.style.background = 'rgba(var(--accent-rgb),0.1)';
+            btn.style.color = 'rgba(var(--text-rgb),0.7)';
+            btn.style.border = '1px solid rgba(var(--accent-rgb),0.2)';
           } else {
             // Add tag
             currentTags.push(tagName);
-            btn.style.background = 'rgba(44,255,179,0.3)';
-            btn.style.color = '#e6fff5';
-            btn.style.border = '1px solid rgba(44,255,179,0.5)';
+            btn.style.background = 'rgba(var(--accent-rgb),0.3)';
+            btn.style.color = 'var(--text-main)';
+            btn.style.border = '1px solid rgba(var(--accent-rgb),0.5)';
           }
 
           if (analysisTagsInput) {
@@ -2048,8 +2048,8 @@ function htmlToPlainText(html) {
       position: fixed;
       left: ${e.clientX}px;
       top: ${e.clientY}px;
-      background: rgba(16, 43, 32, 0.95);
-      border: 1px solid rgba(44, 255, 179, 0.3);
+      background: rgba(var(--surface-rgb), 0.95);
+      border: 1px solid rgba(var(--accent-rgb), 0.3);
       border-radius: 6px;
       padding: 4px 0;
       z-index: 10000;
@@ -2067,7 +2067,7 @@ function htmlToPlainText(html) {
         padding: 8px 16px;
         background: none;
         border: none;
-        color: #e6fff5;
+        color: var(--text-main);
         text-align: left;
         cursor: pointer;
         font-size: 0.85rem;
@@ -2907,7 +2907,7 @@ const updateLayerSelection = () => {
                 const quoteClass = isExactQuote ? "analysis-quote-jump active-quote" : "analysis-quote-jump";
                 const origin = quoteRefOriginLineHtml(ref);
                 const priority = clampPriority(ref.priority);
-                const priorityStars = `<div style="display:flex; gap:2px; margin: 0 0 6px 0;">${[1,2,3,4,5].map((value) => `<span style="color:${value <= priority ? getPriorityColor(value) : "rgba(230,255,245,0.16)"};">${value <= priority ? "★" : "☆"}</span>`).join("")}</div>`;
+                const priorityStars = `<div style="display:flex; gap:2px; margin: 0 0 6px 0;">${[1,2,3,4,5].map((value) => `<span style="color:${value <= priority ? getPriorityColor(value) : "rgba(var(--text-rgb),0.16)"};">${value <= priority ? "★" : "☆"}</span>`).join("")}</div>`;
                 const jump = resolveRefJumpForRef(ref);
                 if (jump) {
                   return `<button type="button" class="${quoteClass}" data-analysis-id="${escapeHtml(node.id)}" data-jump-source="${escapeHtml(jump.sourceId)}" data-jump-start="${jump.start}" data-jump-end="${jump.end}" data-range-key="${refRangeKey}" title="Show this quote in the source">${priorityStars}<blockquote class="analysis-quote-preview">${formatQuoteForDisplay(ref, text)}</blockquote>${origin}</button>`;

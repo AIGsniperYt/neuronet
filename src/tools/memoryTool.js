@@ -941,7 +941,7 @@ export async function initMemoryTool(deps, context = {}) {
                   const active = v <= currentCard.record.priority;
                   const color = getPriorityColor(v);
                   return `<button type="button" class="priority-btn ${active ? 'active' : ''}"
-                    style="color:${active ? color : 'rgba(230,255,245,0.3)'};"
+                    style="color:${active ? color : 'rgba(var(--text-rgb),0.3)'};"
                     data-value="${v}" title="Set priority to ${v}">${active ? '★' : '☆'}</button>`;
                 }).join("")}
               `;
@@ -2102,11 +2102,11 @@ export async function initMemoryTool(deps, context = {}) {
     const p = clampNumber(Number(priority), 1, 5);
     switch (p) {
       case 1: return "#9aa4ad";
-      case 2: return "#4ba3ff";
-      case 3: return "#3fd07d";
-      case 4: return "#ff9b39";
+      case 2: return "var(--info)";
+      case 3: return "var(--success)";
+      case 4: return "var(--quote)";
       case 5: return "#ff4d4d";
-      default: return "#3fd07d";
+      default: return "var(--success)";
     }
   }
 
@@ -4597,7 +4597,7 @@ export async function initMemoryTool(deps, context = {}) {
         <div class="heap-section-title">Priority Distribution</div>
         <div class="priority-distribution" style="display:flex; gap:8px; flex-wrap:wrap;">
           ${[1,2,3,4,5].map(p => `
-            <div style="flex:1; min-width:40px; text-align:center; padding:6px; background:rgba(255,255,255,0.03); border-radius:8px; border:1px solid rgba(255,255,255,0.06);">
+            <div style="flex:1; min-width:40px; text-align:center; padding:6px; background:rgba(var(--overlay-rgb),0.03); border-radius:8px; border:1px solid rgba(var(--overlay-rgb),0.06);">
               <div style="font-size:0.65rem; color:var(--text-muted); margin-bottom:4px;">P${p}</div>
               <div style="font-size:1rem; font-weight:700; color:${getPriorityColor(p)};">${priorityCounts[p] || 0}</div>
             </div>
@@ -4832,7 +4832,7 @@ export async function initMemoryTool(deps, context = {}) {
     const timelineHTML = recentGrades.length > 0
       ? recentGrades.map((g, i) => `
         <div class="inspect-timeline-item">
-          <div class="inspect-timeline-dot" style="background:${g === 'easy' ? '#3fd07d' : g === 'kinda' ? '#ffa500' : '#ff4d4d'};"></div>
+          <div class="inspect-timeline-dot" style="background:${g === 'easy' ? 'var(--success)' : g === 'kinda' ? '#ffa500' : '#ff4d4d'};"></div>
           <span style="color:var(--text-muted);">Review ${i + 1}</span>
           <span style="margin-left:auto;color:var(--text-main);">${gradeIcon(g)} ${gradeLabel(g)}</span>
         </div>`).join("")
@@ -4862,7 +4862,7 @@ export async function initMemoryTool(deps, context = {}) {
           <div class="inspect-metric-label">Uncertainty (U)</div>
           <div class="inspect-metric-value">${(U * 100).toFixed(0)}%</div>
           <div class="inspect-metric-bar">
-            <div class="inspect-metric-bar-fill" style="width:${(U * 100).toFixed(0)}%;background:${U > 0.65 ? '#ff4d4d' : U > 0.4 ? '#ffa500' : '#3fd07d'};"></div>
+            <div class="inspect-metric-bar-fill" style="width:${(U * 100).toFixed(0)}%;background:${U > 0.65 ? '#ff4d4d' : U > 0.4 ? '#ffa500' : 'var(--success)'};"></div>
           </div>
         </div>
         <div class="inspect-metric">
@@ -4896,7 +4896,7 @@ export async function initMemoryTool(deps, context = {}) {
       <div class="inspect-contrib-row"><span class="inspect-contrib-label">Uncertainty</span><span class="inspect-contrib-value">+${(U * 0.8).toFixed(2)}</span></div>
       <div class="inspect-contrib-row"><span class="inspect-contrib-label">Phase boost</span><span class="inspect-contrib-value">${phaseBoost >= 0 ? '+' : ''}${phaseBoost.toFixed(2)}</span></div>
       ${quotePriorityBoost > 0 ? `<div class="inspect-contrib-row"><span class="inspect-contrib-label">Priority \u2605</span><span class="inspect-contrib-value">+${quotePriorityBoost.toFixed(2)}</span></div>` : ''}
-      <div class="inspect-contrib-row" style="border-top:1px solid rgba(44,255,179,0.2);margin-top:4px;padding-top:6px;">
+      <div class="inspect-contrib-row" style="border-top:1px solid rgba(var(--accent-rgb),0.2);margin-top:4px;padding-top:6px;">
         <span class="inspect-contrib-label" style="font-weight:700;color:var(--text-main);">Total</span>
         <span class="inspect-contrib-value" style="color:var(--accent);">${totalScore}</span>
       </div>
@@ -4905,7 +4905,7 @@ export async function initMemoryTool(deps, context = {}) {
       ${tags.length > 0 ? `
         <div class="sidebar-section-title">Tags</div>
         <div style="display:flex;flex-wrap:wrap;gap:4px;padding-bottom:8px;">
-          ${tags.map(t => `<span style="padding:3px 8px;border-radius:999px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);font-size:0.72rem;color:var(--text-muted);">${escapeHtml(t)}</span>`).join("")}
+          ${tags.map(t => `<span style="padding:3px 8px;border-radius:999px;background:rgba(var(--overlay-rgb),0.04);border:1px solid rgba(var(--overlay-rgb),0.08);font-size:0.72rem;color:var(--text-muted);">${escapeHtml(t)}</span>`).join("")}
         </div>` : ''}
     `;
     renderInspectLinkedContext(getCardRecord(card) || card);
@@ -5521,7 +5521,7 @@ export async function initMemoryTool(deps, context = {}) {
       const isActive = p === 3; // Default to Medium
       return `<button type="button" class="priority-pill ${isActive ? 'active' : ''}"
         data-priority="${p}"
-        style="color: ${isActive ? color : 'var(--text-muted)'}; border-color: ${isActive ? color : 'rgba(255,255,255,0.15)'};"
+        style="color: ${isActive ? color : 'var(--text-muted)'}; border-color: ${isActive ? color : 'rgba(var(--overlay-rgb),0.15)'};"
         title="Set priority to ${label}">${label}</button>`;
     }).join("");
 
@@ -5531,7 +5531,7 @@ export async function initMemoryTool(deps, context = {}) {
           const p = parseInt(b.dataset.priority);
           b.classList.remove("active");
           b.style.color = "var(--text-muted)";
-          b.style.borderColor = "rgba(255,255,255,0.15)";
+          b.style.borderColor = "rgba(var(--overlay-rgb),0.15)";
         });
         btn.classList.add("active");
         const p = parseInt(btn.dataset.priority);
@@ -5548,7 +5548,7 @@ export async function initMemoryTool(deps, context = {}) {
       const isActive = value === priority;
       button.classList.toggle("active", isActive);
       button.style.color = isActive ? getPriorityColor(value) : "var(--text-muted)";
-      button.style.borderColor = isActive ? getPriorityColor(value) : "rgba(255,255,255,0.15)";
+      button.style.borderColor = isActive ? getPriorityColor(value) : "rgba(var(--overlay-rgb),0.15)";
     });
   }
 
@@ -6105,7 +6105,7 @@ export async function initMemoryTool(deps, context = {}) {
       const isActive = priority === quickAddState.priority;
       return `<button type="button" class="priority-pill ${isActive ? "active" : ""}"
         data-priority="${priority}"
-        style="color: ${isActive ? color : "var(--text-muted)"}; border-color: ${isActive ? color : "rgba(255,255,255,0.15)"};"
+        style="color: ${isActive ? color : "var(--text-muted)"}; border-color: ${isActive ? color : "rgba(var(--overlay-rgb),0.15)"};"
         title="Set priority to ${label}">${label}</button>`;
     }).join("");
 
@@ -6450,7 +6450,7 @@ export async function initMemoryTool(deps, context = {}) {
     try {
       await navigator.clipboard.writeText(ankiText);
       importFeedback.textContent = `${cards.length} cards exported to Anki format and copied to clipboard!`;
-      importFeedback.style.color = "#3fd07d";
+      importFeedback.style.color = "var(--success)";
     } catch (err) {
       importFeedback.textContent = `${cards.length} cards exported to Anki format (could not copy to clipboard)`;
       importFeedback.style.color = "#ffa500";
@@ -6487,7 +6487,7 @@ export async function initMemoryTool(deps, context = {}) {
     // Update button text
     if (massEditBtn) {
       massEditBtn.textContent = "Normal Mode";
-      massEditBtn.style.borderColor = "rgba(44,255,179,0.4)";
+      massEditBtn.style.borderColor = "rgba(var(--accent-rgb),0.4)";
       massEditBtn.style.color = "var(--accent)";
     }
 
@@ -6559,7 +6559,7 @@ export async function initMemoryTool(deps, context = {}) {
               const isActive = p === priority;
               return `<button type="button" class="priority-pill ${isActive ? 'active' : ''}"
                 data-priority="${p}" data-index="${index}"
-                style="color: ${isActive ? color : 'var(--text-muted)'}; border-color: ${isActive ? color : 'rgba(255,255,255,0.15)'};"
+                style="color: ${isActive ? color : 'var(--text-muted)'}; border-color: ${isActive ? color : 'rgba(var(--overlay-rgb),0.15)'};"
                 title="Set priority to ${['Very Low', 'Low', 'Medium', 'High', 'Very High'][p-1]}">${['Very Low', 'Low', 'Medium', 'High', 'Very High'][p-1]}</button>`;
             }).join("")}
           </div>
@@ -6595,7 +6595,7 @@ export async function initMemoryTool(deps, context = {}) {
             const isActive = pVal === priority;
             p.classList.toggle("active", isActive);
             p.style.color = isActive ? getPriorityColor(pVal) : "var(--text-muted)";
-            p.style.borderColor = isActive ? getPriorityColor(pVal) : "rgba(255,255,255,0.15)";
+            p.style.borderColor = isActive ? getPriorityColor(pVal) : "rgba(var(--overlay-rgb),0.15)";
           });
         }
       });
@@ -6706,7 +6706,7 @@ export async function initMemoryTool(deps, context = {}) {
     clearForm();
 
     importFeedback.textContent = `${cards.length} cards imported${skipped > 0 ? `, ${skipped} lines skipped (no tab/pipe separator)` : ""}.`;
-    importFeedback.style.color = "#3fd07d";
+    importFeedback.style.color = "var(--success)";
   }
 
   // ========== MIDDLE UI FUNCTIONS ==========

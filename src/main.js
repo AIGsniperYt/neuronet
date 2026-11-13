@@ -698,6 +698,190 @@ function toast(message, { sticky = false, action = null } = {}) {
   return dismiss;
 }
 
+// ========== APPEARANCE / THEMES ==========
+const THEME_KEY = "neuronet:theme";
+const MODE_KEY = "neuronet:mode";
+const NEURAL_KEY = "neuronet:neural";
+const THEMES = [
+  {
+    id: "forest",
+    name: "Forest",
+    description: "Deep green · the original",
+    chrome: { dark: "#0b1f17", light: "#f6f8f7" },
+    swatches: {
+      dark: ["#0b1f17", "#102b20", "#2cffb3", "#e6fff5"],
+      light: ["#f6f8f7", "#e8efeb", "#0d8a61", "#13241d"]
+    }
+  },
+  {
+    id: "graphite",
+    name: "Graphite",
+    description: "Cool slate · quiet and neutral",
+    chrome: { dark: "#0d1117", light: "#f5f7fa" },
+    swatches: {
+      dark: ["#0d1117", "#131a23", "#9ccaff", "#e9eff7"],
+      light: ["#f5f7fa", "#e8edf4", "#256aa3", "#15202c"]
+    }
+  },
+  {
+    id: "midnight",
+    name: "Midnight",
+    description: "Ink blue · soft lavender light",
+    chrome: { dark: "#0a1020", light: "#f6f5fb" },
+    swatches: {
+      dark: ["#0a1020", "#0f1830", "#b3a6ff", "#eeecff"],
+      light: ["#f6f5fb", "#eae7f5", "#5b48c0", "#1b1730"]
+    }
+  },
+  {
+    id: "ember",
+    name: "Ember",
+    description: "Warm charcoal · amber light",
+    chrome: { dark: "#1a1210", light: "#faf7f3" },
+    swatches: {
+      dark: ["#1a1210", "#241915", "#ffc27a", "#fff1e3"],
+      light: ["#faf7f3", "#f1eae1", "#a8641b", "#2a2018"]
+    }
+  }
+];
+
+function getSavedThemeId() {
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (THEMES.some((theme) => theme.id === saved)) return saved;
+  } catch { /* storage can be unavailable */ }
+  return "forest";
+}
+
+function getSavedMode() {
+  try {
+    return localStorage.getItem(MODE_KEY) === "light" ? "light" : "dark";
+  } catch { /* storage can be unavailable */ }
+  return "dark";
+}
+
+function getSavedNeural() {
+  try {
+    return localStorage.getItem(NEURAL_KEY) !== "off";
+  } catch { /* storage can be unavailable */ }
+  return true;
+}
+
+function currentThemeId() {
+  return document.documentElement.dataset.theme || "forest";
+}
+
+function currentMode() {
+  return document.documentElement.dataset.mode === "light" ? "light" : "dark";
+}
+
+function syncThemeMeta(theme, mode) {
+  const meta = document.getElementById("themeColorMeta");
+  if (meta) meta.setAttribute("content", theme.chrome[mode]);
+}
+
+function markActiveTheme(themeId) {
+  document.querySelectorAll("#themeGrid .theme-card").forEach((card) => {
+    card.setAttribute("aria-checked", String(card.dataset.themeId === themeId));
+  });
+}
+
+function applyTheme(themeId, { persist = true } = {}) {
+  const theme = THEMES.find((item) => item.id === themeId) || THEMES[0];
+  const root = document.documentElement;
+  const mode = currentMode();
+
+  if (theme.id === "forest") root.removeAttribute("data-theme");
+  else root.dataset.theme = theme.id;
+
+  syncThemeMeta(theme, mode);
+
+  if (persist) {
+    try { localStorage.setItem(THEME_KEY, theme.id); } catch { /* ignore */ }
+  }
+
+  markActiveTheme(theme.id);
+
+  window.dispatchEvent(new CustomEvent("neuronet-theme-change", {
+    detail: { id: theme.id, theme, mode }
+  }));
+  return theme;
+}
+
+function applyMode(mode, { persist = true } = {}) {
+  const next = mode === "light" ? "light" : "dark";
+  const root = document.documentElement;
+
+  if (next === "light") root.dataset.mode = "light";
+  else root.removeAttribute("data-mode");
+
+  if (persist) {
+    try { localStorage.setItem(MODE_KEY, next); } catch { /* ignore */ }
+  }
+
+  document.querySelectorAll("#modeToggle [data-mode]").forEach((button) => {
+    button.setAttribute("aria-checked", String(button.dataset.mode === next));
+  });
+
+  const theme = THEMES.find((item) => item.id === currentThemeId()) || THEMES[0];
+  syncThemeMeta(theme, next);
+  renderThemeGrid();
+  window.dispatchEvent(new CustomEvent("neuronet-theme-change", {
+    detail: { id: theme.id, theme, mode: next }
+  }));
+}
+
+function applyNeural(enabled, { persist = true } = {}) {
+  const root = document.documentElement;
+  if (enabled) root.removeAttribute("data-neural");
+  else root.dataset.neural = "off";
+
+  const toggle = document.getElementById("neuralToggle");
+  if (toggle) toggle.checked = enabled;
+
+  if (persist) {
+    try { localStorage.setItem(NEURAL_KEY, enabled ? "on" : "off"); } catch { /* ignore */ }
+  }
+
+  window.dispatchEvent(new CustomEvent("neuronet-neural-change", {
+    detail: { enabled }
+  }));
+}
+
+function renderThemeGrid() {
+  const grid = document.getElementById("themeGrid");
+  if (!grid) return;
+  const activeId = currentThemeId();
+  const mode = currentMode();
+
+  grid.innerHTML = THEMES.map((theme) => `
+    <button type="button" class="theme-card" role="radio"
+      aria-checked="${theme.id === activeId}" data-theme-id="${theme.id}">
+      <span class="theme-swatches" aria-hidden="true">
+        ${theme.swatches[mode].map((color) => `<span style="background:${color}"></span>`).join("")}
+      </span>
+      <span class="theme-card-body">
+        <span class="theme-card-name">${theme.name}<i class="fa-solid fa-check" aria-hidden="true"></i></span>
+        <span class="theme-card-desc">${theme.description}</span>
+      </span>
+    </button>`).join("");
+}
+
+function openThemeModal() {
+  const modal = document.getElementById("themeModal");
+  if (!modal) return;
+  renderThemeGrid();
+  modal.style.display = "flex";
+  requestAnimationFrame(() => document.getElementById("themeModalClose")?.focus());
+}
+
+function closeThemeModal() {
+  const modal = document.getElementById("themeModal");
+  if (!modal) return;
+  modal.style.display = "none";
+  document.getElementById("themeBtn")?.focus();
+}
+
 // Stable fingerprint of a dataset (used to detect whether the user is on
 // pristine demo data vs. a modified/own dataset).
 function fingerprintDataset(nodes, quotes, cues) {
@@ -2435,9 +2619,9 @@ function installDevWatermark() {
     zIndex: "2147483647",
     padding: "4px 9px",
     borderRadius: "999px",
-    border: "1px solid rgba(44,255,179,0.35)",
-    background: "rgba(8,24,18,0.82)",
-    color: "#2cffb3",
+    border: "1px solid rgba(var(--accent-rgb),0.35)",
+    background: "rgba(var(--surface-deep-rgb),0.82)",
+    color: "var(--accent)",
     fontFamily: "var(--font-ui), system-ui, sans-serif",
     fontSize: "10px",
     fontWeight: "600",
@@ -2596,6 +2780,19 @@ document.addEventListener("DOMContentLoaded", async () => {
   const importJsonInput = document.getElementById("importJsonInput");
   const importDemoBtn = document.getElementById("importDemoBtn");
   const deleteDataBtn = document.getElementById("deleteDataBtn");
+  const themeBtn = document.getElementById("themeBtn");
+  const themeModal = document.getElementById("themeModal");
+  const themeGrid = document.getElementById("themeGrid");
+  const themeModalClose = document.getElementById("themeModalClose");
+  const themeDone = document.getElementById("themeDone");
+  const modeToggle = document.getElementById("modeToggle");
+  const neuralToggle = document.getElementById("neuralToggle");
+
+  // The head script already applied the saved appearance before paint.
+  // Re-apply here so the modal state, browser chrome and canvas agree.
+  applyTheme(getSavedThemeId(), { persist: false });
+  applyMode(getSavedMode(), { persist: false });
+  applyNeural(getSavedNeural(), { persist: false });
 
   const setProfileDropdown = (open) => {
     if (!dropdown) return;
@@ -2858,6 +3055,55 @@ document.addEventListener("DOMContentLoaded", async () => {
       deleteAllData();
     });
   }
+
+  if (themeBtn) {
+    themeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setProfileDropdown(false);
+      openThemeModal();
+    });
+  }
+
+  if (themeGrid) {
+    themeGrid.addEventListener("click", (e) => {
+      const card = e.target.closest("[data-theme-id]");
+      if (!card) return;
+      applyTheme(card.dataset.themeId);
+    });
+  }
+
+  if (modeToggle) {
+    modeToggle.addEventListener("click", (e) => {
+      const button = e.target.closest("[data-mode]");
+      if (!button) return;
+      applyMode(button.dataset.mode);
+    });
+  }
+
+  neuralToggle?.addEventListener("change", () => {
+    applyNeural(neuralToggle.checked);
+  });
+
+  themeModalClose?.addEventListener("click", closeThemeModal);
+  themeDone?.addEventListener("click", closeThemeModal);
+  themeModal?.addEventListener("click", (e) => {
+    if (e.target === themeModal) closeThemeModal();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && themeModal?.style.display === "flex") closeThemeModal();
+  });
+
+  window.addEventListener("storage", (e) => {
+    if (e.key === THEME_KEY) {
+      const next = THEMES.some((theme) => theme.id === e.newValue) ? e.newValue : "forest";
+      applyTheme(next, { persist: false });
+    } else if (e.key === MODE_KEY) {
+      applyMode(e.newValue === "light" ? "light" : "dark", { persist: false });
+    } else if (e.key === NEURAL_KEY) {
+      applyNeural(e.newValue !== "off", { persist: false });
+    }
+  });
 
   // First-entry / data-state toast: nudge the user toward the profile card
   // (Import Demo Data / Delete Data live there). Shown whenever the DB is

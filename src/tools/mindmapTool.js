@@ -394,6 +394,26 @@ const state = {
     }
   };
 
+  // Canvas fills cannot resolve CSS variables. Cache the active palette and
+  // refresh it when the shell changes theme.
+  const themePalette = { accent: "#2cffb3", accentRgb: "44, 255, 179", textRgb: "230, 255, 245", bgRgb: "10, 30, 22", overlayRgb: "255, 255, 255" };
+  const refreshThemePalette = () => {
+    const styles = getComputedStyle(document.documentElement);
+    const read = (name, fallback) => styles.getPropertyValue(name).trim() || fallback;
+    themePalette.accent = read("--accent", "#2cffb3");
+    themePalette.accentRgb = read("--accent-rgb", "44, 255, 179");
+    themePalette.textRgb = read("--text-rgb", "230, 255, 245");
+    themePalette.bgRgb = read("--bg-rgb", "10, 30, 22");
+    themePalette.overlayRgb = read("--overlay-rgb", "255, 255, 255");
+    config.colors.source = read("--info", "#4da6ff");
+    config.colors.quote = read("--quote", "#ff9b39");
+    config.colors.analysis = themePalette.accent;
+    config.colors.tag = read("--tag", "#f1fa8c");
+    config.colors.pastpaper = read("--warning", "#ffd166");
+    const bg = themePalette.bgRgb.split(",").map((part) => Number(part.trim()));
+    if (bg.length === 3 && bg.every(Number.isFinite)) CARD_GRAPH_FILL_RGB = bg;
+  };
+
   const GRID_IMPORTANCE_COLORS = {
     1: "#9aa4ad",
     2: "#4ba3ff",
@@ -423,7 +443,9 @@ const state = {
   const CARD_UNKNOWN_RGB = hexToRgb(DOT_UNKNOWN_COLOR);
   // Graph nodes are hollow. Cards start with the same dark fill as every
   // other node and only fill with score colour once Dots takes over.
-  const CARD_GRAPH_FILL_RGB = [10, 30, 22];
+  let CARD_GRAPH_FILL_RGB = [10, 30, 22];
+  refreshThemePalette();
+  window.addEventListener("neuronet-theme-change", refreshThemePalette);
 
   function hexToRgb(hex) {
     const value = String(hex || "").replace("#", "").trim();
@@ -2377,7 +2399,7 @@ const state = {
           const inHeap = activeHeapCardIds.has(card.id);
           const importanceColor = card.priority
             ? GRID_IMPORTANCE_COLORS[card.priority]
-            : "rgba(255, 255, 255, 0.14)";
+            : `rgba(${themePalette.overlayRgb}, 0.14)`;
           const recallScore = card.recall?.score;
           const accuracyScore = card.accuracy;
           const recallBin = getScoreBin(recallScore);
@@ -2871,9 +2893,9 @@ const state = {
     const boxY = Math.max(top + 4, Math.min(height - boxHeight - 8, screenY - boxHeight / 2));
 
     drawRoundedRect(ctx, boxX, boxY, boxWidth, boxHeight, 8);
-    ctx.fillStyle = "rgba(7, 18, 13, 0.97)";
+    ctx.fillStyle = `rgba(${themePalette.bgRgb}, 0.97)`;
     ctx.fill();
-    ctx.strokeStyle = "rgba(44, 255, 179, 0.28)";
+    ctx.strokeStyle = `rgba(${themePalette.accentRgb}, 0.28)`;
     ctx.lineWidth = 1;
     ctx.stroke();
 
@@ -2884,8 +2906,8 @@ const state = {
         ? "600 12px Inter, system-ui, sans-serif"
         : "11px Inter, system-ui, sans-serif";
       ctx.fillStyle = index === 0
-        ? "rgba(230, 255, 245, 0.95)"
-        : "rgba(230, 255, 245, 0.6)";
+        ? `rgba(${themePalette.textRgb}, 0.95)`
+        : `rgba(${themePalette.textRgb}, 0.6)`;
       ctx.fillText(line, boxX + 10, boxY + 7 + index * 15);
     });
     ctx.restore();
@@ -2898,7 +2920,7 @@ const state = {
 
     layout.sections.forEach((section) => {
       drawRoundedRect(ctx, section.x, section.y, section.w, section.h, 10);
-      ctx.fillStyle = "rgba(10, 30, 22, 0.5)";
+      ctx.fillStyle = `rgba(${themePalette.bgRgb}, 0.5)`;
       ctx.fill();
       ctx.strokeStyle = "rgba(255, 107, 107, 0.13)";
       ctx.lineWidth = 1;
@@ -2913,7 +2935,7 @@ const state = {
       ctx.fill();
 
       ctx.font = "600 11px Inter, system-ui, sans-serif";
-      ctx.fillStyle = "rgba(230, 255, 245, 0.82)";
+      ctx.fillStyle = `rgba(${themePalette.textRgb}, 0.82)`;
       ctx.fillText(
         truncateCanvasText(ctx, section.deck, Math.max(40, section.w - 58)),
         section.x + 18,
@@ -2922,7 +2944,7 @@ const state = {
 
       ctx.textAlign = "right";
       ctx.font = "500 10px Inter, system-ui, sans-serif";
-      ctx.fillStyle = "rgba(230, 255, 245, 0.42)";
+      ctx.fillStyle = `rgba(${themePalette.textRgb}, 0.42)`;
       ctx.fillText(String(section.count), section.x + section.w - 10, section.y + 14);
       ctx.restore();
     });
@@ -2937,11 +2959,11 @@ const state = {
     ctx.globalAlpha = alpha;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillStyle = "rgba(230, 255, 245, 0.55)";
+    ctx.fillStyle = `rgba(${themePalette.textRgb}, 0.55)`;
     ctx.font = "600 15px Inter, system-ui, sans-serif";
     ctx.fillText("No cards to chart yet", width / 2, centerY - 10);
     ctx.font = "13px Inter, system-ui, sans-serif";
-    ctx.fillStyle = "rgba(230, 255, 245, 0.38)";
+    ctx.fillStyle = `rgba(${themePalette.textRgb}, 0.38)`;
     ctx.fillText("Add cards in Memory or Quick Add to see them here.", width / 2, centerY + 14);
     ctx.restore();
   }
@@ -2959,12 +2981,12 @@ const state = {
     const boxX = width - boxWidth - 12;
     const boxY = height - boxHeight - 10;
     drawRoundedRect(ctx, boxX, boxY, boxWidth, boxHeight, 11);
-    ctx.fillStyle = "rgba(7, 18, 13, 0.88)";
+    ctx.fillStyle = `rgba(${themePalette.bgRgb}, 0.88)`;
     ctx.fill();
-    ctx.strokeStyle = "rgba(44, 255, 179, 0.22)";
+    ctx.strokeStyle = `rgba(${themePalette.accentRgb}, 0.22)`;
     ctx.lineWidth = 1;
     ctx.stroke();
-    ctx.fillStyle = "rgba(230, 255, 245, 0.62)";
+    ctx.fillStyle = `rgba(${themePalette.textRgb}, 0.62)`;
     ctx.fillText(label, boxX + boxWidth / 2, boxY + boxHeight / 2 + 0.5);
     ctx.restore();
   }
@@ -3020,7 +3042,7 @@ const state = {
       ctx.globalAlpha = cardAlpha * morph;
       ctx.beginPath();
       ctx.arc(screenX, screenY, radius + 6, 0, Math.PI * 2);
-      ctx.fillStyle = isSelected ? "rgba(255, 255, 255, 0.07)" : "rgba(44, 255, 179, 0.08)";
+      ctx.fillStyle = isSelected ? `rgba(${themePalette.overlayRgb}, 0.07)` : `rgba(${themePalette.accentRgb}, 0.08)`;
       ctx.fill();
       ctx.globalAlpha = cardAlpha;
     }
@@ -3046,7 +3068,7 @@ const state = {
       ctx.beginPath();
       ctx.moveTo(screenX, screenY - fillRadius);
       ctx.lineTo(screenX, screenY + fillRadius);
-      ctx.strokeStyle = "rgba(7, 18, 13, 0.9)";
+      ctx.strokeStyle = `rgba(${themePalette.bgRgb}, 0.9)`;
       ctx.lineWidth = Math.max(1, Math.min(1.5, fillRadius * 0.2));
       ctx.stroke();
       ctx.globalAlpha = cardAlpha;
@@ -3081,7 +3103,7 @@ const state = {
       ctx.globalAlpha = cardAlpha * morph;
       ctx.beginPath();
       ctx.arc(screenX, screenY, radius + 5.5, 0, Math.PI * 2);
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
+      ctx.strokeStyle = `rgba(${themePalette.overlayRgb}, 0.85)`;
       ctx.lineWidth = 1.8;
       ctx.stroke();
       ctx.globalAlpha = cardAlpha;
@@ -3099,7 +3121,7 @@ const state = {
       const fontSize = 12 * Math.max(0.8, Math.min(1.6, state.zoom));
       ctx.globalAlpha = labelAlpha;
       ctx.font = `${fontSize}px Inter, system-ui, sans-serif`;
-      ctx.fillStyle = "rgba(230, 255, 245, 0.8)";
+      ctx.fillStyle = `rgba(${themePalette.textRgb}, 0.8)`;
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
       const maxChars = Math.max(8, Math.floor(18 / Math.max(0.35, state.zoom)));
@@ -4649,8 +4671,8 @@ const state = {
         ctx.moveTo(fromTrans.x, fromTrans.y);
         ctx.lineTo(toTrans.x, toTrans.y);
         ctx.strokeStyle = isActive
-          ? `rgba(44, 255, 179, ${0.9 * edgeVisibility})`
-          : `rgba(44, 255, 179, ${baseAlpha * edgeVisibility})`;
+          ? `rgba(${themePalette.accentRgb}, ${0.9 * edgeVisibility})`
+          : `rgba(${themePalette.accentRgb}, ${baseAlpha * edgeVisibility})`;
         ctx.lineWidth = isActive ? 3 : 2;
         ctx.stroke();
       }
@@ -4694,7 +4716,7 @@ const state = {
 
       ctx.beginPath();
       ctx.arc(posTrans.x, posTrans.y, radius, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(10, 30, 22, 0.9)";
+      ctx.fillStyle = `rgba(${themePalette.bgRgb}, 0.9)`;
       ctx.fill();
       if (lockLevel > 0.01) {
         // Unlocked nodes are hollow. A locked node fills with its own colour
@@ -4736,7 +4758,7 @@ const state = {
 
       const fontSize = (isFocusedSubject ? 14 : 12) * Math.max(0.8, Math.min(1.6, state.zoom));
       ctx.font = `${isFocusedSubject ? "700 " : ""}${fontSize}px Inter, system-ui, sans-serif`;
-      ctx.fillStyle = isFocusedSubject ? "rgba(255, 220, 220, 0.98)" : "rgba(230, 255, 245, 0.8)";
+      ctx.fillStyle = isFocusedSubject ? "rgba(255, 220, 220, 0.98)" : `rgba(${themePalette.textRgb}, 0.8)`;
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
       const title = getNodeDisplayTitle(item);
@@ -6160,6 +6182,7 @@ const state = {
     document.removeEventListener("keydown", handleSidebarEscape);
     window.removeEventListener("resize", handleResize);
     window.removeEventListener("pagehide", handlePageHide);
+    window.removeEventListener("neuronet-theme-change", refreshThemePalette);
     headerResizeObserver?.disconnect();
     headerResizeObserver = null;
     if (window.__neuronetMindmapSetSubject === setSubjectHandler) {
