@@ -14,6 +14,7 @@ import { run as runCommitments } from "./commitments.mjs";
 import { run as runPlan } from "./plan.mjs";
 import { run as runSessionEta } from "./sessionEta.mjs";
 import { run as runSchema } from "./schema.mjs";
+import { run as runStudyItem } from "./studyItem.mjs";
 
 async function main() {
   console.log("==================================================");
@@ -36,7 +37,8 @@ async function main() {
     { name: "commitments", fn: runCommitments },
     { name: "plan", fn: runPlan },
     { name: "sessionEta", fn: runSessionEta },
-    { name: "schema", fn: runSchema }
+    { name: "schema", fn: runSchema },
+    { name: "studyItem", fn: runStudyItem }
   ];
 
   for (const suite of suites) {

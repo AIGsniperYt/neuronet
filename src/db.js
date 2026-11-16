@@ -201,6 +201,7 @@ export function addNode(node) {
       ...node,
       id: node.id || crypto.randomUUID()
     };
+    if (record.type === "analysis" || record.type === "cue") promoteStudyPriority(record);
 
     const tx = db.transaction("nodes", "readwrite");
     const store = tx.objectStore("nodes");
@@ -223,10 +224,14 @@ export function addNodes(nodes) {
       return;
     }
 
-    const records = (nodes || []).map((node) => ({
-      ...node,
-      id: node.id || crypto.randomUUID()
-    }));
+    const records = (nodes || []).map((node) => {
+      const record = {
+        ...node,
+        id: node.id || crypto.randomUUID()
+      };
+      if (record.type === "analysis" || record.type === "cue") promoteStudyPriority(record);
+      return record;
+    });
 
     const tx = db.transaction("nodes", "readwrite");
     const store = tx.objectStore("nodes");
@@ -783,6 +788,7 @@ export function addCue(cue) {
       createdAt: cue.createdAt || Date.now(),
       updatedAt: cue.updatedAt || Date.now()
     };
+    promoteStudyPriority(record);
 
     const tx = db.transaction("cues", "readwrite");
     const store = tx.objectStore("cues");
@@ -809,11 +815,15 @@ export function addCues(cues) {
       return;
     }
 
-    const records = (cues || []).map((cue) => ({
-      ...cue,
-      id: cue.id || crypto.randomUUID(),
-      type: "cue"
-    }));
+    const records = (cues || []).map((cue) => {
+      const record = {
+        ...cue,
+        id: cue.id || crypto.randomUUID(),
+        type: "cue"
+      };
+      promoteStudyPriority(record);
+      return record;
+    });
 
     const tx = db.transaction("cues", "readwrite");
     const store = tx.objectStore("cues");
@@ -1018,6 +1028,29 @@ function normalizeCardTags(tags = []) {
       .map((tag) => String(tag || "").trim())
       .filter(Boolean)
   )];
+}
+
+// Schema 10: explicit importance is a first-class field on analyses and cues,
+// the same way it already is on cards and quotes. A missing value means
+// "inherit from links", so nothing is defaulted here — inventing a 3 would
+// make every inherited item look manually rated.
+function normalizeStudyPriority(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.min(5, Math.max(1, Math.round(n)));
+}
+
+function promoteStudyPriority(record) {
+  const priority = normalizeStudyPriority(record.priority ?? record.meta?.priority);
+  if (priority) record.priority = priority;
+  else delete record.priority;
+  if (record.meta && typeof record.meta === "object" && "priority" in record.meta) {
+    const meta = { ...record.meta };
+    delete meta.priority;
+    record.meta = meta;
+  }
+  return record;
 }
 
 function normalizeCardRecord(card = {}) {

@@ -1,5 +1,15 @@
 import { dialog } from "./dialog.js";
 import { format, renderMathWithKatex } from "../vendor/md-format/mdeditor.js";
+import {
+  IMPORTANCE_COLORS,
+  SCORE_BINS,
+  UNKNOWN_SCORE_COLOR,
+  itemTags as tagsOf,
+  scoreBin,
+  itemRecall,
+  itemAccuracy,
+  importanceValue
+} from "./studyItem.js";
 export async function initMindmapTool(deps, context = {}) {
   const {
     getAllNodes,
@@ -414,26 +424,10 @@ const state = {
     if (bg.length === 3 && bg.every(Number.isFinite)) CARD_GRAPH_FILL_RGB = bg;
   };
 
-  const GRID_IMPORTANCE_COLORS = {
-    1: "#9aa4ad",
-    2: "#4ba3ff",
-    3: "#3fd07d",
-    4: "#ff9b39",
-    5: "#ff4d4d"
-  };
-  // Dots are cards first. Both halves of a dot use the same five-step score
-  // scale so recall and accuracy stay directly comparable. These are solid
-  // fills, not tints or bars: the eye can rank a dot at a glance.
-  const DOT_SCORE_BINS = [
-    { min: 0, max: 0.2, color: "#ff4d4d", label: "0–20%" },
-    { min: 0.2, max: 0.4, color: "#ff8a3d", label: "20–40%" },
-    { min: 0.4, max: 0.6, color: "#ffa500", label: "40–60%" },
-    { min: 0.6, max: 0.8, color: "#a8d95f", label: "60–80%" },
-    { min: 0.8, max: 1, color: "#3fd07d", label: "80–100%" }
-  ].map((bin) => ({ ...bin, rgb: hexToRgb(bin.color) }));
-  const DOT_UNKNOWN_COLOR = "#33443d";
-  const GRADE_SCORES = { easy: 1, kinda: 0.6, didnt_know: 0.2, didntknow: 0.2 };
-  const RECALL_GRADE_SCORES = { easy: 0.9, kinda: 0.6, didnt_know: 0.2, didntknow: 0.2 };
+  // Palette lives in studyItem.js; this file only adds the canvas RGB triples
+  // it needs for drawing.
+  const DOT_SCORE_BINS = SCORE_BINS.map((bin) => ({ ...bin, rgb: hexToRgb(bin.color) }));
+  const DOT_UNKNOWN_COLOR = UNKNOWN_SCORE_COLOR;
   const DOT_MIN_CELL = 6;
   const DOT_MAX_CELL = 40;
   // One global duration, one global t. Cards do not stagger: the transition
@@ -1321,220 +1315,33 @@ const state = {
     return lines.join("\n");
   }
 
-  function normalizePriority(value) {
-    const n = Number(value);
-    if (!Number.isFinite(n) || n <= 0) return null;
-    return Math.min(5, Math.max(1, Math.round(n)));
-  }
-
-  function getDirectPriority(item) {
-    return normalizePriority(item?.priority ?? item?.meta?.priority);
-  }
+  // Signals are derived in studyItem.js. This file supplies the graph lookups
+  // they need and keeps the names its own render code already uses.
+  const signalContext = {
+    findById: (id) => findItemById(id),
+    quotesForSource: (id) => (state.quotes || []).filter((quote) => quote?.link?.sourceId === id)
+  };
 
   function getItemPriority(item, depth = 0) {
-    if (!item || depth > 4) return null;
-
-    const direct = getDirectPriority(item);
-    if (direct) return direct;
-
-    if (item.type === "analysis") {
-      const refs = Array.isArray(item.quoteRefs) ? item.quoteRefs : [];
-      const refPriorities = refs
-        .map((ref) => normalizePriority(ref?.priority))
-        .filter(Boolean);
-      if (refPriorities.length) return Math.max(...refPriorities);
-
-      const linkedPriorities = refs
-        .map((ref) => (ref?.quoteId ? findItemById(ref.quoteId) : null))
-        .filter(Boolean)
-        .map((quote) => getItemPriority(quote, depth + 1))
-        .filter(Boolean);
-      if (linkedPriorities.length) return Math.max(...linkedPriorities);
-      return null;
-    }
-
-    if (item.type === "cue") {
-      if (item.quoteId) {
-        const quote = findItemById(item.quoteId);
-        const priority = quote ? getItemPriority(quote, depth + 1) : null;
-        if (priority) return priority;
-      }
-      if (item.analysisId) {
-        const analysis = findItemById(item.analysisId);
-        const priority = analysis ? getItemPriority(analysis, depth + 1) : null;
-        if (priority) return priority;
-      }
-      return null;
-    }
-
-    if (item.type === "source") {
-      const priorities = (state.quotes || [])
-        .filter((quote) => quote?.link?.sourceId === item.id)
-        .map((quote) => getDirectPriority(quote))
-        .filter(Boolean);
-      if (priorities.length) return Math.max(...priorities);
-    }
-
-    return null;
-  }
-
-  function clamp01(value) {
-    const n = Number(value);
-    if (!Number.isFinite(n)) return null;
-    return Math.min(1, Math.max(0, n));
-  }
-
-  function normalizeAccuracy(value) {
-    const n = Number(value);
-    if (!Number.isFinite(n) || n < 0) return null;
-    const ratio = n > 1 ? n / 100 : n;
-    return Math.min(1, Math.max(0, ratio));
-  }
-
-  function getGradeScore(grade, scale = GRADE_SCORES) {
-    return scale[String(grade || "").toLowerCase()];
-  }
-
-  function recallFromScore(score, derived = false, source = "observed") {
-    const value = clamp01(score);
-    if (value === null) {
-      return { level: "unknown", label: "No recall data", score: null, derived, source };
-    }
-    if (value >= 0.8) return { level: "strong", label: "Strong", score: value, derived, source };
-    if (value >= 0.5) return { level: "medium", label: "Partial", score: value, derived, source };
-    return { level: "weak", label: "Weak", score: value, derived, source };
+    return importanceValue(item, signalContext, depth);
   }
 
   function getItemRecall(item, depth = 0) {
-    const meta = item?.meta || {};
-
-    const lastGrade = String(meta.lastGrade || "").toLowerCase();
-    const directGradeScore = getGradeScore(lastGrade, RECALL_GRADE_SCORES);
-    if (directGradeScore !== undefined) return recallFromScore(directGradeScore);
-
-    const phase = String(meta.L_phase || "").toLowerCase();
-    if (phase === "new") {
-      const confidence = normalizeAccuracy(meta.confidence);
-      return recallFromScore(confidence ?? 0.8, false, confidence !== null ? "prior" : "observed");
-    }
-    const phaseScores = {
-      mastered: 0.95,
-      stable: 0.85,
-      stabilising: 0.65,
-      warming: 0.55
-    };
-    if (phaseScores[phase] !== undefined) return recallFromScore(phaseScores[phase]);
-
-    const rawS = meta.S;
-    const rawU = meta.U;
-    const hasS = rawS !== undefined && rawS !== null && rawS !== "" && Number.isFinite(Number(rawS));
-    const hasU = rawU !== undefined && rawU !== null && rawU !== "" && Number.isFinite(Number(rawU));
-    const stability = hasS ? Number(rawS) : 0;
-    const uncertainty = hasU ? Number(rawU) : 0;
-
-    if (hasS && hasU) {
-      const stabilityScore = clamp01(stability / 1.5) ?? 0;
-      const certaintyScore = clamp01(1 - uncertainty) ?? 0;
-      const score = clamp01(stabilityScore * 0.55 + certaintyScore * 0.45);
-      return recallFromScore(score);
-    }
-    if (hasU) return recallFromScore(clamp01(1 - uncertainty));
-    if (hasS) return recallFromScore(clamp01(stability / 1.5));
-
-    if (Array.isArray(meta.recentGrades) && meta.recentGrades.length) {
-      const scores = meta.recentGrades.map((grade) => getGradeScore(grade)).filter((score) => score !== undefined);
-      if (scores.length) {
-        return recallFromScore(scores.reduce((sum, score) => sum + score, 0) / scores.length);
-      }
-    }
-
-    if (depth < 4 && item?.type === "analysis") {
-      const refs = Array.isArray(item.quoteRefs) ? item.quoteRefs : [];
-      const linked = refs
-        .map((ref) => (ref?.quoteId ? findItemById(ref.quoteId) : null))
-        .filter(Boolean)
-        .map((quote) => getItemRecall(quote, depth + 1))
-        .filter((recall) => recall.level !== "unknown");
-      if (linked.length) {
-        const weakest = linked.reduce((worst, recall) =>
-          (recall.score ?? 0) < (worst.score ?? 0) ? recall : worst
-        );
-        return { ...weakest, derived: true };
-      }
-    }
-
-    if (depth < 4 && item?.type === "cue") {
-      const candidates = [
-        item.quoteId ? findItemById(item.quoteId) : null,
-        item.analysisId ? findItemById(item.analysisId) : null
-      ].filter(Boolean);
-      for (const linkedItem of candidates) {
-        const recall = getItemRecall(linkedItem, depth + 1);
-        if (recall.level !== "unknown") return { ...recall, derived: true };
-      }
-    }
-
-    // Creating a card is itself a revision pass, so a card with no reviews yet
-    // still gets a legitimate prior. Bulk imports can set a lower prior.
-    const confidence = normalizeAccuracy(meta.confidence);
-    if (confidence !== null) {
-      return { ...recallFromScore(confidence, false, "prior"), label: "Prior" };
-    }
-
-    return { level: "unknown", label: "No recall data", score: null, derived: false, source: "none" };
+    return itemRecall(item, signalContext, depth);
   }
 
   function getItemAccuracy(item) {
-    const meta = item?.meta || {};
-
-    // Observed grades are the strongest evidence. They must beat the creation
-    // prior, otherwise every new card would read as 80% accurate forever.
-    if (Array.isArray(meta.recentGrades) && meta.recentGrades.length) {
-      const scores = meta.recentGrades.map((grade) => getGradeScore(grade)).filter((score) => score !== undefined);
-      if (scores.length) {
-        return scores.reduce((sum, score) => sum + score, 0) / scores.length;
-      }
-    }
-
-    const accuracy = normalizeAccuracy(meta.accuracy);
-    if (accuracy !== null) return accuracy;
-
-    const lastGradeScore = getGradeScore(meta.lastGrade);
-    if (lastGradeScore !== undefined) return lastGradeScore;
-
-    // The 0.8 prior is intentional: making a card is revision. Bulk imports
-    // can lower this initial value, and real grades replace it over time.
-    const confidence = normalizeAccuracy(meta.confidence);
-    if (confidence !== null) return confidence;
-
-    if (item?.type === "pastpaper") {
-      const percentages = (item.results || []).map(bestAttemptPct).filter((pct) => pct !== null);
-      if (percentages.length) {
-        return percentages.reduce((sum, pct) => sum + pct, 0) / percentages.length / 100;
-      }
-    }
-
-    return null;
+    return itemAccuracy(item);
   }
 
   function getScoreBin(score) {
-    const normalized = normalizeAccuracy(score);
-    if (normalized === null) {
-      return { index: -1, color: DOT_UNKNOWN_COLOR, label: "No data" };
-    }
-    const index = Math.min(DOT_SCORE_BINS.length - 1, Math.floor(normalized / 0.2));
-    return { index, ...DOT_SCORE_BINS[index] };
+    const bin = scoreBin(score);
+    if (bin.index === -1) return { ...bin, rgb: CARD_UNKNOWN_RGB };
+    return { ...bin, rgb: DOT_SCORE_BINS[bin.index].rgb };
   }
 
   function getGridTags(item) {
-    const tags = Array.isArray(item?.tags)
-      ? item.tags
-      : Array.isArray(item?.meta?.tags)
-        ? item.meta.tags
-        : [];
-    return tags
-      .map((tag) => String(tag || "").trim())
-      .filter(Boolean);
+    return tagsOf(item);
   }
 
   function getItemLayerParts(item, depth = 0) {
@@ -1728,8 +1535,8 @@ const state = {
       scene.recallRgb = recallBin.rgb || CARD_UNKNOWN_RGB;
       scene.accuracyRgb = accuracyBin.rgb || CARD_UNKNOWN_RGB;
       scene.priority = item.priority;
-      scene.priorityColor = item.priority ? GRID_IMPORTANCE_COLORS[item.priority] : null;
-      scene.priorityRgb = item.priority ? hexToRgb(GRID_IMPORTANCE_COLORS[item.priority]) : null;
+      scene.priorityColor = item.priority ? IMPORTANCE_COLORS[item.priority] : null;
+      scene.priorityRgb = item.priority ? hexToRgb(IMPORTANCE_COLORS[item.priority]) : null;
     });
 
     for (const id of [...state.cardScene.keys()]) {
@@ -2398,7 +2205,7 @@ const state = {
         const cards = group.cards.map((card) => {
           const inHeap = activeHeapCardIds.has(card.id);
           const importanceColor = card.priority
-            ? GRID_IMPORTANCE_COLORS[card.priority]
+            ? IMPORTANCE_COLORS[card.priority]
             : `rgba(${themePalette.overlayRgb}, 0.14)`;
           const recallScore = card.recall?.score;
           const accuracyScore = card.accuracy;
