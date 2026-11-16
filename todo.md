@@ -36,7 +36,7 @@ additionally todo tasks could do with importance and estimated length of task or
 - Per-tag / per-layer `Study` buttons: consider moving them into a `⋯` menu.
 - Stats default disclosure: keep Studied/Accuracy first; move Router/Inspect internals behind an advanced view.
 - Launchpad `Manage` grouping for Build Deck / Edit / Heaps, once it is worth the churn.
-- Promote analysis tags out of `meta.tags` into top-level `tags`: cards and quotes already store them top-level, so this is the last place where the same concept has two locations. Deferred from the signal work because ~12 readers and writers in Analysis and Mindmap still use `meta.tags`, making it a behaviour-sensitive change rather than a rename. `itemTags()` in `src/tools/studyItem.js` already reads both. Design notes in `docs/STUDY-SIGNALS.md`.
+- Promote tags out of `meta.tags` into top-level `tags` on quotes, analyses and cues: cards are already normalized this way (`normalizeCardRecord` folds and deletes `meta.tags`), but the other three still read and write `meta.tags` in roughly a dozen places across Analysis, Mindmap and the tag-store sync. Deferred from the signal work because it is a behaviour-sensitive storage change rather than a rename. `itemTags()` in `src/tools/studyItem.js` already reads both. Design notes in `docs/STUDY-SIGNALS.md`.
 
 # Constraints
 
