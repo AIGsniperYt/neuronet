@@ -1,6 +1,7 @@
 import { createEditor, format, domToMarkdown, renderMathWithKatex } from "../vendor/md-format/mdeditor.js";
 import { dialog } from "./dialog.js";
 import { groupSubjectRecords } from "../subjectModel.js";
+import { getStudySignals, scoreBin } from "./studyItem.js";
 
 export async function initAnalysisToolV2(deps, context = {}) {
   const {
@@ -1407,6 +1408,38 @@ function htmlToPlainText(html) {
     const label = formatQuoteRefOriginLabel(ref);
     if (!label) return "";
     return `<div class="quote-ref-origin">→ ${escapeHtml(label)}</div>`;
+  }
+
+  // One lookup table per render, shared by every analysis card in the list.
+  // Signals are read-only here; nothing in Analysis writes SRS state.
+  function buildAnalysisSignalContext() {
+    const byId = new Map();
+    const add = (record) => {
+      if (record?.id && !byId.has(record.id)) byId.set(record.id, record);
+    };
+    (state.quotes || []).forEach(add);
+    (state.analysisNodes || []).forEach(add);
+    (state.cues || []).forEach(add);
+    (state.nodes || []).forEach(add);
+    return {
+      findById: (id) => byId.get(id),
+      quotesForSource: (id) => (state.quotes || []).filter((quote) => quote?.link?.sourceId === id)
+    };
+  }
+
+  function analysisSignalsHtml(signals) {
+    const parts = [];
+    if (signals.importance.value !== null) {
+      parts.push(`<span class="analysis-signal importance" title="Importance ${signals.importance.value} of 5${signals.importance.source === "linked" ? " (inherited from linked quotes)" : ""}" style="--signal-color: ${getPriorityColor(signals.importance.value)}">P${signals.importance.value}</span>`);
+    }
+    if (signals.recall.score !== null) {
+      parts.push(`<span class="analysis-signal recall" title="Recall ${Math.round(signals.recall.score * 100)}%${signals.recall.derived ? " (inherited from linked quotes)" : ""}${signals.recall.source === "prior" ? " (creation prior)" : ""}" style="--signal-color: ${scoreBin(signals.recall.score).color}">R ${Math.round(signals.recall.score * 100)}%</span>`);
+    }
+    if (signals.accuracy !== null) {
+      parts.push(`<span class="analysis-signal accuracy" title="Accuracy ${Math.round(signals.accuracy * 100)}%" style="--signal-color: ${scoreBin(signals.accuracy).color}">A ${Math.round(signals.accuracy * 100)}%</span>`);
+    }
+    if (!parts.length) return "";
+    return `<div class="analysis-signals">${parts.join("")}</div>`;
   }
 
   function renderModalQuoteRefsListHtml(refs, previewLen = 100) {
@@ -2889,10 +2922,13 @@ const updateLayerSelection = () => {
     // Parse focused node IDs into a Set for quick lookup
     const focusedIds = new Set((state.focusedNodeId || "").split(",").map(s => s.trim()).filter(Boolean));
 
+    const signalCtx = buildAnalysisSignalContext();
+
     analysisNodeList.innerHTML = analysesForSource
       .map((node, index) => {
         const tags = node?.meta?.tags || [];
         const isActive = focusedIds.has(node.id);
+        const nodeSignals = getStudySignals(node, signalCtx);
         const quotesHtml = (() => {
           if (node.quoteRefs?.length) {
             return node.quoteRefs
@@ -2944,6 +2980,7 @@ const updateLayerSelection = () => {
               </div>
             </div>
             ${quotesHtml}
+            ${analysisSignalsHtml(nodeSignals)}
             <p>${escapeHtml(node.analysis || "")}</p>
             ${tags.length ? `<div class="chips">${tags.map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
           </article>

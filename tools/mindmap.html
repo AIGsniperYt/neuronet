@@ -2267,6 +2267,13 @@
           <option value="updated">Updated</option>
         </select>
         <button type="button" id="librarySortDir" class="btn library-sort-dir" aria-label="Sort descending" title="Sort descending">↓</button>
+        <select id="librarySignalFilter" class="library-sort" aria-label="Filter cards by study signal">
+          <option value="all">All signals</option>
+          <option value="weak">Weak recall</option>
+          <option value="strong">Strong recall</option>
+          <option value="important">Important (4–5)</option>
+          <option value="no-data">No recall data</option>
+        </select>
         <button type="button" id="librarySelectToggle" class="btn" aria-pressed="false">Select</button>
         <button type="button" id="libraryAddSelectedBtn" class="btn primary" disabled>Add selected to heap</button>
         <span id="librarySelectionCount" class="library-selection-count" aria-live="polite"></span>

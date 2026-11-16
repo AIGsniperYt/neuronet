@@ -1257,6 +1257,40 @@ html, body, * {
   margin-bottom: 0;
 }
 
+/* Read-only signal badges for an analysis: inherited importance, then the
+   recall and accuracy the card list would show. */
+.analysis-signals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 8px 0;
+}
+
+.analysis-signal {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--accent-rgb), 0.35);
+  background: rgba(var(--accent-rgb), 0.12);
+  border-color: color-mix(in srgb, var(--signal-color, var(--accent)) 45%, transparent);
+  background: color-mix(in srgb, var(--signal-color, var(--accent)) 14%, transparent);
+  color: var(--text-main);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+}
+
+.analysis-signal::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--signal-color, var(--accent));
+}
+
 button.analysis-quote-jump,
 .analysis-quote-static {
   display: block;

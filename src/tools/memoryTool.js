@@ -9,6 +9,7 @@ import {
   summarizeCalibration
 } from "./sessionEta.js";
 import { shouldAutoCredit } from "./commitmentsModel.js";
+import { summarizeSignals } from "./studyItem.js";
 
 export const STUDY_COMPLETE_EVENT = "neuronet:study-complete";
 
@@ -1721,13 +1722,16 @@ export async function initMemoryTool(deps, context = {}) {
       const allIds = new Set(subjectDecks.map((deck) => String(deck.id)));
       const subjectCards = cards.filter((card) => allIds.has(String(card.deckId || "")));
       const analysisCount = (await getAnalysisNodesForSubject(group.key))?.length || 0;
+      // Read-only signal summary: what is weak here, and how much of it matters.
+      // It never reorders or filters the study queue.
+      const subjectSignals = summarizeSignals(subjectCards);
 
       const section = document.createElement("div");
       section.className = "card deck-subject";
       section.innerHTML = `
         <div class="deck-subject-header">
           <div class="card-title">${escapeHtml(subjectDisplay(group.key) || "Unsorted")}</div>
-          <div class="card-meta deck-stats">${subjectCards.length} cards${analysisCount ? ` · ${analysisCount} analysis` : ""}</div>
+          <div class="card-meta deck-stats">${subjectCards.length} cards${analysisCount ? ` · ${analysisCount} analysis` : ""}${subjectSignals.weak ? ` · <span class="deck-weak-count" title="${subjectSignals.weak} card${subjectSignals.weak === 1 ? "" : "s"} below 50% recall">${subjectSignals.weak} weak</span>` : ""}${subjectSignals.weakImportant ? ` · ${subjectSignals.weakImportant} important` : ""}</div>
         </div>
         <div class="deck-tree" role="tree" aria-label="${escapeHtml(group.subject || "Unsorted")} decks"></div>
       `;

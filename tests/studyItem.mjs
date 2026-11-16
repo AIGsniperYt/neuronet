@@ -17,6 +17,7 @@ import {
   normalizePriority,
   recallFromScore,
   scoreBin,
+  summarizeSignals,
   toStudyItem
 } from "../src/tools/studyItem.js";
 
@@ -245,6 +246,26 @@ export async function run() {
   eq("a subject node is not mistaken for a card", toStudyItem({ id: "s1", type: "subject", title: "English" }).type, "subject");
   eq("an empty record stays safe", toStudyItem().type, "unknown");
   eq("an unknown record is not reviewable", toStudyItem({ type: "tag" }).reviewable, false);
+
+  // ---- Signal summaries ----------------------------------------------------
+  const summaryItems = [
+    card({ lastGrade: "didnt_know" }, { id: "c-weak" }),                 // P4, weak
+    card({ lastGrade: "easy" }, { id: "c-strong" }),                     // P4, strong
+    card({ lastGrade: "kinda" }, { id: "c-mid", priority: 2 }),          // P2, partial
+    card({}, { id: "c-nodata", priority: 5, meta: {} }),                 // P5, no data
+    quote("q-weak", 5, { lastGrade: "didnt_know" }),                     // P5, weak
+  ];
+  const summary = summarizeSignals(summaryItems, ctxOf([]));
+  eq("summary counts every item", summary.total, 5);
+  eq("summary counts weak recall", summary.weak, 2);
+  eq("summary counts strong recall", summary.strong, 1);
+  eq("summary counts important items", summary.important, 4);
+  eq("summary counts important and weak", summary.weakImportant, 2);
+  eq("summary counts missing recall separately", summary.noRecallData, 1);
+  eq("summary ignores empty entries", summarizeSignals([null, undefined]).total, 0);
+
+  const strict = summarizeSignals(summaryItems, ctxOf([]), { importantAtOrAbove: 5 });
+  eq("summary honours a stricter importance threshold", strict.important, 2);
 
   return { passed, failed };
 }

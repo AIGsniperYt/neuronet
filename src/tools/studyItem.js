@@ -311,6 +311,44 @@ export function getStudySignals(item, ctx) {
   };
 }
 
+/**
+ * Roll a list of items into counts a summary line can print. Thresholds are
+ * arguments so a surface can tune "weak" without redefining the scale.
+ */
+export function summarizeSignals(items, ctx, options = {}) {
+  const weakBelow = Number.isFinite(Number(options.weakBelow)) ? Number(options.weakBelow) : 0.5;
+  const strongAtOrAbove = Number.isFinite(Number(options.strongAtOrAbove)) ? Number(options.strongAtOrAbove) : 0.8;
+  const importantAtOrAbove = Number.isFinite(Number(options.importantAtOrAbove))
+    ? Number(options.importantAtOrAbove)
+    : 4;
+
+  const summary = {
+    total: 0,
+    weak: 0,
+    strong: 0,
+    important: 0,
+    weakImportant: 0,
+    noRecallData: 0
+  };
+
+  for (const item of items || []) {
+    if (!item) continue;
+    summary.total += 1;
+    const signals = getStudySignals(item, ctx);
+    const score = signals.recall.score;
+    if (score === null || score === undefined) summary.noRecallData += 1;
+    else if (score < weakBelow) summary.weak += 1;
+    else if (score >= strongAtOrAbove) summary.strong += 1;
+
+    if ((signals.importance.value ?? 0) >= importantAtOrAbove) {
+      summary.important += 1;
+      if (score !== null && score !== undefined && score < weakBelow) summary.weakImportant += 1;
+    }
+  }
+
+  return summary;
+}
+
 function studyType(record) {
   const type = String(record?.type || "").trim().toLowerCase();
   if (STUDY_TYPES.has(type)) return type;

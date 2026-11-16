@@ -38,7 +38,14 @@ export async function initMindmapTool(deps, context = {}) {
     escapeHtml
   } = deps;
 
-  const { subject: contextSubject, heapId: contextHeapId, view: contextView } = context;
+  const {
+    subject: contextSubject,
+    heapId: contextHeapId,
+    view: contextView,
+    sort: contextSort,
+    sortDirection: contextSortDirection,
+    signalFilter: contextSignalFilter
+  } = context;
   // The shell always passes a `subject` key when a tool is opened from the
   // launchpad or sidebar, including an explicit null for "All subjects".
   // That explicit scope must beat the last subject saved by this tool,
@@ -93,12 +100,15 @@ const state = {
     nodeVisibility: new Map(),
     cards: [],
     librarySearch: "",
-    librarySort: "deck",
+    librarySort: contextSort || "deck",
     // Sort direction is deliberately session-local. The library is a browse
     // lens, so a click on the header arrow should not travel in JSON exports.
     // Ascending keeps the old deck-order default unchanged; Created can be
     // flipped to newest-first with the arrow.
-    librarySortDirection: "asc",
+    librarySortDirection: contextSortDirection === "desc" ? "desc" : "asc",
+    // Session-local signal lens, same rule as sort direction: a browse filter
+    // must never travel in an export or touch the study queue.
+    librarySignalFilter: contextSignalFilter || "all",
     librarySelectMode: false,
     selectedCardIds: new Set(),
     collapsedDecks: new Set(),
@@ -159,6 +169,7 @@ const state = {
   const librarySearchInput = document.getElementById("librarySearch");
   const librarySortSelect = document.getElementById("librarySort");
   const librarySortDirBtn = document.getElementById("librarySortDir");
+  const librarySignalFilterSelect = document.getElementById("librarySignalFilter");
   const librarySelectToggle = document.getElementById("librarySelectToggle");
   const libraryAddSelectedBtn = document.getElementById("libraryAddSelectedBtn");
   const libraryHeapSelect = document.getElementById("libraryHeapSelect");
@@ -1638,6 +1649,19 @@ const state = {
       .sort((a, b) => a.deck.localeCompare(b.deck, undefined, { sensitivity: "base" }));
   }
 
+  // Signal filters read the same values the grid prints, so what is hidden is
+  // exactly what the badge says. Cards with no recall data only match "no-data".
+  function matchesLibrarySignalFilter(card) {
+    const filter = state.librarySignalFilter || "all";
+    if (filter === "all") return true;
+    const recall = card.recall?.score ?? null;
+    if (filter === "weak") return recall !== null && recall < 0.5;
+    if (filter === "strong") return recall !== null && recall >= 0.8;
+    if (filter === "no-data") return recall === null;
+    if (filter === "important") return (card.priority ?? 0) >= 4;
+    return true;
+  }
+
   function matchesLibrarySearch(card, term) {
     if (!term) return true;
     const haystack = [
@@ -1702,7 +1726,9 @@ const state = {
     return buildCardSections().map((section) => {
       // Deck sections are the primary grouping. When a deck carries a deeper
       // deckPath, preserve that hierarchy as sub-groups instead of flattening it.
-      const cards = sortLibraryCards(section.cards.filter((card) => matchesLibrarySearch(card, term)));
+      const cards = sortLibraryCards(section.cards.filter((card) =>
+        matchesLibrarySearch(card, term) && matchesLibrarySignalFilter(card)
+      ));
       const groupMap = new Map();
       cards.forEach((card) => {
         const subPath = card.deckPath.slice(1).join(" › ");
@@ -2183,11 +2209,20 @@ const state = {
 
     if (!decks.length) {
       const term = state.librarySearch.trim();
+      const filter = state.librarySignalFilter || "all";
+      const filterLabel = {
+        weak: "weak recall",
+        strong: "strong recall",
+        important: "high importance",
+        "no-data": "missing recall data"
+      }[filter];
       const message = term
         ? `No cards match “${term}”. Try a different search.`
-        : state.focusSubject
-          ? `No cards in ${state.focusSubject} yet. Add cards in Memory or Quick Add to fill this deck.`
-          : "No cards yet. Add cards in Memory or Quick Add to fill the grid.";
+        : filterLabel
+          ? `No cards with ${filterLabel}. Try a different signal filter.`
+          : state.focusSubject
+            ? `No cards in ${state.focusSubject} yet. Add cards in Memory or Quick Add to fill this deck.`
+            : "No cards yet. Add cards in Memory or Quick Add to fill the grid.";
       gridContainer.innerHTML = `
         <div class="mindmap-grid-empty">
           <div class="mindmap-grid-empty-icon" aria-hidden="true">🃏</div>
@@ -5158,7 +5193,14 @@ const state = {
       syncLibrarySortDirection();
       renderGrid();
     });
+    librarySignalFilterSelect?.addEventListener("change", () => {
+      state.librarySignalFilter = librarySignalFilterSelect.value || "all";
+      state.selectedCardIds.clear();
+      renderGrid();
+    });
     syncLibrarySortDirection();
+    if (librarySignalFilterSelect) librarySignalFilterSelect.value = state.librarySignalFilter;
+    if (librarySortSelect) librarySortSelect.value = state.librarySort;
     librarySelectToggle?.addEventListener("click", () => {
       state.librarySelectMode = !state.librarySelectMode;
       if (!state.librarySelectMode) state.selectedCardIds.clear();

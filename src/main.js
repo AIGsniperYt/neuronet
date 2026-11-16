@@ -4,6 +4,7 @@ import { initAnalysisToolV2 } from "./tools/analysisTool.js";
 import { dialog } from "./tools/dialog.js";
 import { initMemoryTool, STUDY_COMPLETE_EVENT } from "./tools/memoryTool.js";
 import { initMindmapTool } from "./tools/mindmapTool.js";
+import { summarizeSignals } from "./tools/studyItem.js";
 import { initTrackerTool } from "./tools/trackerTool.js";
 import { install as installDiag } from "./tools/diag.js";
 import { initScraperTool } from "./tools/scraperTool.js";
@@ -1591,9 +1592,46 @@ function todayTaskRow(task, subjectLabel, todayKey) {
   </div>`;
 }
 
-function todayBonusMarkup(plan, todayKey, subjectLabelFor) {
+// Read-only scan of every study item, used for the launchpad's signal line.
+// It never changes what is due; it only says where weak material matters.
+async function collectSignalSummary() {
+  try {
+    const [cards, quotes, nodes] = await Promise.all([getAllCards(), getAllQuotes(), getAllNodes()]);
+    const analyses = (nodes || []).filter((node) => node?.type === "analysis");
+    const byId = new Map();
+    for (const record of [...(nodes || []), ...(quotes || []), ...(cards || [])]) {
+      if (record?.id && !byId.has(record.id)) byId.set(record.id, record);
+    }
+    const ctx = {
+      findById: (id) => byId.get(id),
+      quotesForSource: (sourceId) => (quotes || []).filter((quote) => quote?.link?.sourceId === sourceId)
+    };
+    return summarizeSignals([...analyses, ...(quotes || []), ...(cards || [])], ctx);
+  } catch (error) {
+    console.warn("Signal summary skipped:", error);
+    return null;
+  }
+}
+
+function todayBonusMarkup(plan, todayKey, subjectLabelFor, signalSummary = null) {
   const overdue = plan.bonus.overdue.slice(0, 5);
   const sections = [];
+
+  // Only show a call to action when something important is actually weak.
+  // "Important" is 4-5 stars; "weak" is under 50% recall.
+  if (signalSummary && signalSummary.weakImportant > 0) {
+    const count = signalSummary.weakImportant;
+    sections.push(`<details class="dash-today-bonus">
+      <summary><span>${plural(count, "important item")} ${count === 1 ? "is" : "are"} weak</span><span class="dash-today-bonus-tag">signals</span></summary>
+      <div class="dash-today-bonus-list">
+        <div class="dash-today-bonus-row">
+          <span class="dash-today-bonus-name">High-importance material under 50% recall</span>
+          <span class="dash-today-bonus-meta">${plural(signalSummary.important, "important item")} tracked \u00b7 ${plural(signalSummary.weak, "weak item")} overall</span>
+        </div>
+      </div>
+      <button type="button" class="dash-today-bonus-open" data-today-action="open-weak">Review weakest first</button>
+    </details>`);
+  }
 
   if (overdue.length) {
     const rows = overdue.map((task) => `<div class="dash-today-bonus-row">
@@ -1745,7 +1783,10 @@ async function renderToday() {
       }
     }
 
-    if (bonusEl) bonusEl.innerHTML = todayBonusMarkup(plan, todayKey, subjectLabelFor);
+    if (bonusEl) {
+      const signalSummary = await collectSignalSummary();
+      bonusEl.innerHTML = todayBonusMarkup(plan, todayKey, subjectLabelFor, signalSummary);
+    }
 
     if (footEl) {
       if (plan.counts.cleared > 0) {
@@ -1794,6 +1835,16 @@ async function handleTodayAction(event) {
   }
   if (action === "new-task") {
     loadTool("tasks", { intent: "task" });
+    return;
+  }
+  if (action === "open-weak") {
+    loadTool("mindmap", {
+      subject: null,
+      view: "grid",
+      sort: "recall",
+      sortDirection: "asc",
+      signalFilter: "weak"
+    });
     return;
   }
 
