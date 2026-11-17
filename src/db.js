@@ -1,6 +1,9 @@
 import { createSubjectRecord, parseSubjectName, subjectKey, subjectKeyMatches, migrateSubjectIdentity, compareSubjectRecords } from "./subjectModel.js";
 let db;
 
+// Structural schema only: store/index creation. Data-shape changes are handled
+// on write (promoteTags / promoteStudyPriority) and old profiles are reset by
+// importing the committed demo dataset, not migrated in place.
 const DB_VERSION = 15;
 
 // Decks are canonical folders inside a subject. Cards point at one deck via
@@ -132,32 +135,15 @@ export function initDB() {
         }
       }
 
-      const creatingSubjects = !db.objectStoreNames.contains("subjects");
-      if (creatingSubjects) {
+      if (!db.objectStoreNames.contains("subjects")) {
         const subjectsStore = db.createObjectStore("subjects", { keyPath: "id" });
         subjectsStore.createIndex("key", "key", { unique: true });
         subjectsStore.createIndex("keyNorm", "keyNorm", { unique: true });
         subjectsStore.createIndex("name", "name", { unique: false });
         subjectsStore.createIndex("level", "level", { unique: false });
         subjectsStore.createIndex("order", "order", { unique: false });
-        const names = ["nodes", "quotes", "cues", "cards", "decks"].filter((name) => db.objectStoreNames.contains(name));
-        if (names.length) {
-          const data = {};
-          let pending = names.length;
-          for (const name of names) {
-            const req = tx.objectStore(name).getAll();
-            req.onsuccess = () => {
-              data[name] = req.result || [];
-              if (--pending === 0) {
-                const migrated = migrateSubjectIdentity(data);
-                for (const record of migrated.subjects) subjectsStore.put({ ...record, keyNorm: String(record.key || "").trim().toLocaleLowerCase() });
-                for (const name of names) for (const record of migrated[name] || []) {
-                  tx.objectStore(name).put(/^(nodes|quotes|cues)$/.test(name) ? promoteTags(record) : record);
-                }
-              }
-            };
-          }
-        }
+        // Existing subject rows are rebuilt at startup by
+        // ensureSubjectIdentity(), so this store starts empty on an upgrade.
       }
 
       if (!db.objectStoreNames.contains("heaps")) {
@@ -177,25 +163,6 @@ export function initDB() {
         const commitmentStore = db.createObjectStore("commitments", { keyPath: "id" });
         commitmentStore.createIndex("subjectId", "subjectId", { unique: false });
         commitmentStore.createIndex("createdAt", "createdAt", { unique: false });
-      }
-
-      // DB v15: tags are a first-class field on nodes, quotes and cues. Fold
-      // the legacy `meta.tags` location into `tags` once so every reader can
-      // use a single property. When the subject migration above is also
-      // running, it has already promoted the records it rewrites.
-      if (e.oldVersion < 15 && tx && !creatingSubjects) {
-        for (const storeName of ["nodes", "quotes", "cues"]) {
-          if (!db.objectStoreNames.contains(storeName)) continue;
-          const store = tx.objectStore(storeName);
-          const req = store.getAll();
-          req.onsuccess = () => {
-            for (const record of req.result || []) {
-              if (record?.meta && Object.prototype.hasOwnProperty.call(record.meta, "tags")) {
-                store.put(promoteTags(record));
-              }
-            }
-          };
-        }
       }
     };
 

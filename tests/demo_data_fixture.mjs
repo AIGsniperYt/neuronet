@@ -57,7 +57,8 @@ check("fixture: 14 cards", demo.cards.length === 14, `len=${demo.cards.length}`)
 check("fixture: 4 decks", demo.decks.length === 4, `len=${demo.decks.length}`);
 check("fixture: 1 heap", demo.heaps.length === 1, `len=${demo.heaps.length}`);
 check("fixture: 12 subject records", demo.subjects.length === 12, `len=${demo.subjects.length}`);
-check("fixture: 2 commitment records", Array.isArray(demo.commitments) && demo.commitments.length === 2, `len=${demo.commitments && demo.commitments.length}`);
+check("fixture: no commitment records", Array.isArray(demo.commitments) && demo.commitments.length === 0, `len=${demo.commitments && demo.commitments.length}`);
+check("fixture: 1 task", Array.isArray(demo.tasks) && demo.tasks.length === 1, `len=${demo.tasks && demo.tasks.length}`);
 const legacyTagRecord = [...(demo.nodes || []), ...(demo.quotes || []), ...(demo.cues || [])]
   .find((record) => record?.meta && Object.prototype.hasOwnProperty.call(record.meta, "tags"));
 check("fixture: tags live top-level, not in meta", !legacyTagRecord, legacyTagRecord ? `record ${legacyTagRecord.id}` : "");

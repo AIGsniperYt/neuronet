@@ -95,8 +95,13 @@ Mindmap passes its own in-memory graph index. Tests pass a plain `Map`.
 ## Tags
 
 Tags are first-class on every study record. `promoteTags()` in `db.js` folds
-the old `meta.tags` location and deletes it on write; the DB v15 upgrade
-backfills existing rows. `itemTags()` reads `tags` only.
+the old `meta.tags` location and deletes it on write, so the invariant holds
+for every record the app stores. `itemTags()` reads `tags` only.
+
+There is no in-place data migration for old profiles: the committed
+`demo-data.json` is the distribution dataset, and a device moves to the
+current shape by using **Delete all data → Import demo**. Database version
+bumps therefore only add or change object stores and indexes.
 
 ## What this layer must never do
 
