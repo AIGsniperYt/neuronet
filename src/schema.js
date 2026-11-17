@@ -7,7 +7,7 @@
  * loads it exactly as written.
  */
 
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 
 const COLLECTIONS = ["nodes", "quotes", "cues", "cards", "heaps", "decks", "subjects", "tasks", "commitments"];
 

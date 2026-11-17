@@ -584,7 +584,6 @@ const state = {
       data.paper,
       data.paperCode,
       ...(Array.isArray(data.tags) ? data.tags : []),
-      ...(Array.isArray(meta.tags) ? meta.tags : []),
       ...(Array.isArray(meta.layerPath) ? meta.layerPath : [])
     ];
     const haystack = values
@@ -1185,9 +1184,7 @@ const state = {
     if (updatedAt) push("updatedAt", updatedAt);
 
     const meta = node.meta || {};
-    const tags = Array.isArray(node.tags)
-      ? node.tags
-      : (Array.isArray(meta.tags) ? meta.tags : []);
+    const tags = Array.isArray(node.tags) ? node.tags : [];
     const organization = [];
     if (node.type === "card") {
       if (node.deck) organization.push(`deck: ${node.deck}`);
@@ -3385,9 +3382,7 @@ const state = {
     }
 
     const isCard = item.type === "card";
-    const tags = isCard
-      ? (Array.isArray(item.tags) ? item.tags : [])
-      : (item.meta?.tags || []);
+    const tags = Array.isArray(item.tags) ? item.tags : [];
 
     if (isCard && !tags.length) {
       tagsContainer.hidden = true;
@@ -3430,8 +3425,7 @@ const state = {
   }
 
   async function addTagToNode(item, tagName) {
-    if (!item.meta) item.meta = {};
-    if (!item.meta.tags) item.meta.tags = [];
+    if (!Array.isArray(item.tags)) item.tags = [];
 
     const normalized = tagName.trim();
     if (!normalized) return;
@@ -3443,8 +3437,8 @@ const state = {
       tag = await addTag({ title: normalized });
     }
 
-    if (!item.meta.tags.includes(tag.title)) {
-      item.meta.tags.push(tag.title);
+    if (!item.tags.includes(tag.title)) {
+      item.tags.push(tag.title);
       await saveItem(item);
       await refreshData();
       if (state.selectedNodeId === item.id) renderSidebar(item);
@@ -3452,8 +3446,8 @@ const state = {
   }
 
   async function removeTagFromNode(item, tagName) {
-    if (item.meta && item.meta.tags) {
-      item.meta.tags = item.meta.tags.filter(t => t !== tagName);
+    if (Array.isArray(item.tags)) {
+      item.tags = item.tags.filter(t => t !== tagName);
       await saveItem(item);
       await refreshData();
       if (state.selectedNodeId === item.id) renderSidebar(item);
@@ -3611,8 +3605,8 @@ const state = {
 
     // Tag links
     items.forEach(item => {
-      const itemTags = item.meta?.tags || [];
-      itemTags.forEach(tagName => {
+      const linkTags = Array.isArray(item.tags) ? item.tags : [];
+      linkTags.forEach(tagName => {
         const tag = tagByTitle.get(String(tagName || "").trim().toLowerCase());
         if (tag) {
           addEdge(item.id, tag.id, "tag-link", 1.2);

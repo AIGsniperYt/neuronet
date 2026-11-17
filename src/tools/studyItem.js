@@ -90,13 +90,9 @@ export function scoreBin(score) {
   return { index, ...SCORE_BINS[index] };
 }
 
-/** Tags live at the top level on cards and in meta on older records. */
+/** Tags are a first-class field on every study record. */
 export function itemTags(item) {
-  const tags = Array.isArray(item?.tags)
-    ? item.tags
-    : Array.isArray(item?.meta?.tags)
-      ? item.meta.tags
-      : [];
+  const tags = Array.isArray(item?.tags) ? item.tags : [];
   return tags
     .map((tag) => String(tag || "").trim())
     .filter(Boolean);

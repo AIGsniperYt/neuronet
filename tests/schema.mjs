@@ -19,21 +19,21 @@ const throws = (name, fn) => {
 };
 
 export async function run() {
-  eq("schema version is 10", SCHEMA_VERSION, 10);
+  eq("schema version is 11", SCHEMA_VERSION, 11);
 
-  const minimal = assertCurrentDataset({ schemaVersion: 10 });
+  const minimal = assertCurrentDataset({ schemaVersion: 11 });
   check("missing collections default to arrays", ["nodes", "quotes", "cues", "cards", "heaps", "decks", "subjects", "tasks", "commitments"].every((key) => Array.isArray(minimal[key])));
   eq("commitments defaults to empty", minimal.commitments, []);
 
   const withCommitments = assertCurrentDataset({
-    schemaVersion: 10,
+    schemaVersion: 11,
     commitments: [{ id: "c1", type: "commitment", title: "Biology recall" }]
   });
   eq("commitments are preserved", withCommitments.commitments.length, 1);
 
-  throws("old schema 9 export is rejected", () => assertCurrentDataset({ schemaVersion: 9 }));
+  throws("old schema 10 export is rejected", () => assertCurrentDataset({ schemaVersion: 10 }));
   throws("missing schema version is rejected", () => assertCurrentDataset({ nodes: [] }));
-  throws("non-array commitments are rejected", () => assertCurrentDataset({ schemaVersion: 10, commitments: {} }));
+  throws("non-array commitments are rejected", () => assertCurrentDataset({ schemaVersion: 11, commitments: {} }));
   throws("non-object payload is rejected", () => assertCurrentDataset([]));
 
   return { passed, failed };

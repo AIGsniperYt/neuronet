@@ -2647,10 +2647,7 @@ export async function initMemoryTool(deps, context = {}) {
 
   function getCardTags(card) {
     const record = getCardRecord(card);
-    const tags = [
-      ...(Array.isArray(record?.meta?.tags) ? record.meta.tags : []),
-      ...(Array.isArray(record?.tags) ? record.tags : [])
-    ];
+    const tags = Array.isArray(record?.tags) ? record.tags : [];
     return [...new Set(tags.filter(Boolean))];
   }
 
@@ -7137,10 +7134,7 @@ export async function initMemoryTool(deps, context = {}) {
 
     // Tag check
     if (filter.tags.length > 0) {
-      const cardTags = [
-        ...(Array.isArray(card.record?.tags) ? card.record.tags : []),
-        ...(Array.isArray(card.record?.meta?.tags) ? card.record.meta.tags : [])
-      ];
+      const cardTags = Array.isArray(card.record?.tags) ? card.record.tags : [];
       const hasTag = filter.tags.some(t => cardTags.includes(t));
       if (isAND && !hasTag) return false;
       if (!isAND && hasTag) return true;

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 10,
+  "schemaVersion": 11,
   "exportedAt": "2026-11-09T18:12:44.523Z",
   "nodes": [
     {
@@ -152,15 +152,15 @@
       ],
       "meta": {
         "globalScope": true,
-        "tags": [
-          "supernatural"
-        ],
         "confidence": 0.7,
         "nextReview": null
       },
       "createdAt": 1777369373707,
       "updatedAt": 1777369373707,
-      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7"
+      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7",
+      "tags": [
+        "supernatural"
+      ]
     },
     {
       "id": "282464cc-3c2b-452c-9607-80868f194085",
@@ -208,16 +208,16 @@
       ],
       "meta": {
         "globalScope": true,
-        "tags": [
-          "supernatural",
-          "fate vs free will"
-        ],
         "confidence": 0.7,
         "nextReview": null
       },
       "createdAt": 1777371166676,
       "updatedAt": 1777371389317,
-      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7"
+      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7",
+      "tags": [
+        "supernatural",
+        "fate vs free will"
+      ]
     },
     {
       "id": "37d6f70d-b1ad-41b5-ac58-7605083dc21f",
@@ -240,16 +240,16 @@
       ],
       "meta": {
         "globalScope": true,
-        "tags": [
-          "paradoxical",
-          "supernatural"
-        ],
         "confidence": 0.7,
         "nextReview": null
       },
       "createdAt": 1777370935988,
       "updatedAt": 1777370935988,
-      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7"
+      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7",
+      "tags": [
+        "paradoxical",
+        "supernatural"
+      ]
     },
     {
       "id": "42270d3c-0200-4dcb-b79e-cb8013d711ea",
@@ -355,15 +355,15 @@
       ],
       "meta": {
         "globalScope": true,
-        "tags": [
-          "paradoxical"
-        ],
         "confidence": 0.7,
         "nextReview": null
       },
       "createdAt": 1777371269189,
       "updatedAt": 1777371269189,
-      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7"
+      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7",
+      "tags": [
+        "paradoxical"
+      ]
     },
     {
       "id": "5506f470-c1b8-412a-817b-c381be35c857",
@@ -561,15 +561,15 @@
       ],
       "meta": {
         "globalScope": true,
-        "tags": [
-          "honour"
-        ],
         "confidence": 0.7,
         "nextReview": null
       },
       "createdAt": 1777371360739,
       "updatedAt": 1777371360739,
-      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7"
+      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7",
+      "tags": [
+        "honour"
+      ]
     },
     {
       "id": "8a7c102f-de0f-4179-8dc7-6fff749412c5",
@@ -592,15 +592,15 @@
       ],
       "meta": {
         "globalScope": true,
-        "tags": [
-          "violence"
-        ],
         "confidence": 0.7,
         "nextReview": null
       },
       "createdAt": 1777371660681,
       "updatedAt": 1777371660681,
-      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7"
+      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7",
+      "tags": [
+        "violence"
+      ]
     },
     {
       "id": "907a3ce1-8096-4ce2-b51f-6c76f8531a62",
@@ -673,15 +673,15 @@
       ],
       "meta": {
         "globalScope": true,
-        "tags": [
-          "fate vs free will"
-        ],
         "confidence": 0.7,
         "nextReview": null
       },
       "createdAt": 1777371325034,
       "updatedAt": 1777371371951,
-      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7"
+      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7",
+      "tags": [
+        "fate vs free will"
+      ]
     },
     {
       "id": "a695c879-e078-4475-9eb6-2dd202096592",
@@ -729,15 +729,15 @@
       ],
       "meta": {
         "globalScope": true,
-        "tags": [
-          "context"
-        ],
         "confidence": 0.7,
         "nextReview": null
       },
       "createdAt": 1777371692392,
       "updatedAt": 1777371692392,
-      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7"
+      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7",
+      "tags": [
+        "context"
+      ]
     },
     {
       "id": "b4234c6d-1acc-44dd-9783-4deb3011e049",
@@ -785,16 +785,16 @@
       ],
       "meta": {
         "globalScope": true,
-        "tags": [
-          "action vs hesitation",
-          "fate vs free will"
-        ],
         "confidence": 0.7,
         "nextReview": null
       },
       "createdAt": 1777371571368,
       "updatedAt": 1777371571368,
-      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7"
+      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7",
+      "tags": [
+        "action vs hesitation",
+        "fate vs free will"
+      ]
     },
     {
       "id": "ba45e565-601e-4e20-a3e6-f3cc762585f0",
@@ -817,15 +817,15 @@
       ],
       "meta": {
         "globalScope": true,
-        "tags": [
-          "supernatural"
-        ],
         "confidence": 0.7,
         "nextReview": null
       },
       "createdAt": 1777370873318,
       "updatedAt": 1777370913004,
-      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7"
+      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7",
+      "tags": [
+        "supernatural"
+      ]
     },
     {
       "id": "bee79eae-8224-4efa-9c65-fe3dd1ab9a73",
@@ -1104,15 +1104,15 @@
       ],
       "meta": {
         "globalScope": true,
-        "tags": [
-          "supernatural"
-        ],
         "confidence": 0.7,
         "nextReview": null
       },
       "createdAt": 1777370899935,
       "updatedAt": 1777370899935,
-      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7"
+      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7",
+      "tags": [
+        "supernatural"
+      ]
     },
     {
       "id": "e8df0214-f038-433a-bf8c-7cc81a44236e",
@@ -1125,7 +1125,6 @@
       "quoteRefs": [],
       "meta": {
         "globalScope": true,
-        "tags": [],
         "confidence": 0.7,
         "nextReview": null,
         "manualLinks": [
@@ -1157,15 +1156,15 @@
       ],
       "meta": {
         "globalScope": true,
-        "tags": [
-          "honour"
-        ],
         "confidence": 0.7,
         "nextReview": null
       },
       "createdAt": 1777371623327,
       "updatedAt": 1777371623327,
-      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7"
+      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7",
+      "tags": [
+        "honour"
+      ]
     },
     {
       "id": "ef1aaa91-2a62-4207-b3b1-bf0f813da92f",
@@ -1232,15 +1231,15 @@
       ],
       "meta": {
         "globalScope": true,
-        "tags": [
-          "violence"
-        ],
         "confidence": 0.7,
         "nextReview": null
       },
       "createdAt": 1777371477249,
       "updatedAt": 1777371483321,
-      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7"
+      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7",
+      "tags": [
+        "violence"
+      ]
     },
     {
       "id": "f7a09dc8-65a4-4645-9859-b891ac89246c",
@@ -1263,15 +1262,15 @@
       ],
       "meta": {
         "globalScope": true,
-        "tags": [
-          "violence"
-        ],
         "confidence": 0.7,
         "nextReview": null
       },
       "createdAt": 1777371725198,
       "updatedAt": 1777371725198,
-      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7"
+      "subjectId": "subj_3f9781ef-e485-4281-956f-9c795709e2d7",
+      "tags": [
+        "violence"
+      ]
     },
     {
       "subject": "Biology",
@@ -3320,7 +3319,6 @@
           "Scene 2"
         ],
         "sourceOrder": 854,
-        "tags": [],
         "analysisNodeIds": [
           "f7779d16-f4b7-4778-b459-cb6b271e894d"
         ],
@@ -3364,7 +3362,6 @@
           "Scene 2"
         ],
         "sourceOrder": 1006,
-        "tags": [],
         "analysisNodeIds": [
           "8a7c102f-de0f-4179-8dc7-6fff749412c5"
         ],
@@ -3412,7 +3409,6 @@
           "Scene 2"
         ],
         "sourceOrder": 761,
-        "tags": [],
         "analysisNodeIds": [
           "88f3c1be-c4b6-44b8-a2ba-fa31f430ed71"
         ]
@@ -3443,7 +3439,6 @@
           "Scene 2"
         ],
         "sourceOrder": 670,
-        "tags": [],
         "analysisNodeIds": [
           "94416d39-bb76-43db-8b64-6ebcfcdcdc49"
         ],
@@ -3487,7 +3482,6 @@
           "Scene 1"
         ],
         "sourceOrder": 313,
-        "tags": [],
         "analysisNodeIds": [
           "2f2f3bae-ea8d-47f5-ac20-9cab65aca428"
         ],
@@ -3531,7 +3525,6 @@
           "Scene 1"
         ],
         "sourceOrder": 426,
-        "tags": [],
         "analysisNodeIds": [
           "53170c0d-04e4-44c0-9c94-df2fbfe10425"
         ]
@@ -3562,7 +3555,6 @@
           "Scene 2"
         ],
         "sourceOrder": 889,
-        "tags": [],
         "analysisNodeIds": [
           "e958a126-51a2-446f-a3a2-952a976ce55f"
         ]
@@ -3593,7 +3585,6 @@
           "Scene 1"
         ],
         "sourceOrder": 185,
-        "tags": [],
         "analysisNodeIds": [
           "37d6f70d-b1ad-41b5-ac58-7605083dc21f"
         ]
@@ -3624,7 +3615,6 @@
           "Scene 1"
         ],
         "sourceOrder": 146,
-        "tags": [],
         "analysisNodeIds": [
           "dfc66998-dccc-42ee-9b4f-61aab18de4b5"
         ]
@@ -3655,7 +3645,6 @@
           "Scene 2"
         ],
         "sourceOrder": 1669,
-        "tags": [],
         "analysisNodeIds": [
           "f7a09dc8-65a4-4645-9859-b891ac89246c"
         ]
@@ -3686,7 +3675,6 @@
           "Scene 1"
         ],
         "sourceOrder": 29,
-        "tags": [],
         "analysisNodeIds": [
           "25ab3979-626d-4370-9470-21649d50a63e"
         ]
@@ -3717,7 +3705,6 @@
           "Scene 2"
         ],
         "sourceOrder": 1054,
-        "tags": [],
         "analysisNodeIds": [
           "ac47665d-c6e8-48c0-a365-e4195fb48836"
         ]
@@ -3748,7 +3735,6 @@
           "Scene 2"
         ],
         "sourceOrder": 808,
-        "tags": [],
         "analysisNodeIds": [
           "b46657c2-1786-4f09-a670-88cc34e61b1e"
         ]
@@ -3779,7 +3765,6 @@
           "Scene 1"
         ],
         "sourceOrder": 71,
-        "tags": [],
         "analysisNodeIds": [
           "ba45e565-601e-4e20-a3e6-f3cc762585f0"
         ],
@@ -4553,7 +4538,9 @@
       "subjectId": "subj_1a8f5893-8521-4e1c-8135-1f0242d6efb2",
       "recurrence": {
         "frequency": "weekly",
-        "weekdays": [6],
+        "weekdays": [
+          6
+        ],
         "startDate": "2026-09-01",
         "endDate": "2027-06-30"
       },

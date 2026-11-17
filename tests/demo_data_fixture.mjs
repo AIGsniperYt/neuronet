@@ -1,5 +1,5 @@
 // tests/demo_data_fixture.mjs — execution-spec #42 integration fixture.
-// The real 112-node export (user's own tracker data, schemaVersion 10) is the
+// The real 112-node export (user's own tracker data, schemaVersion 11) is the
 // committed demo-data.json. This suite drives the REAL rows through the
 // canonical seams (monthFromWord / seriesId / courseKey identity + the
 // resolveBoundaryDecision decision path) and asserts the honesty contract:
@@ -48,7 +48,7 @@ const check = (name, cond, extra = "") => {
 const eq = (name, a, b) => check(name, JSON.stringify(a) === JSON.stringify(b), `\n      got ${JSON.stringify(a)} want ${JSON.stringify(b)}`);
 
 // ---- 1. The committed fixture is the real export --------------------------
-eq("fixture: schemaVersion 10", demo.schemaVersion, 10);
+eq("fixture: schemaVersion 11", demo.schemaVersion, 11);
 check("fixture: 112 nodes", Array.isArray(demo.nodes) && demo.nodes.length === 112, `len=${demo.nodes && demo.nodes.length}`);
 const byType = {};
 for (const n of demo.nodes) byType[n.type] = (byType[n.type] || 0) + 1;
@@ -58,6 +58,11 @@ check("fixture: 4 decks", demo.decks.length === 4, `len=${demo.decks.length}`);
 check("fixture: 1 heap", demo.heaps.length === 1, `len=${demo.heaps.length}`);
 check("fixture: 12 subject records", demo.subjects.length === 12, `len=${demo.subjects.length}`);
 check("fixture: 2 commitment records", Array.isArray(demo.commitments) && demo.commitments.length === 2, `len=${demo.commitments && demo.commitments.length}`);
+const legacyTagRecord = [...(demo.nodes || []), ...(demo.quotes || []), ...(demo.cues || [])]
+  .find((record) => record?.meta && Object.prototype.hasOwnProperty.call(record.meta, "tags"));
+check("fixture: tags live top-level, not in meta", !legacyTagRecord, legacyTagRecord ? `record ${legacyTagRecord.id}` : "");
+check("fixture: analysis tags survived the promotion",
+  (demo.nodes || []).some((node) => node.type === "analysis" && Array.isArray(node.tags) && node.tags.length > 0));
 check("fixture: every commitment has a recurrence", (demo.commitments || []).every((c) => c?.recurrence?.startDate && ["daily", "weekly"].includes(c.recurrence.frequency)));
 check("fixture: every owned record has subjectId", ["nodes", "quotes", "cues", "decks", "cards", "commitments"].every((key) => demo[key].filter((r) => key === "cards" ? r.deck : r.subject).every((r) => r.subjectId)));
 

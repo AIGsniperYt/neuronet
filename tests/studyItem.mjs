@@ -209,8 +209,8 @@ export async function run() {
   eq("signals accuracy is graded", signals.accuracy, 0.6);
 
   // ---- Tags ----------------------------------------------------------------
-  eq("top-level tags win", itemTags({ tags: ["a"], meta: { tags: ["b"] } }), ["a"]);
-  eq("meta tags are the fallback", itemTags({ tags: null, meta: { tags: ["b"] } }), ["b"]);
+  eq("top-level tags are the source", itemTags({ tags: ["a"], meta: { tags: ["b"] } }), ["a"]);
+  eq("legacy meta tags are ignored", itemTags({ tags: null, meta: { tags: ["b"] } }), []);
   eq("tags are trimmed", itemTags({ tags: [" x ", ""] }), ["x"]);
   eq("no tags means an empty list", itemTags({}), []);
 

@@ -1,7 +1,7 @@
 import { createSubjectRecord, parseSubjectName, subjectKey, subjectKeyMatches, migrateSubjectIdentity, compareSubjectRecords } from "./subjectModel.js";
 let db;
 
-const DB_VERSION = 14;
+const DB_VERSION = 15;
 
 // Decks are canonical folders inside a subject. Cards point at one deck via
 // deckId; the legacy `card.deck` string remains the subject owner until the
@@ -151,7 +151,9 @@ export function initDB() {
               if (--pending === 0) {
                 const migrated = migrateSubjectIdentity(data);
                 for (const record of migrated.subjects) subjectsStore.put({ ...record, keyNorm: String(record.key || "").trim().toLocaleLowerCase() });
-                for (const name of names) for (const record of migrated[name] || []) tx.objectStore(name).put(record);
+                for (const name of names) for (const record of migrated[name] || []) {
+                  tx.objectStore(name).put(/^(nodes|quotes|cues)$/.test(name) ? promoteTags(record) : record);
+                }
               }
             };
           }
@@ -175,6 +177,25 @@ export function initDB() {
         const commitmentStore = db.createObjectStore("commitments", { keyPath: "id" });
         commitmentStore.createIndex("subjectId", "subjectId", { unique: false });
         commitmentStore.createIndex("createdAt", "createdAt", { unique: false });
+      }
+
+      // DB v15: tags are a first-class field on nodes, quotes and cues. Fold
+      // the legacy `meta.tags` location into `tags` once so every reader can
+      // use a single property. When the subject migration above is also
+      // running, it has already promoted the records it rewrites.
+      if (e.oldVersion < 15 && tx && !creatingSubjects) {
+        for (const storeName of ["nodes", "quotes", "cues"]) {
+          if (!db.objectStoreNames.contains(storeName)) continue;
+          const store = tx.objectStore(storeName);
+          const req = store.getAll();
+          req.onsuccess = () => {
+            for (const record of req.result || []) {
+              if (record?.meta && Object.prototype.hasOwnProperty.call(record.meta, "tags")) {
+                store.put(promoteTags(record));
+              }
+            }
+          };
+        }
       }
     };
 
@@ -202,6 +223,7 @@ export function addNode(node) {
       id: node.id || crypto.randomUUID()
     };
     if (record.type === "analysis" || record.type === "cue") promoteStudyPriority(record);
+    promoteTags(record);
 
     const tx = db.transaction("nodes", "readwrite");
     const store = tx.objectStore("nodes");
@@ -230,6 +252,7 @@ export function addNodes(nodes) {
         id: node.id || crypto.randomUUID()
       };
       if (record.type === "analysis" || record.type === "cue") promoteStudyPriority(record);
+      promoteTags(record);
       return record;
     });
 
@@ -428,6 +451,7 @@ export function addQuote(quote) {
       type: "quote",
       priority: Number.isFinite(Number(quote.priority)) ? Math.min(5, Math.max(1, Number(quote.priority))) : 3
     };
+    promoteTags(record);
 
     const tx = db.transaction("quotes", "readwrite");
     const store = tx.objectStore("quotes");
@@ -458,6 +482,7 @@ export function addQuotes(quotes) {
       id: quote.id || crypto.randomUUID(),
       type: "quote"
     }));
+    records.forEach(promoteTags);
 
     const tx = db.transaction("quotes", "readwrite");
     const store = tx.objectStore("quotes");
@@ -789,6 +814,7 @@ export function addCue(cue) {
       updatedAt: cue.updatedAt || Date.now()
     };
     promoteStudyPriority(record);
+    promoteTags(record);
 
     const tx = db.transaction("cues", "readwrite");
     const store = tx.objectStore("cues");
@@ -822,6 +848,7 @@ export function addCues(cues) {
         type: "cue"
       };
       promoteStudyPriority(record);
+      promoteTags(record);
       return record;
     });
 
@@ -1048,6 +1075,26 @@ function promoteStudyPriority(record) {
   if (record.meta && typeof record.meta === "object" && "priority" in record.meta) {
     const meta = { ...record.meta };
     delete meta.priority;
+    record.meta = meta;
+  }
+  return record;
+}
+
+// Tags are a first-class field on every study record, not metadata. Cards were
+// normalized first; this folds the older `meta.tags` location in for nodes,
+// quotes and cues so there is exactly one place to read and write them.
+export function promoteTags(record) {
+  if (!record || typeof record !== "object") return record;
+  const merged = [
+    ...(Array.isArray(record.tags) ? record.tags : []),
+    ...(Array.isArray(record.meta?.tags) ? record.meta.tags : [])
+  ];
+  const tags = [...new Set(merged.map((tag) => String(tag || "").trim()).filter(Boolean))];
+  if (tags.length) record.tags = tags;
+  else delete record.tags;
+  if (record.meta && typeof record.meta === "object" && "tags" in record.meta) {
+    const meta = { ...record.meta };
+    delete meta.tags;
     record.meta = meta;
   }
   return record;

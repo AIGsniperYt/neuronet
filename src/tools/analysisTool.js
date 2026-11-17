@@ -1886,9 +1886,8 @@ function htmlToPlainText(html) {
       quoteId: quoteId,
       analysisId: analysisId,
       cue: cueContent,
-      meta: {
-        tags: []
-      },
+      tags: [],
+      meta: {},
       createdAt: state.cueEditMode ? (state.editingCueCreatedAt || now) : now,
       updatedAt: now
     };
@@ -1989,10 +1988,10 @@ function htmlToPlainText(html) {
         // Check if any node in current subject uses this tag
         return state.nodes.some(n =>
           n.subject === currentSubject &&
-          n.meta?.tags?.includes(tag.title)
+          n.tags?.includes(tag.title)
         ) || state.quotes.some(q =>
           q.subject === currentSubject &&
-          q.meta?.tags?.includes(tag.title)
+          q.tags?.includes(tag.title)
         );
       });
 
@@ -2326,10 +2325,10 @@ function htmlToPlainText(html) {
         prefix: prefix,
         suffix: suffix
       },
+      tags: [],
       meta: {
         hierarchyPath: path,
         sourceOrder: start,
-        tags: [],
         analysisNodeIds: [] // Will be populated with linked analyses
       },
       createdAt: now,
@@ -2342,8 +2341,8 @@ function htmlToPlainText(html) {
 
   // Sync tags from a quote node to the tag store
   async function syncQuoteTagsToTagStore(quote) {
-    if (!quote?.meta?.tags || !Array.isArray(quote.meta.tags) || quote.meta.tags.length === 0) return;
-    await syncTagsToTagStore(quote.meta.tags, quote.subject || "");
+    if (!Array.isArray(quote?.tags) || quote.tags.length === 0) return;
+    await syncTagsToTagStore(quote.tags, quote.subject || "");
   }
 
   // NOTE: linkAnalysisToQuote and unlinkAnalysisFromQuote should be imported from db.js
@@ -2463,7 +2462,7 @@ function htmlToPlainText(html) {
   }
 
   // ========= MIGRATE EXISTING TAGS TO TAG STORE =========
-  // On init, scan all nodes and quotes for tags in meta.tags and sync to the 'tags' store
+  // On init, scan all nodes and quotes for top-level tags and sync to the 'tags' store
   async function syncAllExistingTags() {
     try {
       const [nodes, quotes] = await Promise.all([getAllNodes(), getAllQuotes()]);
@@ -2471,8 +2470,8 @@ function htmlToPlainText(html) {
 
       // Collect all tags from nodes
       for (const node of nodes) {
-        if (node?.meta?.tags && Array.isArray(node.meta.tags)) {
-          for (const tag of node.meta.tags) {
+        if (Array.isArray(node?.tags)) {
+          for (const tag of node.tags) {
             const value = String(tag || "").trim();
             if (value) allTags.add(value);
           }
@@ -2481,8 +2480,8 @@ function htmlToPlainText(html) {
 
       // Collect all tags from quotes
       for (const quote of quotes) {
-        if (quote?.meta?.tags && Array.isArray(quote.meta.tags)) {
-          for (const tag of quote.meta.tags) {
+        if (Array.isArray(quote?.tags)) {
+          for (const tag of quote.tags) {
             const value = String(tag || "").trim();
             if (value) allTags.add(value);
           }
@@ -2524,10 +2523,10 @@ function htmlToPlainText(html) {
       link: parentToSource && state.selectedSourceId
         ? { sourceId: state.selectedSourceId }
         : (existing?.link || {}),
+      tags: [...new Set((tags || []).map((tag) => String(tag || "").trim()).filter(Boolean))],
       meta: {
         ...(existing?.meta || {}),
         globalScope: true,
-        tags,
         confidence: existing?.meta?.confidence ?? 0.7,
         nextReview: existing?.meta?.nextReview ?? null
       },
@@ -2926,7 +2925,7 @@ const updateLayerSelection = () => {
 
     analysisNodeList.innerHTML = analysesForSource
       .map((node, index) => {
-        const tags = node?.meta?.tags || [];
+        const tags = node?.tags || [];
         const isActive = focusedIds.has(node.id);
         const nodeSignals = getStudySignals(node, signalCtx);
         const quotesHtml = (() => {
@@ -3843,7 +3842,7 @@ if (saveSourceBtn) {
         renderState();
         analysisNodeIdInput.value = node.id;
         analysisNotesInput.value = node.analysis || "";
-        analysisTagsInput.value = (node?.meta?.tags || []).join(", ");
+        analysisTagsInput.value = (node?.tags || []).join(", ");
         state.selectedRange = {
           start: Number(node?.link?.start || 0),
           end: Number(node?.link?.end || 0),

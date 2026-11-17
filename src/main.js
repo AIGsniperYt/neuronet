@@ -981,8 +981,8 @@ function collectTagTitles({ nodes = [], quotes = [], cards = [] } = {}) {
       if (!titles.has(key)) titles.set(key, value);
     }
   };
-  for (const node of nodes) collect(node?.meta?.tags);
-  for (const quote of quotes) collect(quote?.meta?.tags);
+  for (const node of nodes) collect(node?.tags);
+  for (const quote of quotes) collect(quote?.tags);
   for (const card of cards) collect(card?.tags);
   return titles;
 }

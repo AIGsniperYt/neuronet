@@ -92,6 +92,12 @@ const ctx = {
 
 Mindmap passes its own in-memory graph index. Tests pass a plain `Map`.
 
+## Tags
+
+Tags are first-class on every study record. `promoteTags()` in `db.js` folds
+the old `meta.tags` location and deletes it on write; the DB v15 upgrade
+backfills existing rows. `itemTags()` reads `tags` only.
+
 ## What this layer must never do
 
 - Write, schedule or modify SRS state
@@ -100,10 +106,6 @@ Mindmap passes its own in-memory graph index. Tests pass a plain `Map`.
 
 ## Known gaps (deliberate)
 
-- `tags` are top-level on cards and quotes but still live in `meta.tags` on
-  analyses. `itemTags()` reads both. Promotion was deferred because about a
-  dozen readers in Analysis and Mindmap still write `meta.tags`; folding it in
-  here would have made a presentation slice into a behaviour change.
 - `deck` vs `subject` is the same concept with two names on cards. It is
   entangled with the unshipped deck UI, so it stays until that work happens.
 - Quotes and analyses can still be reviewed directly, so they keep their own
