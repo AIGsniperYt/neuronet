@@ -1,0 +1,360 @@
+<div id="timerTool" class="timer-tool">
+  <style>
+    #timerTool {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      color: var(--text-main);
+      font-family: var(--font-ui, "Source Sans 3", Inter, system-ui, -apple-system, "Segoe UI", sans-serif);
+    }
+
+    #timerTool .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .timer-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      padding: 16px 20px;
+      border-bottom: 1px solid rgba(var(--overlay-rgb), 0.08);
+      background: rgba(var(--surface-rgb), 0.35);
+      backdrop-filter: blur(10px);
+      flex: 0 0 auto;
+    }
+    .timer-heading { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .timer-heading i { color: var(--accent); font-size: 1.25rem; }
+    .timer-heading h1 { margin: 0; font-size: 1.15rem; letter-spacing: -0.01em; }
+    .timer-heading p { margin: 2px 0 0; color: var(--text-muted); font-size: var(--text-sm, 0.86rem); }
+    .timer-head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+    .timer-ghost-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 36px;
+      padding: 7px 13px;
+      border: 1px solid rgba(var(--overlay-rgb), 0.14);
+      border-radius: 999px;
+      background: rgba(var(--overlay-rgb), 0.04);
+      color: var(--text-main);
+      font: inherit;
+      font-size: var(--text-sm, 0.86rem);
+      cursor: pointer;
+      transition: background .16s ease, border-color .16s ease, color .16s ease;
+    }
+    .timer-ghost-btn:hover { background: rgba(var(--overlay-rgb), 0.09); border-color: rgba(var(--accent-rgb), 0.32); }
+    .timer-ghost-btn[aria-pressed="true"] { color: var(--accent); border-color: rgba(var(--accent-rgb), 0.45); background: rgba(var(--accent-rgb), 0.1); }
+    .timer-ghost-btn i { font-size: 0.86em; }
+
+    .timer-stage {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 18px;
+      padding: clamp(18px, 4vh, 40px) 18px 34px;
+    }
+
+    .timer-ring {
+      --timer-progress: 0;
+      position: relative;
+      flex: 0 0 auto;
+      width: clamp(248px, 46vh, 400px);
+      height: clamp(248px, 46vh, 400px);
+      max-width: calc(100vw - 48px);
+      max-height: calc(100vw - 48px);
+      border-radius: 50%;
+      padding: 10px;
+      background:
+        conic-gradient(var(--accent) calc(var(--timer-progress) * 1%), rgba(var(--overlay-rgb), 0.1) 0);
+      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.18), 0 0 60px rgba(var(--accent-rgb), 0.08);
+      transition: box-shadow .3s ease;
+    }
+    .timer-ring.is-empty { background: rgba(var(--overlay-rgb), 0.1); }
+    .timer-ring-inner {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      background: linear-gradient(160deg, rgba(var(--surface-rgb), 0.97), rgba(var(--bg-rgb), 0.97));
+      border: 1px solid rgba(var(--overlay-rgb), 0.08);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+    #timerTool.is-finished .timer-ring {
+      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.18), 0 0 70px rgba(var(--accent-rgb), 0.3);
+    }
+
+    .timer-phase {
+      margin: 0;
+      color: var(--accent);
+      font-size: var(--text-sm, 0.82rem);
+      font-weight: 750;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+    .timer-clock {
+      font-size: clamp(3.1rem, 15vw, 6.4rem);
+      font-weight: 760;
+      line-height: 1;
+      letter-spacing: -0.055em;
+      font-variant-numeric: tabular-nums;
+      font-feature-settings: "tnum" 1;
+      color: var(--text-main);
+    }
+    .timer-status {
+      margin: 0;
+      color: var(--text-muted);
+      font-size: var(--text-sm, 0.86rem);
+      min-height: 1.2em;
+    }
+    .timer-status[data-tone="accent"] { color: var(--accent); }
+
+    .timer-label-field { width: min(460px, 100%); flex: 0 0 auto; }
+    .timer-label-field input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 10px 14px;
+      border: 1px solid transparent;
+      border-bottom-color: rgba(var(--overlay-rgb), 0.16);
+      border-radius: 10px;
+      background: transparent;
+      color: var(--text-main);
+      font: inherit;
+      font-size: var(--text-md, 1rem);
+      text-align: center;
+      outline: none;
+      transition: border-color .16s ease, background .16s ease;
+    }
+    .timer-label-field input::placeholder { color: rgba(var(--text-rgb), 0.42); }
+    .timer-label-field input:focus {
+      border-color: rgba(var(--accent-rgb), 0.45);
+      background: rgba(var(--overlay-rgb), 0.035);
+    }
+
+    .timer-config {
+      width: min(560px, 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      transition: opacity .2s ease;
+    }
+    .timer-presets { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+    .timer-preset {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 6px;
+      padding: 8px 14px;
+      border: 1px solid rgba(var(--overlay-rgb), 0.14);
+      border-radius: 999px;
+      background: rgba(var(--overlay-rgb), 0.04);
+      color: var(--text-main);
+      font: inherit;
+      font-size: var(--text-sm, 0.88rem);
+      cursor: pointer;
+      transition: border-color .16s ease, background .16s ease, color .16s ease;
+    }
+    .timer-preset small { color: var(--text-muted); font-size: 0.76em; letter-spacing: 0.02em; }
+    .timer-preset:hover { border-color: rgba(var(--accent-rgb), 0.35); }
+    .timer-preset.active {
+      color: var(--accent);
+      border-color: rgba(var(--accent-rgb), 0.5);
+      background: rgba(var(--accent-rgb), 0.1);
+    }
+    .timer-preset.active small { color: rgba(var(--accent-rgb), 0.85); }
+    .timer-preset:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .timer-custom { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
+    .timer-custom[hidden] { display: none; }
+    .timer-chip {
+      min-width: 42px;
+      padding: 7px 10px;
+      border: 1px solid rgba(var(--overlay-rgb), 0.14);
+      border-radius: 9px;
+      background: rgba(var(--overlay-rgb), 0.04);
+      color: var(--text-main);
+      font: inherit;
+      font-size: var(--text-sm, 0.86rem);
+      cursor: pointer;
+    }
+    .timer-chip:hover { border-color: rgba(var(--accent-rgb), 0.35); }
+    .timer-chip.active { color: var(--accent); border-color: rgba(var(--accent-rgb), 0.45); background: rgba(var(--accent-rgb), 0.1); }
+    .timer-chip:disabled { opacity: 0.45; cursor: not-allowed; }
+    .timer-minutes { display: inline-flex; align-items: center; gap: 7px; color: var(--text-muted); font-size: var(--text-sm, 0.86rem); }
+    .timer-minutes input {
+      width: 74px;
+      padding: 7px 9px;
+      border: 1px solid rgba(var(--overlay-rgb), 0.16);
+      border-radius: 9px;
+      background: rgba(var(--overlay-rgb), 0.035);
+      color: var(--text-main);
+      font: inherit;
+      font-size: var(--text-sm, 0.86rem);
+      text-align: center;
+    }
+
+    .timer-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; }
+    .timer-primary {
+      min-width: 178px;
+      padding: 13px 26px;
+      border: 1px solid rgba(var(--accent-rgb), 0.55);
+      border-radius: 999px;
+      background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.22), rgba(var(--accent-rgb), 0.1));
+      color: var(--accent);
+      font: inherit;
+      font-size: var(--text-md, 1rem);
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
+    }
+    .timer-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 28px rgba(var(--accent-rgb), 0.18); }
+    .timer-primary:active { transform: translateY(0); }
+    #timerTool.is-finished .timer-primary { background: var(--accent); color: rgba(var(--bg-rgb), 1); }
+
+    .timer-meta {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 18px;
+      color: var(--text-muted);
+      font-size: var(--text-sm, 0.86rem);
+      min-height: 20px;
+    }
+    .timer-meta[hidden] { display: none; }
+    .timer-cycle { display: inline-flex; align-items: center; gap: 6px; }
+    .timer-cycle[hidden] { display: none; }
+    .timer-pip {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      border: 1px solid rgba(var(--accent-rgb), 0.55);
+      background: transparent;
+    }
+    .timer-pip.filled { background: var(--accent); box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.5); }
+    .timer-pip.current { outline: 2px solid rgba(var(--accent-rgb), 0.25); outline-offset: 2px; }
+
+    .timer-auto {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--text-muted);
+      font-size: var(--text-sm, 0.86rem);
+      cursor: pointer;
+      user-select: none;
+    }
+    .timer-auto[hidden] { display: none; }
+    .timer-auto input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
+
+    .timer-hint {
+      margin: 0;
+      color: rgba(var(--text-rgb), 0.42);
+      font-size: var(--text-xs, 0.76rem);
+      letter-spacing: 0.02em;
+    }
+
+    #timerTool.is-running .timer-config { opacity: 0.5; }
+
+    @media (max-width: 700px) {
+      .timer-head { padding: 12px 14px; }
+      #timerSidebarBtn { display: none; }
+      .timer-heading p, .timer-btn-label { display: none; }
+      .timer-ghost-btn { min-height: 40px; padding: 8px 11px; }
+      .timer-stage { gap: 14px; padding: 16px 14px 26px; }
+      .timer-ring { width: min(72vw, 320px); height: min(72vw, 320px); }
+      .timer-clock { font-size: clamp(2.9rem, 17vw, 4.6rem); }
+      .timer-preset { padding: 9px 13px; }
+      .timer-primary { width: 100%; }
+      .timer-actions { width: min(420px, 100%); }
+      .timer-hint { display: none; }
+    }
+  </style>
+
+  <header class="timer-head">
+    <div class="timer-heading">
+      <i class="fa-solid fa-stopwatch" aria-hidden="true"></i>
+      <div>
+        <h1>Timer</h1>
+        <p>Pomodoro and countdown timers. Minimise to keep it docked over your work.</p>
+      </div>
+    </div>
+    <div class="timer-head-actions">
+      <button id="timerSidebarBtn" class="timer-ghost-btn" type="button" aria-pressed="false" title="Hide the sidebar and reveal it from the left edge">
+        <i class="fa-solid fa-table-columns" aria-hidden="true"></i>
+        <span class="timer-btn-label" id="timerSidebarLabel">Hide sidebar</span>
+      </button>
+      <button id="timerSoundBtn" class="timer-ghost-btn" type="button" aria-pressed="false" title="Play a chime when a timer finishes">
+        <i class="fa-solid fa-volume-xmark" aria-hidden="true"></i>
+        <span class="timer-btn-label" id="timerSoundLabel">Sound off</span>
+      </button>
+      <button id="timerMinimiseBtn" class="timer-ghost-btn" type="button" title="Back to the previous tool with the timer docked">
+        <i class="fa-solid fa-compress" aria-hidden="true"></i>
+        <span class="timer-btn-label">Minimise</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="timer-stage">
+    <div class="timer-ring" id="timerRing">
+      <div class="timer-ring-inner">
+        <p class="timer-phase" id="timerPhase">Focus</p>
+        <div class="timer-clock" id="timerClock" role="timer" aria-live="off">25:00</div>
+        <p class="timer-status" id="timerStatus" role="status" aria-live="polite">Ready</p>
+      </div>
+    </div>
+
+    <label class="timer-label-field">
+      <span class="sr-only">What are you timing?</span>
+      <input id="timerLabelInput" type="text" maxlength="80" autocomplete="off"
+        placeholder="What are you working on?" />
+    </label>
+
+    <section class="timer-config" id="timerConfig" aria-label="Timer setup">
+      <div class="timer-presets" id="timerPresets" role="group" aria-label="Timer preset"></div>
+      <div class="timer-custom" id="timerCustom" hidden>
+        <div class="timer-chips" id="timerChips" role="group" aria-label="Quick lengths"></div>
+        <label class="timer-minutes">Minutes
+          <input id="timerMinutes" type="number" min="1" max="240" step="1" inputmode="numeric" value="25" />
+        </label>
+      </div>
+    </section>
+
+    <div class="timer-actions">
+      <button id="timerPrimary" class="timer-primary" type="button">Start focus</button>
+      <button id="timerReset" class="timer-ghost-btn" type="button">
+        <i class="fa-solid fa-rotate-left" aria-hidden="true"></i>
+        <span>Reset</span>
+      </button>
+    </div>
+
+    <div class="timer-meta" id="timerMeta">
+      <div class="timer-cycle" id="timerCycle" aria-label="Pomodoro round"></div>
+      <span id="timerToday"></span>
+      <label class="timer-auto" id="timerAutoWrap">
+        <input id="timerAutoStart" type="checkbox" />
+        <span>Auto-start breaks</span>
+      </label>
+    </div>
+
+    <p class="timer-hint">Space to start or pause · R to reset · drag the docked timer to another corner</p>
+  </div>
+</div>

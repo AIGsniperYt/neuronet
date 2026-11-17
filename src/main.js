@@ -9,6 +9,9 @@ import { initTrackerTool } from "./tools/trackerTool.js";
 import { install as installDiag } from "./tools/diag.js";
 import { initScraperTool } from "./tools/scraperTool.js";
 import { initTasksTool } from "./tools/tasksTool.js";
+import { initTimerTool } from "./tools/timerTool.js";
+import { initTimerDock } from "./timerDock.js";
+import { createTimerStore } from "./timerEngine.js";
 import { buildDailyPlan } from "./tools/planModel.js";
 import { addDays, completeOccurrence, findAutoCreditCommitment, formatCadence, skipOccurrence, undoOccurrence } from "./tools/commitmentsModel.js";
 import { estimateCardsMs } from "./tools/sessionEta.js";
@@ -40,9 +43,14 @@ const DEFAULT_PROFILE = {
 let syncInProgress = false;
 
 let currentToolName = "";
+let previousToolName = "";
 let currentSubject = null;
 let currentSubjectId = null;
 let toolContainer;
+
+// A timer is device UI state, so it lives in localStorage rather than the DB.
+const timerStore = createTimerStore({ storage: window.localStorage });
+window.__neuronetTimerStore = timerStore;
 
 const tools = {
   analysis: {
@@ -208,6 +216,14 @@ const tools = {
       getSubjects,
       escapeHtml
     }, context)
+  },
+  timer: {
+    name: "Timer",
+    file: "timer.html",
+    init: () => initTimerTool({
+      store: timerStore,
+      onMinimise: () => minimiseCurrentTool()
+    })
   }
 };
 
@@ -217,7 +233,8 @@ const toolDefinitions = {
   mindmap: { name: "Mindmap", file: "mindmap.html", icon: "fa-solid fa-diagram-project", desc: "Visual database overview for establishing connections" },
   tracker: { name: "Tracker", file: "tracker.html", icon: "fa-solid fa-chart-column", desc: "Track study progress with past paper data" },
   scraper: { name: "Scraper", file: "scraper.html", icon: "fa-solid fa-download", desc: "Fetch grade boundaries from exam board spreadsheets" },
-  tasks: { name: "Tasks", file: "tasks.html", icon: "fa-solid fa-list-check", desc: "Track schoolwork, revision and assignments in one list" }
+  tasks: { name: "Tasks", file: "tasks.html", icon: "fa-solid fa-list-check", desc: "Track schoolwork, revision and assignments in one list" },
+  timer: { name: "Timer", file: "timer.html", icon: "fa-solid fa-stopwatch", desc: "Pomodoro and countdown timers that dock over the rest of the app" }
 };
 
 // ========== AUTH & API ==========
@@ -294,6 +311,7 @@ function setActiveTool(toolName) {
   wrappers.forEach(w => w.classList.remove("active"));
   const activeWrapper = document.querySelector(`.tool-btn-wrapper[data-tool="${toolName}"]`);
   if (activeWrapper) activeWrapper.classList.add("active");
+  document.dispatchEvent(new CustomEvent("neuronet-tool-changed", { detail: { tool: toolName || "" } }));
 }
 
 async function loadTool(toolName, context = {}) {
@@ -308,12 +326,14 @@ async function loadTool(toolName, context = {}) {
   const previousCleanup = {
     analysis: window.__neuronetAnalysisCleanup,
     memory: window.__neuronetMemoryCleanup,
-    mindmap: window.__neuronetMindmapCleanup
+    mindmap: window.__neuronetMindmapCleanup,
+    timer: window.__neuronetTimerCleanup
   }[currentToolName];
   if (typeof previousCleanup === "function") {
     previousCleanup();
   }
 
+  if (currentToolName && currentToolName !== toolName) previousToolName = currentToolName;
   currentToolName = toolName;
   currentSubject = context.subject || null;
   currentSubjectId = context.subjectId || (currentSubject ? (await readSubjects()).find((s) => s.key === currentSubject)?.id : null) || null;
@@ -1198,6 +1218,8 @@ async function wipeDatabase() {
   await clearDecks();
   await clearSubjects();
   await clearTasks();
+  await clearCommitments();
+  timerStore.clearData();
   if (USE_BACKEND && window.currentUser) {
     try {
       const [cloudNodes, cloudQuotes, cloudCues] = await Promise.all([
@@ -1219,6 +1241,22 @@ async function wipeDatabase() {
 }
 
 // ========== LAUNCHPAD SHOW/HIDE ==========
+
+// Leave the Timer tool without choosing a different tool explicitly. The dock
+// takes over, and the previous tool is restored when there is one.
+function minimiseCurrentTool() {
+  const target = previousToolName && tools[previousToolName] ? previousToolName : "";
+  if (target) {
+    loadTool(target);
+    return;
+  }
+  currentToolName = "";
+  currentSubject = null;
+  previousToolName = "";
+  setActiveTool("");
+  showLaunchpad();
+  renderSidebarSubjects();
+}
 
 function showLaunchpad() {
   const tc = document.getElementById("toolContainer");
@@ -1270,6 +1308,7 @@ function hideLaunchpad() {
 
 function openTool(toolName, context = {}) {
   flushBoundaryCache();
+  if (currentToolName && currentToolName !== toolName) previousToolName = currentToolName;
   currentToolName = toolName;
   currentSubject = context.subject || null;
   currentSubjectId = context.subjectId || null;
@@ -2129,6 +2168,7 @@ async function enterSubjectWorkspace(subject) {
 
 function returnToGlobalLaunchpad() {
   console.log("Returning to global launchpad");
+  previousToolName = "";
   currentToolName = "";
   currentSubject = null;
   setActiveTool("");
@@ -2699,6 +2739,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   installDiag();
   toolContainer = document.getElementById("toolContainer");
   setProfileUI(null);
+
+  initTimerDock({
+    store: timerStore,
+    toast,
+    openTool: (name) => loadTool(name, {}),
+    isToolActive: () => currentToolName === "timer"
+  });
 
   const loadingOverlay = document.getElementById("loadingOverlay");
   const loadingMessage = document.getElementById("loadingMessage");

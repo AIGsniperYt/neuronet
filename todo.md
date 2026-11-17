@@ -12,14 +12,15 @@ add estimated time to completion for flashcard sessions — shelved for a dedica
 
 add catastrophic forgetting detection - MAJOR superprogram algorithm change - where if the user gets an "easy" or "important" question wrong, the system panics and treats it critically especially only if it detects a confident answer like typical fast speed knowledge OR ALTERNATIVELY WHICH IS ALSO VALID: if it detects a LONG PAUSE implying the user blanked - this should be raised to criticial like levels, and be thoroughly hammered short term and slowly long term too to ENSURE the user never makes such mistakes - limitations to discuss: the fact that only using 3 buttons and entirely on user trust (maybe add a dont know button?) this can be hard (not the blank one - time should be relatively easy - time + poor score - might be a good idea for the system to prioritise accurate confidence over knowledge accumulation - consistent streaks backing it off almost exponentially, since its useless to repeatedly test user on things they clearly can recall right now, however if they forget something they previously knew well - almost like a delta - difference between their confidence whether thats historical evidence of perceieved self confidence in their answer speed (time to flip card - PLUS measure time from flip to clicking button, that can say a lot like if they needed to read it deeply implying somethings off, this is all about just mapping out and interpreting every microsignal from user interactions brute forcing every possible outcome)) but yeah this was a shout i think
 
-add desktop app mode and so neuronet task manager is a thing
 
 add journalling
 
-add timer full screen and minimisable dockable window for app for pomodoro and general time constrained tasks - encourage timer use to time yourself doing a question. I find when analysing myself that giving myself unbounded time tends to be less productive concentrated work compared to having tight deadlines to try finish by (its okay if you fail! a timer would be better than no timer - it makes you hurry and act with intent and purpose instead of drift endlessly, but if its too stressful for a particular day or reason users can always just turn it off :) )
+timer shipped: full-screen Timer tool plus a corner dock, pomodoro and countdown, see `docs/TIMER.md` — still needs a real iPad/Safari pass
 
 additionally todo tasks could do with importance and estimated length of task or even subtasks - ideally or usually the user does this in their head, so this might be overhead and procrastination material, but some short stats might be good - though i must say this has risk of "feeling" productive neatly setting your tasks in an arbitrary app but you dont actually do anything but you feel like you did work spending time on this, maybe this can be cut to a mere estimated duration feature as well as a simple priority
 
+add desktop app mode and so neuronet task manager is a thing:
+/btw can we make our app into a desktop app too, or atleast access parts of it on boot on my desktop cleanly (im on kubuntu linux) - like a nice panel to show todo tasks and quickly add new ones and dump the pressure off your mine - thatd be nice
 ---
 
 # Open tasks
@@ -27,7 +28,7 @@ additionally todo tasks could do with importance and estimated length of task or
 ## Next
 
 - Tune the study-signal thresholds (weak `<50%`, strong `≥80%`, important `4–5`) after a week of real sessions; change them before anything else builds on the current defaults.
-- Real iPad/Safari pass: double-tap zoom, pinch, Lock mode ergonomics, toolbar crowding, heap drag-release feel.
+- Real iPad/Safari pass: double-tap zoom, pinch, Lock mode ergonomics, toolbar crowding, heap drag-release feel, and the Timer tool/dock layout.
 
 ## Later / low priority
 

@@ -2916,6 +2916,164 @@ select {
   .tool-btn { min-height: 48px; padding: 10px 12px; }
   #sidebarProfile { padding-top: 0; }
 }
+
+/* ===== Timer dock =====
+   Shell-level so it survives tool switches. The four corner classes are the
+   resting states; dragging temporarily switches to inline left/top. */
+.timer-dock {
+  position: absolute;
+  z-index: 150;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: min(360px, calc(100% - 24px));
+  padding: 6px 8px 6px 4px;
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(var(--surface-rgb), 0.97), rgba(var(--bg-rgb), 0.97));
+  color: var(--text-main);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.26);
+  overflow: hidden;
+  backdrop-filter: blur(14px);
+  transition: border-color .2s ease, box-shadow .2s ease, transform .12s ease;
+}
+.timer-dock[hidden] { display: none; }
+.timer-dock.corner-tl { top: 16px; left: 16px; }
+.timer-dock.corner-tr { top: 16px; right: 16px; }
+.timer-dock.corner-bl { bottom: 16px; left: 16px; }
+.timer-dock.corner-br { bottom: 16px; right: 16px; }
+.timer-dock.dragging {
+  z-index: 160;
+  transition: none;
+  box-shadow: 0 20px 54px rgba(0, 0, 0, 0.38);
+}
+.timer-dock.is-finished {
+  border-color: rgba(var(--accent-rgb), 0.65);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.26), 0 0 34px rgba(var(--accent-rgb), 0.18);
+}
+.timer-dock-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  background: rgba(var(--overlay-rgb), 0.08);
+  pointer-events: none;
+}
+.timer-dock-progress span {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: var(--accent);
+  transition: width .25s linear;
+}
+.timer-dock-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: rgba(var(--text-rgb), 0.32);
+  cursor: grab;
+  touch-action: none;
+}
+.timer-dock-grip:hover { color: var(--accent); background: rgba(var(--overlay-rgb), 0.06); }
+.timer-dock.dragging .timer-dock-grip { cursor: grabbing; }
+.timer-dock-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 0;
+  padding: 2px 8px 2px 2px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.timer-dock-body:hover { background: rgba(var(--overlay-rgb), 0.05); }
+.timer-dock-phase {
+  max-width: 150px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.09em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.timer-dock-time {
+  font-size: 1.18rem;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+.timer-dock.is-finished .timer-dock-phase,
+.timer-dock.is-finished .timer-dock-time { color: var(--accent); }
+.timer-dock-actions { display: flex; align-items: center; gap: 2px; }
+.timer-dock-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.timer-dock-btn:hover {
+  color: var(--accent);
+  border-color: rgba(var(--accent-rgb), 0.25);
+  background: rgba(var(--accent-rgb), 0.1);
+}
+.timer-dock-toggle { color: var(--accent); }
+
+/* Opt-in off-canvas sidebar for the Timer tool. The edge strip is below the
+   sidebar in stacking order, so the revealed panel covers it. */
+#app.timer-sidebar-hidden #sidebar {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  height: 100dvh;
+  transform: translateX(-100%);
+  transition: transform .28s cubic-bezier(.4, 0, .2, 1);
+  z-index: 1000;
+  box-shadow: 24px 0 60px rgba(0, 0, 0, 0.32);
+}
+#app.timer-sidebar-hidden #sidebar.timer-sidebar-revealed { transform: translateX(0); }
+#timerSidebarHotzone {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 18px;
+  z-index: 999;
+}
+
+@media (max-width: 700px) {
+  .timer-dock.corner-tl { top: 10px; left: 10px; }
+  .timer-dock.corner-tr { top: 10px; right: 10px; }
+  .timer-dock.corner-bl { bottom: 10px; left: 10px; }
+  .timer-dock.corner-br { bottom: 10px; right: 10px; }
+  .timer-dock-grip { width: 26px; height: 38px; }
+  .timer-dock-btn { width: 38px; height: 38px; }
+  #app.timer-sidebar-hidden #sidebar { position: relative; transform: none !important; }
+  #timerSidebarHotzone { display: none; }
+}
 </style>
 </head>
 <body>
@@ -3108,6 +3266,31 @@ select {
           <div id="dashActivityList" class="dash-activity-list"></div>
         </section>
 
+    </div>
+
+    <!-- Docked timer: shell-level so it survives tool switches. -->
+    <div id="timerDock" class="timer-dock corner-tl" role="region" aria-label="Active timer" hidden>
+      <div class="timer-dock-progress" aria-hidden="true"><span id="timerDockProgress"></span></div>
+      <button id="timerDockGrip" class="timer-dock-grip" type="button"
+        aria-label="Move timer. Use the arrow keys to choose a corner."
+        title="Drag the timer to another corner">
+        <i class="fa-solid fa-grip-vertical" aria-hidden="true"></i>
+      </button>
+      <button id="timerDockBody" class="timer-dock-body" type="button" aria-label="Open timer">
+        <span id="timerDockPhase" class="timer-dock-phase">Focus</span>
+        <span id="timerDockTime" class="timer-dock-time">25:00</span>
+      </button>
+      <div class="timer-dock-actions">
+        <button id="timerDockToggle" class="timer-dock-btn timer-dock-toggle" type="button" aria-label="Start timer">
+          <i class="fa-solid fa-play" aria-hidden="true"></i>
+        </button>
+        <button id="timerDockExpand" class="timer-dock-btn" type="button" aria-label="Open the Timer tool">
+          <i class="fa-solid fa-expand" aria-hidden="true"></i>
+        </button>
+        <button id="timerDockClear" class="timer-dock-btn" type="button" aria-label="Clear timer">
+          <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+        </button>
+      </div>
     </div>
   </main>
 </div>
