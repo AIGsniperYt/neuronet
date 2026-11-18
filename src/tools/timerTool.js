@@ -12,7 +12,6 @@ import {
   timerPhaseLabel,
   timerPrimaryLabel
 } from "../timerEngine.js";
-import { SIDEBAR_MODES } from "../sidebarMode.js";
 import { playTimerChime, primeTimerSound } from "../timerSound.js";
 
 const QUICK_MINUTES = [5, 10, 15, 25, 50];
@@ -37,7 +36,7 @@ function statusLine(state) {
   return "Ready";
 }
 
-export function initTimerTool({ store, sidebarMode, onMinimise }) {
+export function initTimerTool({ store, onMinimise }) {
   const tool = document.getElementById("timerTool");
   if (!tool) return;
 
@@ -61,14 +60,12 @@ export function initTimerTool({ store, sidebarMode, onMinimise }) {
   const todayEl = document.getElementById("timerToday");
   const autoWrap = document.getElementById("timerAutoWrap");
   const autoInput = document.getElementById("timerAutoStart");
-  const sidebarSelect = document.getElementById("timerSidebarMode");
   const soundBtn = document.getElementById("timerSoundBtn");
   const soundLabel = document.getElementById("timerSoundLabel");
   const minimiseBtn = document.getElementById("timerMinimiseBtn");
 
   let cleaned = false;
   let unsubscribe = () => {};
-  let unsubscribeSidebar = () => {};
   let pipsSignature = "";
   let flash = null;
   let flashTimer = null;
@@ -108,15 +105,6 @@ export function initTimerTool({ store, sidebarMode, onMinimise }) {
       store.configure({ presetId: "countdown", minutes });
     });
     chipsEl?.appendChild(chip);
-  }
-
-  if (sidebarSelect) {
-    for (const option of SIDEBAR_MODES) {
-      const item = document.createElement("option");
-      item.value = option.id;
-      item.textContent = option.label;
-      sidebarSelect.appendChild(item);
-    }
   }
 
   // ---------- flash feedback ----------
@@ -247,7 +235,6 @@ export function initTimerTool({ store, sidebarMode, onMinimise }) {
     if (autoWrap) autoWrap.hidden = state.mode !== "pomodoro";
     if (autoInput) autoInput.checked = store.getSettings().autoStart;
 
-    renderSidebarSelect();
     renderSoundButton();
   }
 
@@ -301,19 +288,6 @@ export function initTimerTool({ store, sidebarMode, onMinimise }) {
     store.updateSettings({ autoStart: autoInput.checked });
   });
 
-  // ---------- shared sidebar layout ----------
-  function renderSidebarSelect() {
-    if (!sidebarSelect || !sidebarMode) return;
-    const mode = sidebarMode.getMode();
-    if (sidebarSelect.value !== mode) sidebarSelect.value = mode;
-    const option = SIDEBAR_MODES.find((item) => item.id === mode);
-    sidebarSelect.title = option?.hint || "";
-  }
-
-  sidebarSelect?.addEventListener("change", () => {
-    sidebarMode?.setMode(sidebarSelect.value);
-  });
-
   function renderSoundButton() {
     const sound = store.getSettings().sound;
     if (soundBtn) {
@@ -346,7 +320,6 @@ export function initTimerTool({ store, sidebarMode, onMinimise }) {
     if (cleaned) return;
     cleaned = true;
     unsubscribe?.();
-    unsubscribeSidebar?.();
     document.removeEventListener("keydown", handleKeydown);
     if (flashTimer) clearTimeout(flashTimer);
     flashTimer = null;
@@ -371,5 +344,4 @@ export function initTimerTool({ store, sidebarMode, onMinimise }) {
 
   const unsubscribeStore = store.subscribe(render);
   unsubscribe = unsubscribeStore;
-  if (sidebarMode?.subscribe) unsubscribeSidebar = sidebarMode.subscribe(() => render(store.getState()));
 }

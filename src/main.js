@@ -12,7 +12,7 @@ import { initTasksTool } from "./tools/tasksTool.js";
 import { initTimerTool } from "./tools/timerTool.js";
 import { initTimerDock } from "./timerDock.js";
 import { createTimerStore } from "./timerEngine.js";
-import { initSidebarMode } from "./sidebarMode.js";
+import { SIDEBAR_MODES, initSidebarMode } from "./sidebarMode.js";
 import { buildDailyPlan } from "./tools/planModel.js";
 import { addDays, completeOccurrence, findAutoCreditCommitment, formatCadence, skipOccurrence, undoOccurrence } from "./tools/commitmentsModel.js";
 import { estimateCardsMs } from "./tools/sessionEta.js";
@@ -244,7 +244,6 @@ const tools = {
     file: "timer.html",
     init: () => initTimerTool({
       store: timerStore,
-      sidebarMode: sidebarModeController,
       onMinimise: () => minimiseCurrentTool()
     })
   }
@@ -2772,8 +2771,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     store: timerStore,
     toast,
     openTool: (name) => loadTool(name, {}),
-    isToolActive: () => currentToolName === "timer",
-    sidebarMode: sidebarModeController
+    isToolActive: () => currentToolName === "timer"
   });
 
   const loadingOverlay = document.getElementById("loadingOverlay");
@@ -2913,6 +2911,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const themeModalClose = document.getElementById("themeModalClose");
   const themeDone = document.getElementById("themeDone");
   const modeToggle = document.getElementById("modeToggle");
+  const sidebarModeToggle = document.getElementById("sidebarModeToggle");
   const neuralToggle = document.getElementById("neuralToggle");
 
   // The head script already applied the saved appearance before paint.
@@ -3184,6 +3183,31 @@ document.addEventListener("DOMContentLoaded", async () => {
       const button = e.target.closest("[data-mode]");
       if (!button) return;
       applyMode(button.dataset.mode);
+    });
+  }
+
+  // Sidebar layout is a device preference, so it belongs beside surface and
+  // palette rather than inside whichever tool happened to need it first.
+  if (sidebarModeToggle && sidebarModeController) {
+    for (const option of SIDEBAR_MODES) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.sidebarMode = option.id;
+      button.setAttribute("role", "radio");
+      button.setAttribute("aria-checked", "false");
+      button.textContent = option.short;
+      button.title = option.hint;
+      sidebarModeToggle.appendChild(button);
+    }
+    sidebarModeToggle.addEventListener("click", (e) => {
+      const button = e.target.closest("[data-sidebar-mode]");
+      if (!button) return;
+      sidebarModeController.setMode(button.dataset.sidebarMode);
+    });
+    sidebarModeController.subscribe((mode) => {
+      sidebarModeToggle.querySelectorAll("[data-sidebar-mode]").forEach((button) => {
+        button.setAttribute("aria-checked", String(button.dataset.sidebarMode === mode));
+      });
     });
   }
 

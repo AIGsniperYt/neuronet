@@ -13,7 +13,6 @@ import {
   timerPhaseLabel,
   timerPrimaryLabel
 } from "./timerEngine.js";
-import { SIDEBAR_MODES } from "./sidebarMode.js";
 import { playTimerChime, primeTimerSound } from "./timerSound.js";
 
 const CORNERS = ["tl", "tr", "bl", "br"];
@@ -31,7 +30,7 @@ function nextSize(size) {
   return TIMER_SIZES[(index + 1) % TIMER_SIZES.length];
 }
 
-export function initTimerDock({ store, toast, openTool, isToolActive, sidebarMode }) {
+export function initTimerDock({ store, toast, openTool, isToolActive }) {
   const dock = document.getElementById("timerDock");
   if (!dock) return null;
 
@@ -55,7 +54,6 @@ export function initTimerDock({ store, toast, openTool, isToolActive, sidebarMod
   const minutesInput = document.getElementById("timerDockMinutes");
   const autoInput = document.getElementById("timerDockAuto");
   const soundBtn = document.getElementById("timerDockSound");
-  const sidebarSelect = document.getElementById("timerDockSidebar");
   const todayEl = document.getElementById("timerDockToday");
   const resetBtn = document.getElementById("timerDockReset");
   const openBtn = document.getElementById("timerDockOpen");
@@ -64,7 +62,6 @@ export function initTimerDock({ store, toast, openTool, isToolActive, sidebarMod
 
   const baseTitle = document.title || "NeuroNet";
   let drag = null;
-  let unsubscribeSidebar = () => {};
   // The dock normally hides while idle. When the user configures a timer from
   // the dock menu, keep it around so they can press Start instead of watching
   // it vanish mid-setup. Clear (or opening the tool) releases it.
@@ -115,15 +112,6 @@ export function initTimerDock({ store, toast, openTool, isToolActive, sidebarMod
     menuChip.textContent = `${minutes}m`;
     menuChip.addEventListener("click", action);
     chipsInlineEl?.appendChild(menuChip);
-  }
-
-  if (sidebarSelect) {
-    for (const option of SIDEBAR_MODES) {
-      const item = document.createElement("option");
-      item.value = option.id;
-      item.textContent = option.label;
-      sidebarSelect.appendChild(item);
-    }
   }
 
   menu?.querySelectorAll("[data-size]").forEach((button) => {
@@ -297,12 +285,6 @@ export function initTimerDock({ store, toast, openTool, isToolActive, sidebarMod
       soundBtn.textContent = settings.sound ? "Sound on" : "Sound off";
       soundBtn.title = settings.sound ? "Mute the finish chime" : "Play a chime when a timer finishes";
     }
-    if (sidebarSelect && sidebarMode) {
-      const mode = sidebarMode.getMode();
-      if (sidebarSelect.value !== mode) sidebarSelect.value = mode;
-      sidebarSelect.title = SIDEBAR_MODES.find((item) => item.id === mode)?.hint || "";
-    }
-
     const today = store.today();
     if (todayEl) {
       todayEl.textContent = today.sessions
@@ -396,10 +378,6 @@ export function initTimerDock({ store, toast, openTool, isToolActive, sidebarMod
 
   autoInput?.addEventListener("change", () => {
     store.updateSettings({ autoStart: autoInput.checked });
-  });
-
-  sidebarSelect?.addEventListener("change", () => {
-    sidebarMode?.setMode(sidebarSelect.value);
   });
 
   labelInput?.addEventListener("input", () => store.setLabel(labelInput.value));
@@ -513,8 +491,6 @@ export function initTimerDock({ store, toast, openTool, isToolActive, sidebarMod
     }
   });
 
-  if (sidebarMode?.subscribe) unsubscribeSidebar = sidebarMode.subscribe(() => render(store.getState()));
-
   applyCorner();
   applySize();
   render(store.getState());
@@ -522,9 +498,6 @@ export function initTimerDock({ store, toast, openTool, isToolActive, sidebarMod
   return {
     render,
     applyCorner,
-    closeMenu,
-    destroy() {
-      unsubscribeSidebar();
-    }
+    closeMenu
   };
 }

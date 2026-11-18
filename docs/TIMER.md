@@ -129,8 +129,9 @@ navigation does not make anyone concentrate. Four modes are available:
 3. Hidden · reveal full from the left edge
 4. Hidden · reveal compact from the left edge
 
-The same select appears in the Timer tool header and in the dock's `⋯` menu;
-the shell's collapse button flips between the full and compact member of the
+This is a global layout preference, not a timer setting: it is chosen in
+**Appearance** (profile menu → Appearance → Sidebar) and applies to every tool.
+The shell's collapse button flips between the full and compact member of the
 current family. The setting is neutralised on mobile, where the sidebar is a
 drawer anyway. Hover modes reveal on pointer entry and hide shortly after the
 pointer leaves; the left-edge hotzone is the fallback. See

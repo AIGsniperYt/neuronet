@@ -30,7 +30,6 @@ add desktop app mode and so neuronet task manager is a thing:
 
 ## Later / low priority
 
-- Delete orphaned `neuronet-v9`, `FlashcardDB` and `PastPapersDB` from DevTools when convenient; no code references them.
 - Blurt-session ETA: needs its own design session. Typing speed and language handling make the timing signal different from flashcards; do not include blurt in the flashcard ETA.
 - Import-time derivation: when importing JSON, rebuild `contentHtml` / `contentText` from `contentMarkdown` so owner-edited exports stay consistent. Normal in-app use does not need this.
 - Per-tag / per-layer `Study` buttons: consider moving them into a `⋯` menu.

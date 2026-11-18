@@ -23,8 +23,9 @@ it follows the same local-only rules.
 | `hover-full` | Hide the sidebar; the left edge reveals the full panel. |
 | `hover-compact` | Hide the sidebar; the left edge reveals the icon rail. |
 
-The Timer tool header and the timer dock's `⋯` menu both edit this value. The
-shell's collapse button flips between full and compact inside the current
+The **Appearance** panel (profile menu → Appearance → Sidebar) offers all four
+modes for this device, and its selection follows the collapse button as well.
+The shell's collapse button flips between full and compact inside the current
 family. Hover modes are neutralised below 701px, where the sidebar is already a
 drawer.
 
