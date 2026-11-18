@@ -19,21 +19,25 @@ const throws = (name, fn) => {
 };
 
 export async function run() {
-  eq("schema version is 11", SCHEMA_VERSION, 11);
+  eq("schema version is 12", SCHEMA_VERSION, 12);
 
-  const minimal = assertCurrentDataset({ schemaVersion: 11 });
-  check("missing collections default to arrays", ["nodes", "quotes", "cues", "cards", "heaps", "decks", "subjects", "tasks", "commitments"].every((key) => Array.isArray(minimal[key])));
+  const minimal = assertCurrentDataset({ schemaVersion: 12 });
+  check("missing collections default to arrays", ["nodes", "quotes", "cues", "cards", "heaps", "decks", "subjects", "tasks", "commitments", "journals"].every((key) => Array.isArray(minimal[key])));
   eq("commitments defaults to empty", minimal.commitments, []);
+  eq("journals defaults to empty", minimal.journals, []);
 
   const withCommitments = assertCurrentDataset({
-    schemaVersion: 11,
+    schemaVersion: 12,
     commitments: [{ id: "c1", type: "commitment", title: "Biology recall" }]
   });
   eq("commitments are preserved", withCommitments.commitments.length, 1);
+  const withJournal = assertCurrentDataset({ schemaVersion: 12, journals: [{ id: "j1", type: "journal", body: "A thought" }] });
+  eq("journals are preserved", withJournal.journals.length, 1);
 
-  throws("old schema 10 export is rejected", () => assertCurrentDataset({ schemaVersion: 10 }));
+  throws("old schema 11 export is rejected", () => assertCurrentDataset({ schemaVersion: 11 }));
   throws("missing schema version is rejected", () => assertCurrentDataset({ nodes: [] }));
-  throws("non-array commitments are rejected", () => assertCurrentDataset({ schemaVersion: 11, commitments: {} }));
+  throws("non-array commitments are rejected", () => assertCurrentDataset({ schemaVersion: 12, commitments: {} }));
+  throws("non-array journals are rejected", () => assertCurrentDataset({ schemaVersion: 12, journals: {} }));
   throws("non-object payload is rejected", () => assertCurrentDataset([]));
 
   return { passed, failed };

@@ -1,4 +1,4 @@
-import { initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, getAllSubjects, addSubject, deleteSubject, renameSubject, mergeSubjects, setSubjectOrder, setSubjectLevel, ensureSubjectIdentity, addSubjects, clearSubjects, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForDeckId, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, clearTags, addDeck, addDecks, getAllDecks, getDeck, getDecksForSubject, deleteDeckRecord, deleteDeck, clearDecks, ensureDeckMembership, sortDecksByCreated, buildDeckForest, flattenDeckTree, getDeckDescendantIds, groupDecksBySubject, getDeckPath, describeDeckDeletion, UNSORTED_DECK_NAME, addHeap, addHeaps, getAllHeaps, getHeap, deleteHeap, clearHeaps, addTask, addTasks, getAllTasks, deleteTask, clearTasks, addCommitment, addCommitments, getAllCommitments, deleteCommitment, clearCommitments } from "./db.js";
+import { initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, getAllSubjects, addSubject, deleteSubject, renameSubject, mergeSubjects, setSubjectOrder, setSubjectLevel, ensureSubjectIdentity, addSubjects, clearSubjects, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForDeckId, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, clearTags, addDeck, addDecks, getAllDecks, getDeck, getDecksForSubject, deleteDeckRecord, deleteDeck, clearDecks, ensureDeckMembership, sortDecksByCreated, buildDeckForest, flattenDeckTree, getDeckDescendantIds, groupDecksBySubject, getDeckPath, describeDeckDeletion, UNSORTED_DECK_NAME, addHeap, addHeaps, getAllHeaps, getHeap, deleteHeap, clearHeaps, addTask, addTasks, getAllTasks, deleteTask, clearTasks, addCommitment, addCommitments, getAllCommitments, deleteCommitment, clearCommitments, addJournal, addJournals, getJournal, getAllJournals, deleteJournal, clearJournals } from "./db.js";
 import { syncLocalWithCloud, syncToCloud, deleteCloudNode, deleteCloudQuote, deleteCloudCue, fetchCloudNodes, fetchCloudQuotes, fetchCloudCues } from "./sync.js";
 import { initAnalysisToolV2 } from "./tools/analysisTool.js";
 import { dialog } from "./tools/dialog.js";
@@ -10,6 +10,7 @@ import { install as installDiag } from "./tools/diag.js";
 import { initScraperTool } from "./tools/scraperTool.js";
 import { initTasksTool } from "./tools/tasksTool.js";
 import { initTimerTool } from "./tools/timerTool.js";
+import { initJournalTool } from "./tools/journalTool.js";
 import { initTimerDock } from "./timerDock.js";
 import { createTimerStore } from "./timerEngine.js";
 import { SIDEBAR_VISIBILITIES, initSidebarMode, isHoverMode, sidebarVisibilityMode } from "./sidebarMode.js";
@@ -246,6 +247,21 @@ const tools = {
       store: timerStore,
       onMinimise: () => minimiseCurrentTool()
     })
+  },
+  // STUB: journal persistence is IndexedDB today, planned move to PC/file
+  // storage later. Keep this tool's storage access behind db.js helpers.
+  journal: {
+    name: "Journal",
+    file: "journal.html",
+    init: () => initJournalTool({
+      getAllJournals,
+      getJournal,
+      addJournal,
+      deleteJournal,
+      escapeHtml,
+      dialog,
+      toast
+    })
   }
 };
 
@@ -256,7 +272,8 @@ const toolDefinitions = {
   tracker: { name: "Tracker", file: "tracker.html", icon: "fa-solid fa-chart-column", desc: "Track study progress with past paper data" },
   scraper: { name: "Scraper", file: "scraper.html", icon: "fa-solid fa-download", desc: "Fetch grade boundaries from exam board spreadsheets" },
   tasks: { name: "Tasks", file: "tasks.html", icon: "fa-solid fa-list-check", desc: "Track schoolwork, revision and assignments in one list" },
-  timer: { name: "Timer", file: "timer.html", icon: "fa-solid fa-stopwatch", desc: "Pomodoro, countdown and stopwatch timers that dock over the rest of the app" }
+  timer: { name: "Timer", file: "timer.html", icon: "fa-solid fa-stopwatch", desc: "Pomodoro, countdown and stopwatch timers that dock over the rest of the app" },
+  journal: { name: "Journal", file: "journal.html", icon: "fa-solid fa-book-open", desc: "A private space to reflect, think out loud, and keep a record of your insights" }
 };
 
 // ========== AUTH & API ==========
@@ -349,7 +366,8 @@ async function loadTool(toolName, context = {}) {
     analysis: window.__neuronetAnalysisCleanup,
     memory: window.__neuronetMemoryCleanup,
     mindmap: window.__neuronetMindmapCleanup,
-    timer: window.__neuronetTimerCleanup
+    timer: window.__neuronetTimerCleanup,
+    journal: window.__neuronetJournalCleanup
   }[currentToolName];
   if (typeof previousCleanup === "function") {
     previousCleanup();
@@ -972,7 +990,7 @@ async function fetchDemoPayload() {
 }
 
 async function exportDatabaseJson() {
-  const [nodes, quotes, cues, cards, heaps, decks, subjects, tasks, commitments] = await Promise.all([
+  const [nodes, quotes, cues, cards, heaps, decks, subjects, tasks, commitments, journals] = await Promise.all([
     getAllNodes(),
     getAllQuotes(),
     getAllCues(),
@@ -981,7 +999,8 @@ async function exportDatabaseJson() {
     getAllDecks(),
     getAllSubjects(),
     getAllTasks(),
-    getAllCommitments()
+    getAllCommitments(),
+    getAllJournals()
   ]);
   const payload = {
     schemaVersion: SCHEMA_VERSION,
@@ -994,7 +1013,10 @@ async function exportDatabaseJson() {
     decks,
     subjects,
     tasks,
-    commitments
+    commitments,
+    // STUB: personal reflections, exported so they survive the move to
+    // PC/file-based storage. Never sent to the cloud sync.
+    journals
   };
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
@@ -1068,6 +1090,7 @@ async function importPayload(payload) {
   const decks = dataset.decks;
   const tasks = dataset.tasks;
   const commitments = dataset.commitments;
+  const journals = dataset.journals || [];
 
   await clearNodes();
   await clearQuotes();
@@ -1078,6 +1101,7 @@ async function importPayload(payload) {
   await clearDecks();
   await clearTasks();
   await clearCommitments();
+  await clearJournals();
   await addNodes(nodes);
   await addQuotes(quotes);
   await addCues(cues);
@@ -1088,6 +1112,7 @@ async function importPayload(payload) {
   await addHeaps(heaps);
   await addTasks(tasks);
   await addCommitments(commitments);
+  await addJournals(journals);
   await ensureSubjectIdentity();
   await ensureDeckMembership();
   // Rebuild the derived tag index from the final imported records. This also
@@ -1175,7 +1200,7 @@ async function deleteAllData() {
 
   // Modified / user data: full caution flow.
   const gate = await dialog.confirm(
-    "Delete ALL of your NeuroNet data? This removes every subject, source, analysis, quote, cue, card and past paper from this browser. This is a danger zone.\n\nContinue?",
+    "Delete ALL of your NeuroNet data? This removes every subject, source, analysis, quote, cue, card, past paper, task and journal entry from this browser. This is a danger zone.\n\nContinue?",
     "Continue to delete",
     "danger"
   );
@@ -1243,6 +1268,9 @@ async function wipeDatabase() {
   await clearSubjects();
   await clearTasks();
   await clearCommitments();
+  // STUB: journals live in IndexedDB now; the PC/file-system migration will
+  // need its own wipe path. Clearing them here keeps "delete all data" honest.
+  await clearJournals();
   timerStore.clearData();
   if (USE_BACKEND && window.currentUser) {
     try {
@@ -1488,6 +1516,16 @@ async function renderQuickActions() {
       // Card-first: open Quick Add, not the multi-step deck builder.
       loadTool("memory", { subject: currentSubject || "", quickAdd: true })
         .catch((error) => console.error("Could not open Quick Add:", error));
+    };
+  }
+
+  const reflectBtn = document.getElementById("dashReflect");
+  if (reflectBtn) {
+    reflectBtn.onclick = () => {
+      // Always a fresh, quiet page — the point is to capture a thought, not to
+      // review a log. STUB storage; the UI is ready for the file-system move.
+      loadTool("journal", { fresh: true })
+        .catch((error) => console.error("Could not open Journal:", error));
     };
   }
 }

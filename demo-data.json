@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 11,
+  "schemaVersion": 12,
   "exportedAt": "2026-11-17T17:01:08.835Z",
   "nodes": [
     {
@@ -4528,5 +4528,6 @@
       "updatedAt": 1794601749793
     }
   ],
-  "commitments": []
+  "commitments": [],
+  "journals": []
 }

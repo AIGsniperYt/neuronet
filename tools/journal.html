@@ -1,0 +1,369 @@
+<!--
+  Journal — STUB (IndexedDB today)
+  Personal reflective space for psychological/philosophical realisations and
+  self-optimisation. This is deliberately NOT a rigid academic log. The planned
+  storage overhaul will move user-owned data to the PC/file system; replace the
+  persistence layer in src/db.js, not this UI, when that lands.
+-->
+<div id="journalTool" class="journal-tool">
+  <style>
+    #journalTool {
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      color: var(--text-main);
+      font-family: var(--font-ui, "Source Sans 3", Inter, system-ui, -apple-system, "Segoe UI", sans-serif);
+      background: transparent;
+    }
+    #journalTool .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    .journal-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--glass-border);
+      background: var(--glass-surface);
+      backdrop-filter: blur(var(--glass-blur));
+    }
+    .journal-heading h1 {
+      margin: 0;
+      color: var(--accent);
+      font-size: 1.45rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    .journal-heading p {
+      margin: 4px 0 0;
+      color: var(--text-muted);
+      font-size: var(--text-sm, 0.86rem);
+      max-width: 52ch;
+    }
+    .journal-head-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .journal-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 38px;
+      padding: 8px 14px;
+      border: 1px solid var(--glass-border);
+      border-radius: 10px;
+      background: rgba(var(--overlay-rgb), 0.04);
+      color: var(--text-main);
+      font: inherit;
+      font-size: var(--text-sm, 0.86rem);
+      cursor: pointer;
+      transition: background .15s ease, border-color .15s ease, color .15s ease;
+    }
+    .journal-btn:hover { background: rgba(var(--overlay-rgb), 0.09); border-color: rgba(var(--accent-rgb), 0.28); }
+    .journal-btn.primary {
+      color: var(--accent);
+      border-color: rgba(var(--accent-rgb), 0.35);
+      background: rgba(var(--accent-rgb), 0.1);
+    }
+    .journal-btn.primary:hover { background: rgba(var(--accent-rgb), 0.16); }
+    .journal-btn.icon-only { padding: 8px 10px; min-width: 38px; }
+    .journal-btn.danger:hover { color: #ff8a8a; border-color: rgba(255, 120, 120, 0.35); }
+    .journal-btn[aria-pressed="true"] {
+      color: var(--accent);
+      border-color: rgba(var(--accent-rgb), 0.45);
+      background: rgba(var(--accent-rgb), 0.12);
+    }
+
+    .journal-body {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 320px minmax(0, 1fr);
+      overflow: hidden;
+    }
+    .journal-list-pane {
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--glass-border);
+      background: rgba(var(--overlay-rgb), 0.02);
+    }
+    .journal-list-tools {
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      border-bottom: 1px solid rgba(var(--overlay-rgb), 0.08);
+    }
+    .journal-search-row { display: flex; gap: 8px; align-items: center; }
+    .journal-search {
+      flex: 1 1 auto;
+      min-width: 0;
+      height: 38px;
+      padding: 0 12px;
+      border: 1px solid var(--glass-border);
+      border-radius: 10px;
+      background: rgba(var(--overlay-rgb), 0.04);
+      color: var(--text-main);
+      font: inherit;
+      font-size: var(--text-sm, 0.86rem);
+    }
+    .journal-search:focus { outline: none; border-color: rgba(var(--accent-rgb), 0.45); }
+    .journal-list-meta {
+      padding: 0 2px;
+      color: var(--text-muted);
+      font-size: var(--text-xs, 0.76rem);
+    }
+    .journal-list {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 8px;
+    }
+    .journal-month {
+      margin: 10px 6px 6px;
+      color: rgba(var(--text-rgb), 0.45);
+      font-size: 10px;
+      font-weight: 750;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .journal-item {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 4px;
+      padding: 10px 10px 10px 12px;
+      margin-bottom: 6px;
+      border: 1px solid transparent;
+      border-radius: 12px;
+      background: transparent;
+      color: inherit;
+      text-align: left;
+      cursor: pointer;
+      transition: background .15s ease, border-color .15s ease;
+    }
+    .journal-item:hover { background: rgba(var(--overlay-rgb), 0.05); }
+    .journal-item.active {
+      background: rgba(var(--accent-rgb), 0.09);
+      border-color: rgba(var(--accent-rgb), 0.22);
+    }
+    .journal-item-top { width: 100%; display: flex; align-items: center; gap: 8px; }
+    .journal-item-title {
+      flex: 1 1 auto;
+      min-width: 0;
+      font-weight: 600;
+      font-size: 0.92rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .journal-item-star { color: var(--accent); font-size: 0.72rem; flex: 0 0 auto; }
+    .journal-item-snippet {
+      width: 100%;
+      color: var(--text-muted);
+      font-size: 0.78rem;
+      line-height: 1.4;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+    .journal-item-meta {
+      color: rgba(var(--text-rgb), 0.45);
+      font-size: 0.7rem;
+    }
+    .journal-empty-list {
+      padding: 24px 14px;
+      color: var(--text-muted);
+      font-size: 0.88rem;
+      line-height: 1.5;
+      text-align: center;
+    }
+
+    .journal-editor-pane {
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .journal-editor-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(var(--overlay-rgb), 0.08);
+    }
+    .journal-editor-meta {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .journal-editor-meta .when {
+      color: var(--text-muted);
+      font-size: var(--text-sm, 0.84rem);
+    }
+    .journal-editor-meta .stats {
+      color: rgba(var(--text-rgb), 0.5);
+      font-size: var(--text-xs, 0.74rem);
+    }
+    .journal-editor-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .journal-title-wrap { padding: 18px 22px 0; }
+    .journal-title {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      color: var(--text-main);
+      font: inherit;
+      font-size: clamp(1.5rem, 3vw, 2rem);
+      font-weight: 650;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+      outline: none;
+    }
+    .journal-title::placeholder { color: rgba(var(--text-rgb), 0.28); }
+    .journal-prompt {
+      margin: 10px 22px 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border: 1px dashed rgba(var(--accent-rgb), 0.28);
+      border-radius: 12px;
+      background: rgba(var(--accent-rgb), 0.05);
+      color: var(--text-muted);
+      font-size: 0.86rem;
+      line-height: 1.45;
+    }
+    .journal-prompt[hidden] { display: none; }
+    .journal-prompt-text { flex: 1 1 auto; }
+    .journal-prompt-text em { color: var(--accent); font-style: normal; }
+    .journal-prompt-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+    .journal-chip {
+      padding: 5px 10px;
+      border: 1px solid rgba(var(--overlay-rgb), 0.14);
+      border-radius: 999px;
+      background: rgba(var(--overlay-rgb), 0.04);
+      color: var(--text-main);
+      font: inherit;
+      font-size: 0.76rem;
+      cursor: pointer;
+    }
+    .journal-chip:hover { border-color: rgba(var(--accent-rgb), 0.32); color: var(--accent); }
+    .journal-editor-host {
+      flex: 1 1 auto;
+      min-height: 0;
+      padding: 8px 10px 18px;
+      overflow: hidden;
+    }
+    .journal-editor-host .mdedit { height: 100%; border: 0; background: transparent; }
+    .journal-editor-host .mdedit-cols { height: 100%; }
+    .journal-status {
+      padding: 8px 16px 12px;
+      color: rgba(var(--text-rgb), 0.45);
+      font-size: 0.74rem;
+      min-height: 1.2em;
+    }
+    .journal-stub-note {
+      padding: 8px 16px;
+      border-top: 1px solid rgba(var(--overlay-rgb), 0.08);
+      color: rgba(var(--text-rgb), 0.42);
+      font-size: 0.72rem;
+    }
+
+    @media (max-width: 860px) {
+      .journal-body { grid-template-columns: 1fr; }
+      .journal-list-pane {
+        max-height: 38vh;
+        border-right: 0;
+        border-bottom: 1px solid var(--glass-border);
+      }
+      .journal-head { padding: 14px; }
+      .journal-heading p { display: none; }
+      .journal-title-wrap { padding: 14px 16px 0; }
+      .journal-prompt { margin: 10px 16px 0; }
+    }
+  </style>
+
+  <div class="journal-head">
+    <div class="journal-heading">
+      <h1>Journal</h1>
+      <p>A private place to think out loud — reflections, realisations, and the record that you were paying attention.</p>
+    </div>
+    <div class="journal-head-actions">
+      <button id="journalNewBtn" class="journal-btn primary" type="button">
+        <i class="fa-solid fa-feather-pointed" aria-hidden="true"></i>
+        <span>New entry</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="journal-body">
+    <aside class="journal-list-pane" aria-label="Journal entries">
+      <div class="journal-list-tools">
+        <div class="journal-search-row">
+          <label class="sr-only" for="journalSearch">Search journal</label>
+          <input id="journalSearch" class="journal-search" type="search" placeholder="Search reflections…" autocomplete="off" />
+          <button id="journalInsightFilter" class="journal-btn icon-only" type="button" aria-pressed="false" title="Show marked insights only">
+            <i class="fa-solid fa-star" aria-hidden="true"></i>
+          </button>
+        </div>
+        <div id="journalListMeta" class="journal-list-meta"></div>
+      </div>
+      <div id="journalList" class="journal-list"></div>
+    </aside>
+
+    <section class="journal-editor-pane" aria-label="Journal editor">
+      <div class="journal-editor-head">
+        <div class="journal-editor-meta">
+          <div id="journalWhen" class="when"></div>
+          <div id="journalStats" class="stats"></div>
+        </div>
+        <div class="journal-editor-actions">
+          <button id="journalInsightBtn" class="journal-btn icon-only" type="button" aria-pressed="false" title="Mark as an insight worth revisiting">
+            <i class="fa-regular fa-star" aria-hidden="true"></i>
+          </button>
+          <button id="journalDeleteBtn" class="journal-btn icon-only danger" type="button" title="Delete this entry">
+            <i class="fa-solid fa-trash" aria-hidden="true"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="journal-title-wrap">
+        <label class="sr-only" for="journalTitle">Title</label>
+        <input id="journalTitle" class="journal-title" type="text" maxlength="160" placeholder="A title, if it wants one…" autocomplete="off" />
+      </div>
+
+      <div id="journalPrompt" class="journal-prompt" hidden>
+        <div class="journal-prompt-text"><em>Starting point:</em> <span id="journalPromptText"></span></div>
+        <div class="journal-prompt-actions">
+          <button id="journalPromptUse" class="journal-chip" type="button">Use this</button>
+          <button id="journalPromptShuffle" class="journal-chip" type="button" title="Another prompt">Another</button>
+          <button id="journalPromptDismiss" class="journal-chip" type="button" title="Dismiss">×</button>
+        </div>
+      </div>
+
+      <div id="journalEditorHost" class="journal-editor-host"></div>
+      <div id="journalStatus" class="journal-status" aria-live="polite"></div>
+      <div class="journal-stub-note">Stored on this device for now. A planned file-system move will make these reflections yours to keep as files.</div>
+    </section>
+  </div>
+</div>

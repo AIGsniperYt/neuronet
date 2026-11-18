@@ -7,9 +7,12 @@
  * loads it exactly as written.
  */
 
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
-const COLLECTIONS = ["nodes", "quotes", "cues", "cards", "heaps", "decks", "subjects", "tasks", "commitments"];
+// journals: personal reflective entries (STUB — IndexedDB today, planned
+// migration to user-owned PC/file storage later). Exported with the dataset so
+// they survive browser resets and travel with the user's JSON backup.
+const COLLECTIONS = ["nodes", "quotes", "cues", "cards", "heaps", "decks", "subjects", "tasks", "commitments", "journals"];
 
 export function assertCurrentDataset(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {

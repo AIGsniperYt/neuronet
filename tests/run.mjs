@@ -17,6 +17,7 @@ import { run as runSchema } from "./schema.mjs";
 import { run as runStudyItem } from "./studyItem.mjs";
 import { run as runTags } from "./tags.mjs";
 import { run as runTimer } from "./timer.mjs";
+import { run as runJournal } from "./journal.mjs";
 
 async function main() {
   console.log("==================================================");
@@ -42,7 +43,8 @@ async function main() {
     { name: "schema", fn: runSchema },
     { name: "studyItem", fn: runStudyItem },
     { name: "tags", fn: runTags },
-    { name: "timer", fn: runTimer }
+    { name: "timer", fn: runTimer },
+    { name: "journal", fn: runJournal }
   ];
 
   for (const suite of suites) {

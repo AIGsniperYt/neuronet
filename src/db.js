@@ -4,7 +4,7 @@ let db;
 // Structural schema only: store/index creation. Data-shape changes are handled
 // on write (promoteTags / promoteStudyPriority) and old profiles are reset by
 // importing the committed demo dataset, not migrated in place.
-const DB_VERSION = 15;
+const DB_VERSION = 16;
 
 // Decks are canonical folders inside a subject. Cards point at one deck via
 // deckId; the legacy `card.deck` string remains the subject owner until the
@@ -163,6 +163,16 @@ export function initDB() {
         const commitmentStore = db.createObjectStore("commitments", { keyPath: "id" });
         commitmentStore.createIndex("subjectId", "subjectId", { unique: false });
         commitmentStore.createIndex("createdAt", "createdAt", { unique: false });
+      }
+
+      // STUB: personal journal entries live in IndexedDB for now. The planned
+      // storage overhaul moves user-owned data to the PC/file system; keep this
+      // store thin and replace the journal accessors (not the UI) when it lands.
+      if (!db.objectStoreNames.contains("journals")) {
+        const journalStore = db.createObjectStore("journals", { keyPath: "id" });
+        journalStore.createIndex("createdAt", "createdAt", { unique: false });
+        journalStore.createIndex("updatedAt", "updatedAt", { unique: false });
+        journalStore.createIndex("insight", "insight", { unique: false });
       }
     };
 
@@ -2768,6 +2778,145 @@ export function clearCommitments() {
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
       emitDBChange({ type: "clear", store: "commitments" });
+      resolve();
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Journal — STUB storage
+// Personal reflective entries (psychological/philosophical/self-optimisation),
+// stored in IndexedDB today. This is intentionally a thin persistence layer:
+// the planned PC/file-system storage overhaul should replace these accessors,
+// not the Journal tool's UI or its entry shape.
+// ---------------------------------------------------------------------------
+
+function journalStoreExists() {
+  return db && db.objectStoreNames.contains("journals");
+}
+
+function normalizeJournalEntry(record = {}) {
+  const now = Date.now();
+  const createdAt = Number(record.createdAt) || now;
+  const updatedAt = Number(record.updatedAt) || createdAt;
+  const body = typeof record.body === "string" ? record.body : String(record.content || record.text || "");
+  const date = new Date(createdAt);
+  const dateKey = Number.isNaN(date.getTime())
+    ? ""
+    : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  return {
+    id: String(record.id || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `journal-${now}-${Math.random().toString(36).slice(2, 8)}`)),
+    type: "journal",
+    title: String(record.title || "").trim(),
+    body,
+    insight: record.insight === true,
+    createdAt,
+    updatedAt: Math.max(updatedAt, createdAt),
+    dateKey
+  };
+}
+
+export function addJournal(entry) {
+  return new Promise((resolve, reject) => {
+    if (!db || !journalStoreExists()) {
+      reject(new Error("Journals store not available"));
+      return;
+    }
+    const record = normalizeJournalEntry(entry);
+    const tx = db.transaction("journals", "readwrite");
+    tx.objectStore("journals").put(record);
+    tx.oncomplete = () => {
+      emitDBChange({ type: "upsert-journal", ids: [record.id] });
+      resolve(record);
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export function addJournals(entries) {
+  return new Promise((resolve, reject) => {
+    if (!db || !journalStoreExists()) {
+      resolve([]);
+      return;
+    }
+    const records = (entries || []).map(normalizeJournalEntry);
+    if (records.length === 0) {
+      resolve([]);
+      return;
+    }
+    const tx = db.transaction("journals", "readwrite");
+    const store = tx.objectStore("journals");
+    for (const record of records) store.put(record);
+    tx.oncomplete = () => {
+      emitDBChange({ type: "bulk-upsert-journal", ids: records.map((record) => record.id) });
+      resolve(records);
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export function getJournal(id) {
+  return new Promise((resolve, reject) => {
+    if (!db || !journalStoreExists()) {
+      resolve(null);
+      return;
+    }
+    const tx = db.transaction("journals", "readonly");
+    const req = tx.objectStore("journals").get(id);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export function getAllJournals() {
+  return new Promise((resolve, reject) => {
+    if (!db || !journalStoreExists()) {
+      resolve([]);
+      return;
+    }
+    const tx = db.transaction("journals", "readonly");
+    const req = tx.objectStore("journals").getAll();
+    req.onsuccess = () => {
+      const journals = (req.result || []).map(normalizeJournalEntry);
+      journals.sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0));
+      resolve(journals);
+    };
+    req.onerror = () => reject(req.error);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export function deleteJournal(id) {
+  return new Promise((resolve, reject) => {
+    if (!db || !journalStoreExists()) {
+      resolve(id);
+      return;
+    }
+    const tx = db.transaction("journals", "readwrite");
+    tx.objectStore("journals").delete(id);
+    tx.oncomplete = () => {
+      emitDBChange({ type: "delete-journal", ids: [id] });
+      resolve(id);
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export function clearJournals() {
+  return new Promise((resolve, reject) => {
+    if (!db || !journalStoreExists()) {
+      resolve();
+      return;
+    }
+    const tx = db.transaction("journals", "readwrite");
+    tx.objectStore("journals").clear();
+    tx.oncomplete = () => {
+      emitDBChange({ type: "clear", store: "journals" });
       resolve();
     };
     tx.onerror = () => reject(tx.error);
