@@ -708,7 +708,7 @@ function activityToast(message, {
   };
 }
 
-function toast(message, { sticky = false, action = null } = {}) {
+function toast(message, { sticky = false, action = null, dismissAction = null } = {}) {
   const root = document.getElementById("nnToastRoot");
   if (!root) return;
   const el = document.createElement("div");
@@ -716,17 +716,19 @@ function toast(message, { sticky = false, action = null } = {}) {
   const text = document.createElement("span");
   text.textContent = message;
   el.appendChild(text);
-  if (action) {
+  const addActionButton = (buttonAction) => {
     const btn = document.createElement("button");
     btn.className = "nn-toast-btn";
-    btn.textContent = action.label;
+    btn.textContent = buttonAction.label;
     el.appendChild(btn);
     btn.addEventListener("click", (e) => {
       if (e && e.stopPropagation) e.stopPropagation();
       dismiss();
-      if (action.onClick) action.onClick();
+      if (buttonAction.onClick) buttonAction.onClick();
     });
-  }
+  };
+  if (action) addActionButton(action);
+  if (dismissAction) addActionButton(dismissAction);
   const dismiss = () => {
     el.classList.add("hide");
     setTimeout(() => el.remove(), 320);
@@ -3210,36 +3212,41 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  // First-entry / data-state toast: nudge the user toward the profile card
-  // (Import Demo Data / Delete Data live there). Shown whenever the DB is
-  // pristine demo data, empty, OR it's the user's first visit — and only
-  // stops once they've made their first change (own/modified data).
+  // Point first-time users and users with an empty database to profile data
+  // options. Demo data alone should not make the hint reappear.
   try {
     const visitedKey = "nn-first-visit";
+    const dismissedKey = "nn-data-hint-dismissed";
     const visited = !!localStorage.getItem(visitedKey);
     if (!visited) localStorage.setItem(visitedKey, "1");
 
-    const [nodes, quotes, cues, cards] = await Promise.all([
-      getAllNodes(),
-      getAllQuotes(),
-      getAllCues(),
-      getAllCards()
-    ]);
-    const isEmpty = nodes.length === 0 && quotes.length === 0 && cues.length === 0 && cards.length === 0;
-    const isDemo = await isOnDemoData(nodes, quotes, cues, cards);
+    const dismissed = !!localStorage.getItem(dismissedKey);
+    if (!dismissed) {
+      const [nodes, quotes, cues, cards] = await Promise.all([
+        getAllNodes(),
+        getAllQuotes(),
+        getAllCues(),
+        getAllCards()
+      ]);
+      const isEmpty = nodes.length === 0 && quotes.length === 0 && cues.length === 0 && cards.length === 0;
 
-    if (isEmpty || isDemo || !visited) {
-      setTimeout(() => {
-        toast("Tap your profile card (bottom) for data options — import demo data or delete everything.", {
-          sticky: true,
-          action: {
-            label: "Open",
-            onClick: () => {
-              setProfileDropdown(true);
+      if (isEmpty || !visited) {
+        setTimeout(() => {
+          toast("Tap your profile card (bottom) for data options — import demo data or delete everything.", {
+            sticky: true,
+            action: {
+              label: "Open",
+              onClick: () => {
+                setProfileDropdown(true);
+              }
+            },
+            dismissAction: {
+              label: "Dismiss",
+              onClick: () => localStorage.setItem(dismissedKey, "1")
             }
-          }
-        });
-      }, 1400);
+          });
+        }, 1400);
+      }
     }
   } catch (e) { /* ignore */ }
 });
