@@ -254,7 +254,15 @@ export async function initJournalTool(deps = {}, context = {}) {
 
   async function createNewEntry({ focus = true } = {}) {
     await flushSave();
-    const entry = await persistEntry(createJournalEntry({}, Date.now()), { silent: true });
+    let entry;
+    try {
+      entry = await persistEntry(createJournalEntry({}, Date.now()), { silent: true });
+    } catch {
+      entry = createJournalEntry({}, Date.now());
+      entries = [entry, ...entries.filter((item) => item.id !== entry.id)];
+      sortLocal();
+      setStatus("Saved on this device once storage is ready (try closing other NeuroNet tabs and refreshing).", { sticky: true });
+    }
     promptSeed = Date.now();
     promptDismissed = false;
     currentId = entry.id;
@@ -263,7 +271,9 @@ export async function initJournalTool(deps = {}, context = {}) {
     if (focus) {
       requestAnimationFrame(() => el.title?.focus());
     }
-    setStatus("New page");
+    if (el.status?.textContent !== "Saved on this device once storage is ready (try closing other NeuroNet tabs and refreshing).") {
+      setStatus("New page");
+    }
     return entry;
   }
 
@@ -276,7 +286,7 @@ export async function initJournalTool(deps = {}, context = {}) {
       : window.confirm(`Delete "${label}"?`);
     if (!confirmed) return;
     await flushSave();
-    await deleteJournal(entry.id);
+    try { await deleteJournal(entry.id); } catch { /* entry may be session-only if storage was unavailable */ }
     entries = entries.filter((item) => item.id !== entry.id);
     if (!entries.length) {
       await createNewEntry({ focus: true });
@@ -303,7 +313,16 @@ export async function initJournalTool(deps = {}, context = {}) {
     const entry = currentEntry();
     if (!entry) return;
     const next = touchJournalEntry(entry, { insight: !entry.insight }, Date.now());
-    await persistEntry(next, { silent: true });
+    try {
+      await persistEntry(next, { silent: true });
+    } catch {
+      // Status already set by persistEntry; keep local state in sync.
+      const idx = entries.findIndex((item) => item.id === next.id);
+      if (idx >= 0) entries[idx] = next; else entries.unshift(next);
+      dirty = false;
+      renderEditorMeta(next);
+      renderList();
+    }
   }
 
   function usePrompt() {
@@ -373,21 +392,33 @@ export async function initJournalTool(deps = {}, context = {}) {
   entries = (await (getAllJournals ? getAllJournals() : Promise.resolve([]))).map((entry) => ({ ...entry }));
   sortLocal();
 
+  async function openFreshEntry() {
+    const draft = createJournalEntry({}, Date.now());
+    try {
+      const fresh = await persistEntry(draft, { silent: true });
+      if (!entries.some((entry) => entry.id === fresh.id)) entries.unshift(fresh);
+      sortLocal();
+      return fresh;
+    } catch {
+      // STUB storage can be unavailable (e.g. DB upgrade blocked or missing
+      // store). Keep the writing surface usable for this session instead of
+      // crashing; saving will be retried on edits.
+      entries = [draft, ...entries.filter((entry) => entry.id !== draft.id)];
+      sortLocal();
+      setStatus("Saved on this device once storage is ready (try closing other NeuroNet tabs and refreshing).", { sticky: true });
+      return draft;
+    }
+  }
+
   const requestedId = context && context.entryId;
   if (requestedId && entries.some((entry) => entry.id === requestedId)) {
     currentId = requestedId;
   } else if (context && context.fresh) {
-    const fresh = await persistEntry(createJournalEntry({}, Date.now()), { silent: true });
-    entries.unshift(fresh);
-    sortLocal();
-    currentId = fresh.id;
+    currentId = (await openFreshEntry()).id;
   } else if (entries.length) {
     currentId = entries[0].id;
   } else {
-    const fresh = await persistEntry(createJournalEntry({}, Date.now()), { silent: true });
-    entries.unshift(fresh);
-    sortLocal();
-    currentId = fresh.id;
+    currentId = (await openFreshEntry()).id;
   }
 
   loadEntryIntoEditor(currentEntry());

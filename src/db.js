@@ -4,7 +4,7 @@ let db;
 // Structural schema only: store/index creation. Data-shape changes are handled
 // on write (promoteTags / promoteStudyPriority) and old profiles are reset by
 // importing the committed demo dataset, not migrated in place.
-const DB_VERSION = 16;
+const DB_VERSION = 17;
 
 // Decks are canonical folders inside a subject. Cards point at one deck via
 // deckId; the legacy `card.deck` string remains the subject owner until the
