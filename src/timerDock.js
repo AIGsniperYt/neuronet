@@ -40,6 +40,7 @@ export function initTimerDock({ store, toast, openTool, isToolActive, sidebarMod
   const body = document.getElementById("timerDockBody");
   const phaseEl = document.getElementById("timerDockPhase");
   const timeEl = document.getElementById("timerDockTime");
+  const labelLineEl = document.getElementById("timerDockLabelLine");
   const progressEl = document.getElementById("timerDockProgress");
   const toggleBtn = document.getElementById("timerDockToggle");
   const sizeBtn = document.getElementById("timerDockSize");
@@ -235,6 +236,12 @@ export function initTimerDock({ store, toast, openTool, isToolActive, sidebarMod
     const label = dockPhaseLabel(state);
     if (phaseEl) phaseEl.textContent = label;
     if (timeEl) timeEl.textContent = formatClock(clockMs);
+    if (labelLineEl) {
+      const sessionLabel = state.label || "";
+      // Show the session label once, not twice when the phase line already is it.
+      labelLineEl.hidden = !sessionLabel || sessionLabel === label;
+      labelLineEl.textContent = sessionLabel;
+    }
 
     if (progressEl) {
       const progress = state.mode === "stopwatch" ? 0 : progressOf(state, Date.now());

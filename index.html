@@ -3041,6 +3041,15 @@ select {
 }
 .timer-dock.is-finished .timer-dock-phase,
 .timer-dock.is-finished .timer-dock-time { color: var(--accent); }
+.timer-dock-label {
+  max-width: 100%;
+  overflow: hidden;
+  color: rgba(var(--text-rgb), 0.58);
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.timer-dock-label[hidden] { display: none; }
 .timer-dock-actions { display: flex; align-items: center; gap: 2px; }
 .timer-dock-btn {
   display: inline-flex;
@@ -3071,10 +3080,15 @@ select {
 .timer-dock.size-compact .timer-dock-grip { width: 16px; height: 26px; }
 .timer-dock.size-compact .timer-dock-btn { width: 26px; height: 26px; font-size: 0.74rem; }
 .timer-dock.size-compact .timer-dock-size { display: none; }
-.timer-dock.size-large { width: min(440px, calc(100% - 24px)); max-width: min(440px, calc(100% - 24px)); padding: 8px 10px 8px 13px; }
-.timer-dock.size-large .timer-dock-time { font-size: 1.55rem; }
-.timer-dock.size-large .timer-dock-phase { max-width: 220px; font-size: 10.5px; }
-.timer-dock.size-large .timer-dock-btn { width: 34px; height: 34px; font-size: 0.9rem; }
+.timer-dock.size-large { width: min(368px, calc(100% - 24px)); max-width: min(368px, calc(100% - 24px)); padding: 10px 12px 10px 14px; gap: 8px; border-radius: 16px; }
+.timer-dock.size-large .timer-dock-grip { width: 24px; height: 42px; }
+.timer-dock.size-large .timer-dock-body { gap: 0; padding: 2px 10px 2px 4px; }
+.timer-dock.size-large .timer-dock-time { font-size: 2.5rem; line-height: 1.05; letter-spacing: -0.03em; }
+.timer-dock.size-large .timer-dock-phase { max-width: 260px; font-size: 10.5px; margin-bottom: 2px; }
+.timer-dock.size-large .timer-dock-label { max-width: 260px; font-size: 0.78rem; margin-top: 1px; }
+.timer-dock.size-large .timer-dock-btn { width: 38px; height: 38px; font-size: 1rem; }
+.timer-dock.size-large .timer-dock-progress { height: 3px; }
+.timer-dock.size-large .timer-dock-chips { padding: 8px 2px 1px 28px; }
 .timer-dock-chips {
   display: none;
   flex: 1 0 100%;
@@ -3465,6 +3479,7 @@ select {
       <button id="timerDockBody" class="timer-dock-body" type="button" aria-label="Open timer">
         <span id="timerDockPhase" class="timer-dock-phase">Focus</span>
         <span id="timerDockTime" class="timer-dock-time">25:00</span>
+        <span id="timerDockLabelLine" class="timer-dock-label" hidden></span>
       </button>
       <div class="timer-dock-actions">
         <button id="timerDockSize" class="timer-dock-btn timer-dock-size" type="button" aria-label="Timer size Standard. Change size." title="Timer size: Standard">
