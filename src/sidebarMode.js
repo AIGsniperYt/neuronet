@@ -39,6 +39,28 @@ export const DEFAULT_SIDEBAR_MODE = "full";
 const MODE_IDS = SIDEBAR_MODES.map((mode) => mode.id);
 const HOVER_HIDE_MS = 260;
 
+// The settings panel asks one question: is the sidebar always there, or on
+// demand? Which *flavour* of each answer applies depends on whether the chevron
+// left the rail compact, so the two controls stay in their lanes.
+export const SIDEBAR_VISIBILITIES = [
+  {
+    id: "shown",
+    label: "Always show",
+    hint: "Keep the navigation on screen."
+  },
+  {
+    id: "hidden",
+    label: "On demand",
+    hint: "Tuck the navigation away; move to the left edge to reveal it."
+  }
+];
+
+export function sidebarVisibilityMode(mode, visible) {
+  const compact = isCompactMode(mode);
+  if (visible) return compact ? "compact" : "full";
+  return compact ? "hover-compact" : "hover-full";
+}
+
 export function normalizeSidebarMode(value) {
   return MODE_IDS.includes(value) ? value : DEFAULT_SIDEBAR_MODE;
 }

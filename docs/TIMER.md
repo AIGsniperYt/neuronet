@@ -122,20 +122,14 @@ Keyboard (ignored while typing in a field or when a modifier is held):
 
 Hiding the sidebar is **opt-in** and remembered per device by
 `src/sidebarMode.js`. It is a layout choice, not a focus mode: hiding
-navigation does not make anyone concentrate. Four modes are available:
-
-1. Full sidebar (default)
-2. Compact sidebar
-3. Hidden · reveal full from the left edge
-4. Hidden · reveal compact from the left edge
-
-This is a global layout preference, not a timer setting: it is chosen in
-**Appearance** (profile menu → Appearance → Sidebar) and applies to every tool.
-The shell's collapse button flips between the full and compact member of the
-current family. The setting is neutralised on mobile, where the sidebar is a
-drawer anyway. Hover modes reveal on pointer entry and hide shortly after the
-pointer leaves; the left-edge hotzone is the fallback. See
-`docs/APPEARANCE.md` for the storage key and migration from
+navigation does not make anyone concentrate. The **Appearance** panel asks one
+question — always shown, or on demand (reveal from the left edge) — and the
+sidebar's chevron chooses between the full panel and the slim rail. Stored as
+four values (`full`, `compact`, `hover-full`, `hover-compact`) so width and
+visibility are remembered separately. The setting is neutralised on mobile,
+where the sidebar is a drawer anyway. Hover modes reveal on pointer entry and
+hide shortly after the pointer leaves; the left-edge hotzone is the fallback.
+See `docs/APPEARANCE.md` for the storage key and migration from
 `nn-sidebar-collapsed` / the old timer `hideSidebar` flag.
 
 ## 6. Sound

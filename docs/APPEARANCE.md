@@ -16,18 +16,15 @@ The sidebar's layout is a separate device preference, stored under
 `nn-sidebar-mode` and managed by `src/sidebarMode.js`. It is not a theme, but
 it follows the same local-only rules.
 
-| Mode | Effect |
-| --- | --- |
-| `full` | Always show the full navigation (default). |
-| `compact` | Always show the slim icon rail. |
-| `hover-full` | Hide the sidebar; the left edge reveals the full panel. |
-| `hover-compact` | Hide the sidebar; the left edge reveals the icon rail. |
+The **Appearance** panel (profile menu → Appearance → Sidebar) asks one question:
+is the navigation **always shown**, or **on demand**? Choosing on demand tucks it
+away until the pointer reaches the left edge. The sidebar's chevron then decides
+whether the revealed panel is full width or a slim rail. Hover modes are
+neutralised below 701px, where the sidebar is already a drawer.
 
-The **Appearance** panel (profile menu → Appearance → Sidebar) offers all four
-modes for this device, and its selection follows the collapse button as well.
-The shell's collapse button flips between full and compact inside the current
-family. Hover modes are neutralised below 701px, where the sidebar is already a
-drawer.
+Under the hood those two choices map onto four stored values (`full`, `compact`,
+`hover-full`, `hover-compact`) so the chevron's width choice is remembered
+separately from visibility.
 
 Older builds used `nn-sidebar-collapsed` for the rail and the timer setting
 `hideSidebar` for the off-canvas panel. On first load the controller folds both

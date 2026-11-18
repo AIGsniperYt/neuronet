@@ -32,11 +32,13 @@ import {
 } from "../src/timerEngine.js";
 import {
   DEFAULT_SIDEBAR_MODE,
+  SIDEBAR_VISIBILITIES,
   isCompactMode,
   isHoverMode,
   migrateSidebarMode,
   nextSidebarMode,
   normalizeSidebarMode,
+  sidebarVisibilityMode,
   toggleCollapseMode
 } from "../src/sidebarMode.js";
 
@@ -256,6 +258,10 @@ export async function run() {
   eq("migration turns the old hidden sidebar into hover-full", migrateSidebarMode({ timerSettings: { hideSidebar: true } }).mode, "hover-full");
   eq("migration combines hidden and collapsed", migrateSidebarMode({ legacyCollapsed: "1", timerSettings: { hideSidebar: true } }).mode, "hover-compact");
   eq("migration defaults to full", migrateSidebarMode({}).mode, "full");
+  eq("panel asks one question", SIDEBAR_VISIBILITIES.map((item) => item.id), ["shown", "hidden"]);
+  eq("showing keeps the rail width", [sidebarVisibilityMode("full", true), sidebarVisibilityMode("compact", true)], ["full", "compact"]);
+  eq("hiding keeps the rail width", [sidebarVisibilityMode("full", false), sidebarVisibilityMode("compact", false)], ["hover-full", "hover-compact"]);
+  eq("visible again drops the hover prefix", [sidebarVisibilityMode("hover-full", true), sidebarVisibilityMode("hover-compact", true)], ["full", "compact"]);
 
   // ---------- store ----------
   const memoryStorage = () => {

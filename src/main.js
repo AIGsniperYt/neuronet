@@ -12,7 +12,7 @@ import { initTasksTool } from "./tools/tasksTool.js";
 import { initTimerTool } from "./tools/timerTool.js";
 import { initTimerDock } from "./timerDock.js";
 import { createTimerStore } from "./timerEngine.js";
-import { SIDEBAR_MODES, initSidebarMode } from "./sidebarMode.js";
+import { SIDEBAR_VISIBILITIES, initSidebarMode, isHoverMode, sidebarVisibilityMode } from "./sidebarMode.js";
 import { buildDailyPlan } from "./tools/planModel.js";
 import { addDays, completeOccurrence, findAutoCreditCommitment, formatCadence, skipOccurrence, undoOccurrence } from "./tools/commitmentsModel.js";
 import { estimateCardsMs } from "./tools/sessionEta.js";
@@ -3187,26 +3187,33 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   // Sidebar layout is a device preference, so it belongs beside surface and
-  // palette rather than inside whichever tool happened to need it first.
+  // palette rather than inside whichever tool happened to need it first. The
+  // panel asks only "always there, or on demand"; the chevron owns how wide the
+  // revealed sidebar is.
   if (sidebarModeToggle && sidebarModeController) {
-    for (const option of SIDEBAR_MODES) {
+    for (const option of SIDEBAR_VISIBILITIES) {
       const button = document.createElement("button");
       button.type = "button";
-      button.dataset.sidebarMode = option.id;
+      button.dataset.sidebarVisibility = option.id;
       button.setAttribute("role", "radio");
       button.setAttribute("aria-checked", "false");
-      button.textContent = option.short;
+      button.textContent = option.label;
       button.title = option.hint;
       sidebarModeToggle.appendChild(button);
     }
     sidebarModeToggle.addEventListener("click", (e) => {
-      const button = e.target.closest("[data-sidebar-mode]");
+      const button = e.target.closest("[data-sidebar-visibility]");
       if (!button) return;
-      sidebarModeController.setMode(button.dataset.sidebarMode);
+      sidebarModeController.setMode(
+        sidebarVisibilityMode(sidebarModeController.getMode(), button.dataset.sidebarVisibility === "shown")
+      );
     });
     sidebarModeController.subscribe((mode) => {
-      sidebarModeToggle.querySelectorAll("[data-sidebar-mode]").forEach((button) => {
-        button.setAttribute("aria-checked", String(button.dataset.sidebarMode === mode));
+      const shown = !isHoverMode(mode);
+      sidebarModeToggle.querySelectorAll("[data-sidebar-visibility]").forEach((button) => {
+        button.setAttribute("aria-checked", String(
+          (button.dataset.sidebarVisibility === "shown") === shown
+        ));
       });
     });
   }
