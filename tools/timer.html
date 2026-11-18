@@ -80,13 +80,17 @@
       max-width: 178px;
       padding: 3px 2px;
       border: 0;
-      background: transparent;
-      color: inherit;
+      border-radius: 6px;
+      background-color: rgb(var(--surface-rgb));
+      color: var(--text-main);
       font: inherit;
       cursor: pointer;
       outline: none;
     }
-    .timer-select option { background: var(--surface, #111); color: var(--text-main); }
+    .timer-select select option {
+      background-color: rgb(var(--surface-rgb));
+      color: var(--text-main);
+    }
 
     .timer-stage {
       flex: 1 1 auto;
@@ -356,6 +360,8 @@
     .timer-actions {
       transition:
         opacity .34s ease,
+        width .42s cubic-bezier(.22, 1, .36, 1),
+        height .42s cubic-bezier(.22, 1, .36, 1),
         transform .42s cubic-bezier(.22, 1, .36, 1),
         max-height .42s cubic-bezier(.22, 1, .36, 1),
         margin .42s cubic-bezier(.22, 1, .36, 1),
@@ -371,10 +377,15 @@
     .timer-hint { max-height: 48px; }
     #timerTool.is-focused .timer-stage {
       justify-content: center;
-      gap: 14px;
+      gap: 16px;
     }
     #timerTool.is-focused .timer-ring {
+      width: min(68vh, 620px, calc(100vw - 48px));
+      height: min(68vh, 620px, calc(100vw - 48px));
       box-shadow: 0 30px 86px rgba(0, 0, 0, 0.22), 0 0 76px rgba(var(--accent-rgb), 0.14);
+    }
+    #timerTool.is-focused .timer-clock {
+      font-size: clamp(3.8rem, 17vw, 7.6rem);
     }
     #timerTool.is-focused .timer-label-field,
     #timerTool.is-focused .timer-config,
