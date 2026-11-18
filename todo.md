@@ -15,8 +15,6 @@ add catastrophic forgetting detection - MAJOR superprogram algorithm change - wh
 
 add journalling
 
-timer shipped: full-screen Timer tool plus a corner dock, pomodoro and countdown, see `docs/TIMER.md` — still needs a real iPad/Safari pass
-
 additionally todo tasks could do with importance and estimated length of task or even subtasks - ideally or usually the user does this in their head, so this might be overhead and procrastination material, but some short stats might be good - though i must say this has risk of "feeling" productive neatly setting your tasks in an arbitrary app but you dont actually do anything but you feel like you did work spending time on this, maybe this can be cut to a mere estimated duration feature as well as a simple priority
 
 add desktop app mode and so neuronet task manager is a thing:
@@ -28,7 +26,7 @@ add desktop app mode and so neuronet task manager is a thing:
 ## Next
 
 - Tune the study-signal thresholds (weak `<50%`, strong `≥80%`, important `4–5`) after a week of real sessions; change them before anything else builds on the current defaults.
-- Real iPad/Safari pass: double-tap zoom, pinch, Lock mode ergonomics, toolbar crowding, heap drag-release feel, and the Timer tool/dock layout.
+- Real iPad/Safari pass: double-tap zoom, pinch, Lock mode ergonomics, toolbar crowding, heap drag-release feel, and the Timer tool/dock layout (size menu, stopwatch, focused-session transition, hover sidebar).
 
 ## Later / low priority
 

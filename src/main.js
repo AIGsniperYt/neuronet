@@ -12,6 +12,7 @@ import { initTasksTool } from "./tools/tasksTool.js";
 import { initTimerTool } from "./tools/timerTool.js";
 import { initTimerDock } from "./timerDock.js";
 import { createTimerStore } from "./timerEngine.js";
+import { initSidebarMode } from "./sidebarMode.js";
 import { buildDailyPlan } from "./tools/planModel.js";
 import { addDays, completeOccurrence, findAutoCreditCommitment, formatCadence, skipOccurrence, undoOccurrence } from "./tools/commitmentsModel.js";
 import { estimateCardsMs } from "./tools/sessionEta.js";
@@ -51,6 +52,27 @@ let toolContainer;
 // A timer is device UI state, so it lives in localStorage rather than the DB.
 const timerStore = createTimerStore({ storage: window.localStorage });
 window.__neuronetTimerStore = timerStore;
+
+// The sidebar layout is a device preference shared by the shell and the timer.
+let sidebarModeController = null;
+
+// A completed timer answers with a pulse across the neural background, so the
+// app feels like it noticed. Decorative only: respect reduced-motion and the
+// existing neural-background off switch.
+function pulseNeuralBackground() {
+  if (document.documentElement.dataset.neural === "off") return;
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  const api = window.__neuronetCanvas;
+  if (!api?.triggerRadialPulse) return;
+  const canvas = document.getElementById("neuronet");
+  if (!canvas) return;
+  api.triggerRadialPulse(canvas.width / 2, canvas.height / 2, 2.4);
+  api.triggerRandomNodes?.(9, 0.55);
+}
+
+timerStore.subscribe((state, meta) => {
+  if (meta.type === "finish") pulseNeuralBackground();
+});
 
 const tools = {
   analysis: {
@@ -222,6 +244,7 @@ const tools = {
     file: "timer.html",
     init: () => initTimerTool({
       store: timerStore,
+      sidebarMode: sidebarModeController,
       onMinimise: () => minimiseCurrentTool()
     })
   }
@@ -234,7 +257,7 @@ const toolDefinitions = {
   tracker: { name: "Tracker", file: "tracker.html", icon: "fa-solid fa-chart-column", desc: "Track study progress with past paper data" },
   scraper: { name: "Scraper", file: "scraper.html", icon: "fa-solid fa-download", desc: "Fetch grade boundaries from exam board spreadsheets" },
   tasks: { name: "Tasks", file: "tasks.html", icon: "fa-solid fa-list-check", desc: "Track schoolwork, revision and assignments in one list" },
-  timer: { name: "Timer", file: "timer.html", icon: "fa-solid fa-stopwatch", desc: "Pomodoro and countdown timers that dock over the rest of the app" }
+  timer: { name: "Timer", file: "timer.html", icon: "fa-solid fa-stopwatch", desc: "Pomodoro, countdown and stopwatch timers that dock over the rest of the app" }
 };
 
 // ========== AUTH & API ==========
@@ -2740,11 +2763,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   toolContainer = document.getElementById("toolContainer");
   setProfileUI(null);
 
+  sidebarModeController = initSidebarMode({ storage: window.localStorage });
+  window.__neuronetSidebarMode = sidebarModeController;
+
   initTimerDock({
     store: timerStore,
     toast,
     openTool: (name) => loadTool(name, {}),
-    isToolActive: () => currentToolName === "timer"
+    isToolActive: () => currentToolName === "timer",
+    sidebarMode: sidebarModeController
   });
 
   const loadingOverlay = document.getElementById("loadingOverlay");
@@ -2913,7 +2940,6 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Mobile navigation drawer: hamburger opens, backdrop / selection closes.
   const hamburger = document.getElementById("sidebarHamburger");
-  const collapseBtn = document.getElementById("sidebarCollapseBtn");
   const quickSubjectsBtn = document.getElementById("sidebarQuickSubjects");
   const quickSubjectsMenu = document.getElementById("sidebarQuickSubjectsMenu");
   const subjectAddBtn = document.getElementById("sidebarSubjectAdd");
@@ -2944,7 +2970,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       e.stopPropagation();
       quickSubjectsMenu?.classList.remove("open");
       quickSubjectsBtn?.setAttribute("aria-expanded", "false");
-      setSidebarCollapsed(false);
+      sidebarModeController?.setMode("full");
       setSubjectEditMode(true);
     });
   }
@@ -2956,31 +2982,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   const mobileSubjectsSection = document.getElementById("mobileSubjectsSection");
   const mobileToolsSection = document.getElementById("mobileToolsSection");
 
-  const desktopSidebarQuery = window.matchMedia("(min-width: 701px)");
-  function setSidebarCollapsed(collapsed) {
-    if (!desktopSidebarQuery.matches || !sidebarEl) return;
-    sidebarEl.classList.toggle("collapsed", collapsed);
-    collapseBtn?.setAttribute("aria-expanded", String(!collapsed));
-    collapseBtn?.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
-    collapseBtn?.setAttribute("title", collapsed ? "Expand sidebar" : "Collapse sidebar");
-    if (collapseBtn) collapseBtn.innerHTML = `<span aria-hidden="true">${collapsed ? "›" : "‹"}</span>`;
-    quickSubjectsMenu?.classList.remove("open");
-    quickSubjectsBtn?.setAttribute("aria-expanded", "false");
-    localStorage.setItem("nn-sidebar-collapsed", collapsed ? "1" : "0");
-  }
-  const savedSidebarState = localStorage.getItem("nn-sidebar-collapsed") === "1";
-  if (desktopSidebarQuery.matches) setSidebarCollapsed(savedSidebarState);
-  collapseBtn?.addEventListener("click", () => setSidebarCollapsed(!sidebarEl.classList.contains("collapsed")));
   quickSubjectsBtn?.addEventListener("click", (event) => {
     event.stopPropagation();
     const open = quickSubjectsMenu?.classList.toggle("open") || false;
     quickSubjectsBtn.setAttribute("aria-expanded", String(open));
   });
   quickSubjectsMenu?.addEventListener("click", (event) => event.stopPropagation());
-  desktopSidebarQuery.addEventListener?.("change", (event) => {
-    if (!event.matches) sidebarEl?.classList.remove("collapsed");
-    else setSidebarCollapsed(localStorage.getItem("nn-sidebar-collapsed") === "1");
-  });
   window.closeSubjectDrawer = closeSubjectDrawer;
   function closeSubjectDrawer() {
     mobileNavPanel?.classList.remove("open");

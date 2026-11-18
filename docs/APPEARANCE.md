@@ -10,6 +10,30 @@ settings. None of them touch IndexedDB or the exported JSON; they live in
 | Surface | `neuronet:mode` | `dark`, `light` |
 | Neural background | `neuronet:neural` | `on`, `off` |
 
+## Sidebar layout
+
+The sidebar's layout is a separate device preference, stored under
+`nn-sidebar-mode` and managed by `src/sidebarMode.js`. It is not a theme, but
+it follows the same local-only rules.
+
+| Mode | Effect |
+| --- | --- |
+| `full` | Always show the full navigation (default). |
+| `compact` | Always show the slim icon rail. |
+| `hover-full` | Hide the sidebar; the left edge reveals the full panel. |
+| `hover-compact` | Hide the sidebar; the left edge reveals the icon rail. |
+
+The Timer tool header and the timer dock's `⋯` menu both edit this value. The
+shell's collapse button flips between full and compact inside the current
+family. Hover modes are neutralised below 701px, where the sidebar is already a
+drawer.
+
+Older builds used `nn-sidebar-collapsed` for the rail and the timer setting
+`hideSidebar` for the off-canvas panel. On first load the controller folds both
+into `nn-sidebar-mode` (`hideSidebar` + collapsed → `hover-compact`, one or the
+other → its matching mode) and removes the legacy key.
+
+
 ## How it is wired
 
 - `index.html` defines the token system in `:root` (dark Forest) plus one block

@@ -2924,18 +2924,29 @@ select {
   position: absolute;
   z-index: 150;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  max-width: min(360px, calc(100% - 24px));
-  padding: 6px 8px 6px 4px;
-  border: 1px solid rgba(var(--accent-rgb), 0.3);
+  max-width: min(380px, calc(100% - 24px));
+  padding: 6px 8px 6px 11px;
+  border: 1px solid rgba(var(--accent-rgb), 0.34);
   border-radius: 14px;
-  background: linear-gradient(135deg, rgba(var(--surface-rgb), 0.97), rgba(var(--bg-rgb), 0.97));
+  background: linear-gradient(135deg, rgba(var(--surface-rgb), 0.98), rgba(var(--bg-rgb), 0.98));
   color: var(--text-main);
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.26);
-  overflow: hidden;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.04);
   backdrop-filter: blur(14px);
   transition: border-color .2s ease, box-shadow .2s ease, transform .12s ease;
+}
+.timer-dock::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--accent), rgba(var(--accent-rgb), 0.25));
+  pointer-events: none;
 }
 .timer-dock[hidden] { display: none; }
 .timer-dock.corner-tl { top: 16px; left: 16px; }
@@ -2947,9 +2958,17 @@ select {
   transition: none;
   box-shadow: 0 20px 54px rgba(0, 0, 0, 0.38);
 }
+.timer-dock.is-running:not(.is-finished) {
+  border-color: rgba(var(--accent-rgb), 0.5);
+  animation: timer-dock-glow 3.4s ease-in-out infinite;
+}
 .timer-dock.is-finished {
   border-color: rgba(var(--accent-rgb), 0.65);
   box-shadow: 0 14px 40px rgba(0, 0, 0, 0.26), 0 0 34px rgba(var(--accent-rgb), 0.18);
+}
+@keyframes timer-dock-glow {
+  0%, 100% { box-shadow: 0 14px 40px rgba(0, 0, 0, 0.26); }
+  50% { box-shadow: 0 14px 44px rgba(0, 0, 0, 0.3), 0 0 26px rgba(var(--accent-rgb), 0.12); }
 }
 .timer-dock-progress {
   position: absolute;
@@ -2957,6 +2976,8 @@ select {
   right: 0;
   top: 0;
   height: 2px;
+  overflow: hidden;
+  border-radius: 14px 14px 0 0;
   background: rgba(var(--overlay-rgb), 0.08);
   pointer-events: none;
 }
@@ -2971,7 +2992,7 @@ select {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
+  width: 20px;
   height: 30px;
   padding: 0;
   border: 0;
@@ -2989,6 +3010,7 @@ select {
   align-items: flex-start;
   gap: 1px;
   min-width: 0;
+  flex: 1 1 auto;
   padding: 2px 8px 2px 2px;
   border: 0;
   border-radius: 8px;
@@ -3000,7 +3022,7 @@ select {
 }
 .timer-dock-body:hover { background: rgba(var(--overlay-rgb), 0.05); }
 .timer-dock-phase {
-  max-width: 150px;
+  max-width: 170px;
   overflow: hidden;
   color: var(--text-muted);
   font-size: 10px;
@@ -3040,10 +3062,159 @@ select {
   background: rgba(var(--accent-rgb), 0.1);
 }
 .timer-dock-toggle { color: var(--accent); }
+.timer-dock-size { color: rgba(var(--text-rgb), 0.48); }
 
-/* Opt-in off-canvas sidebar for the Timer tool. The edge strip is below the
-   sidebar in stacking order, so the revealed panel covers it. */
-#app.timer-sidebar-hidden #sidebar {
+/* Size cycle: compact keeps the footprint tiny, large adds a preset row. */
+.timer-dock.size-compact { max-width: min(280px, calc(100% - 24px)); padding: 4px 6px 4px 10px; gap: 2px; }
+.timer-dock.size-compact .timer-dock-time { font-size: 0.98rem; }
+.timer-dock.size-compact .timer-dock-phase { max-width: 78px; font-size: 8.5px; }
+.timer-dock.size-compact .timer-dock-grip { width: 16px; height: 26px; }
+.timer-dock.size-compact .timer-dock-btn { width: 26px; height: 26px; font-size: 0.74rem; }
+.timer-dock.size-compact .timer-dock-size { display: none; }
+.timer-dock.size-large { max-width: min(440px, calc(100% - 24px)); padding: 8px 10px 8px 13px; }
+.timer-dock.size-large .timer-dock-time { font-size: 1.55rem; }
+.timer-dock.size-large .timer-dock-phase { max-width: 220px; font-size: 10.5px; }
+.timer-dock.size-large .timer-dock-btn { width: 34px; height: 34px; font-size: 0.9rem; }
+.timer-dock-chips {
+  display: none;
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 6px 2px 1px 22px;
+}
+.timer-dock.size-large .timer-dock-chips { display: flex; }
+.timer-dock-chip {
+  padding: 4px 9px;
+  border: 1px solid rgba(var(--overlay-rgb), 0.14);
+  border-radius: 999px;
+  background: rgba(var(--overlay-rgb), 0.04);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+.timer-dock-chip:hover { color: var(--accent); border-color: rgba(var(--accent-rgb), 0.35); }
+.timer-dock-chip.active { color: var(--accent); border-color: rgba(var(--accent-rgb), 0.45); background: rgba(var(--accent-rgb), 0.1); }
+.timer-dock-chip:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* The options menu holds everything that would otherwise clutter the dock. */
+.timer-dock-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  width: min(330px, calc(100vw - 24px));
+  max-height: min(70vh, 540px);
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid rgba(var(--accent-rgb), 0.26);
+  border-radius: 14px;
+  background: linear-gradient(165deg, rgba(var(--surface-rgb), 0.99), rgba(var(--bg-rgb), 0.99));
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.4);
+  z-index: 170;
+}
+.timer-dock.menu-above .timer-dock-menu { top: auto; bottom: calc(100% + 8px); }
+.timer-dock.corner-tl .timer-dock-menu,
+.timer-dock.corner-bl .timer-dock-menu { left: 0; }
+.timer-dock.corner-tr .timer-dock-menu,
+.timer-dock.corner-br .timer-dock-menu { right: 0; }
+.timer-dock-menu[hidden] { display: none; }
+.timer-menu-section { display: flex; flex-direction: column; gap: 6px; margin-bottom: 11px; }
+.timer-menu-label {
+  color: rgba(var(--text-rgb), 0.54);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.timer-menu-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.timer-menu-chip {
+  padding: 5px 9px;
+  border: 1px solid rgba(var(--overlay-rgb), 0.14);
+  border-radius: 8px;
+  background: rgba(var(--overlay-rgb), 0.04);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+.timer-menu-chip:hover { border-color: rgba(var(--accent-rgb), 0.35); }
+.timer-menu-chip.active { color: var(--accent); border-color: rgba(var(--accent-rgb), 0.45); background: rgba(var(--accent-rgb), 0.1); }
+.timer-menu-chip:disabled { opacity: 0.45; cursor: not-allowed; }
+.timer-menu-chip-quiet { color: var(--text-muted); }
+.timer-size-group { display: flex; gap: 4px; }
+.timer-size-group button {
+  flex: 1;
+  padding: 6px 4px;
+  border: 1px solid rgba(var(--overlay-rgb), 0.14);
+  border-radius: 8px;
+  background: rgba(var(--overlay-rgb), 0.04);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.72rem;
+  text-transform: capitalize;
+  cursor: pointer;
+}
+.timer-size-group button.active { color: var(--accent); border-color: rgba(var(--accent-rgb), 0.45); background: rgba(var(--accent-rgb), 0.1); }
+.timer-menu-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 11px; color: var(--text-muted); font-size: 0.72rem; }
+.timer-menu-field input,
+.timer-menu-field select,
+.timer-menu-custom input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  border: 1px solid rgba(var(--overlay-rgb), 0.16);
+  border-radius: 8px;
+  background: rgba(var(--overlay-rgb), 0.04);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 0.8rem;
+}
+.timer-menu-field input:focus,
+.timer-menu-field select:focus,
+.timer-menu-custom input:focus { outline: none; border-color: rgba(var(--accent-rgb), 0.45); }
+.timer-menu-custom { display: flex; align-items: center; gap: 6px; margin-top: 7px; }
+.timer-menu-custom[hidden] { display: none; }
+.timer-menu-custom span { flex: 0 0 auto; color: var(--text-muted); font-size: 0.72rem; }
+.timer-menu-custom input { width: 76px; }
+.timer-menu-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 11px; }
+.timer-menu-toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 0.74rem; cursor: pointer; user-select: none; }
+.timer-menu-toggle input { width: 14px; height: 14px; accent-color: var(--accent); cursor: pointer; }
+.timer-menu-sound {
+  padding: 6px 9px;
+  border: 1px solid rgba(var(--overlay-rgb), 0.14);
+  border-radius: 8px;
+  background: rgba(var(--overlay-rgb), 0.04);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.timer-menu-sound[aria-pressed="true"] { color: var(--accent); border-color: rgba(var(--accent-rgb), 0.45); background: rgba(var(--accent-rgb), 0.1); }
+.timer-menu-foot { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid rgba(var(--overlay-rgb), 0.08); }
+.timer-menu-today { color: var(--text-muted); font-size: 0.72rem; }
+.timer-menu-buttons { display: flex; flex-wrap: wrap; gap: 5px; }
+.timer-menu-buttons button {
+  flex: 1 1 auto;
+  padding: 6px 8px;
+  border: 1px solid rgba(var(--overlay-rgb), 0.14);
+  border-radius: 8px;
+  background: rgba(var(--overlay-rgb), 0.04);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.timer-menu-buttons button:hover { border-color: rgba(var(--accent-rgb), 0.35); color: var(--accent); }
+#timerDockFinish { flex-basis: 100%; }
+#timerDockFinish[hidden] { display: none; }
+#timerDockFinish:disabled { opacity: 0.45; cursor: not-allowed; }
+
+@media (prefers-reduced-motion: reduce) {
+  .timer-dock.is-running:not(.is-finished) { animation: none; }
+}
+
+/* Opt-in hover-reveal sidebar modes. The edge strip sits below the panel in
+   stacking order, so the revealed sidebar covers it. */
+#app.sidebar-hover-hidden #sidebar {
   position: fixed;
   top: 0;
   bottom: 0;
@@ -3054,8 +3225,8 @@ select {
   z-index: 1000;
   box-shadow: 24px 0 60px rgba(0, 0, 0, 0.32);
 }
-#app.timer-sidebar-hidden #sidebar.timer-sidebar-revealed { transform: translateX(0); }
-#timerSidebarHotzone {
+#app.sidebar-hover-hidden #sidebar.sidebar-revealed { transform: translateX(0); }
+#sidebarHoverHotzone {
   position: fixed;
   top: 0;
   bottom: 0;
@@ -3071,8 +3242,8 @@ select {
   .timer-dock.corner-br { bottom: 10px; right: 10px; }
   .timer-dock-grip { width: 26px; height: 38px; }
   .timer-dock-btn { width: 38px; height: 38px; }
-  #app.timer-sidebar-hidden #sidebar { position: relative; transform: none !important; }
-  #timerSidebarHotzone { display: none; }
+  #app.sidebar-hover-hidden #sidebar { position: relative; transform: none !important; }
+  #sidebarHoverHotzone { display: none; }
 }
 </style>
 </head>
@@ -3269,7 +3440,7 @@ select {
     </div>
 
     <!-- Docked timer: shell-level so it survives tool switches. -->
-    <div id="timerDock" class="timer-dock corner-tl" role="region" aria-label="Active timer" hidden>
+    <div id="timerDock" class="timer-dock corner-tl size-standard" role="region" aria-label="Active timer" hidden>
       <div class="timer-dock-progress" aria-hidden="true"><span id="timerDockProgress"></span></div>
       <button id="timerDockGrip" class="timer-dock-grip" type="button"
         aria-label="Move timer. Use the arrow keys to choose a corner."
@@ -3281,15 +3452,60 @@ select {
         <span id="timerDockTime" class="timer-dock-time">25:00</span>
       </button>
       <div class="timer-dock-actions">
+        <button id="timerDockSize" class="timer-dock-btn timer-dock-size" type="button" aria-label="Timer size Standard. Change size." title="Timer size: Standard">
+          <i class="fa-solid fa-up-right-and-down-left-from-center" aria-hidden="true"></i>
+        </button>
         <button id="timerDockToggle" class="timer-dock-btn timer-dock-toggle" type="button" aria-label="Start timer">
           <i class="fa-solid fa-play" aria-hidden="true"></i>
         </button>
-        <button id="timerDockExpand" class="timer-dock-btn" type="button" aria-label="Open the Timer tool">
-          <i class="fa-solid fa-expand" aria-hidden="true"></i>
+        <button id="timerDockMore" class="timer-dock-btn" type="button" aria-label="Timer options" aria-haspopup="true" aria-expanded="false" title="Timer options">
+          <i class="fa-solid fa-ellipsis" aria-hidden="true"></i>
         </button>
-        <button id="timerDockClear" class="timer-dock-btn" type="button" aria-label="Clear timer">
-          <i class="fa-solid fa-xmark" aria-hidden="true"></i>
-        </button>
+      </div>
+      <div id="timerDockChips" class="timer-dock-chips" role="group" aria-label="Quick presets"></div>
+      <div id="timerDockMenu" class="timer-dock-menu" role="dialog" aria-label="Timer options" hidden>
+        <div class="timer-menu-section">
+          <span class="timer-menu-label">Dock size</span>
+          <div class="timer-size-group" role="group" aria-label="Dock size">
+            <button type="button" data-size="compact" aria-pressed="false">Compact</button>
+            <button type="button" data-size="standard" aria-pressed="true">Standard</button>
+            <button type="button" data-size="large" aria-pressed="false">Large</button>
+          </div>
+        </div>
+        <label class="timer-menu-field">What are you timing?
+          <input id="timerDockLabel" type="text" maxlength="80" autocomplete="off" placeholder="Optional label" />
+        </label>
+        <div class="timer-menu-section">
+          <span class="timer-menu-label">Preset</span>
+          <div id="timerDockPresets" class="timer-menu-chips" role="group" aria-label="Timer preset"></div>
+          <div id="timerDockCustom" class="timer-menu-custom" hidden>
+            <span>Minutes</span>
+            <input id="timerDockMinutes" type="number" min="1" max="240" step="1" inputmode="numeric" value="25" />
+          </div>
+        </div>
+        <div class="timer-menu-section">
+          <span class="timer-menu-label">Quick lengths</span>
+          <div id="timerDockChipsInline" class="timer-menu-chips" role="group" aria-label="Quick lengths"></div>
+        </div>
+        <div class="timer-menu-row">
+          <label class="timer-menu-toggle">
+            <input id="timerDockAuto" type="checkbox" />
+            <span>Auto-start breaks</span>
+          </label>
+          <button id="timerDockSound" class="timer-menu-sound" type="button" aria-pressed="false">Sound off</button>
+        </div>
+        <label class="timer-menu-field">Sidebar
+          <select id="timerDockSidebar"></select>
+        </label>
+        <div class="timer-menu-foot">
+          <span id="timerDockToday" class="timer-menu-today">No focus sessions today</span>
+          <div class="timer-menu-buttons">
+            <button id="timerDockFinish" type="button" hidden>Finish stopwatch</button>
+            <button id="timerDockReset" type="button">Reset</button>
+            <button id="timerDockOpen" type="button">Open timer</button>
+            <button id="timerDockClear" type="button">Clear</button>
+          </div>
+        </div>
       </div>
     </div>
   </main>

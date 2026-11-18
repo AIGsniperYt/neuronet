@@ -4,11 +4,14 @@ import {
   DEFAULT_TIMER_SETTINGS,
   TIMER_MAX_MINUTES,
   TIMER_PRESETS,
+  TIMER_SIZES,
   configureTimerState,
   createTimerState,
   createTimerStore,
   dateKeyLocal,
   dismissTimerState,
+  displayMsOf,
+  elapsedOf,
   formatClock,
   formatDuration,
   hydrateTimerState,
@@ -19,6 +22,7 @@ import {
   pauseTimerState,
   presetById,
   progressOf,
+  recordFocusTime,
   recordTimerSession,
   resetTimerState,
   startNextPhase,
@@ -26,6 +30,15 @@ import {
   tickTimerState,
   todaySummary
 } from "../src/timerEngine.js";
+import {
+  DEFAULT_SIDEBAR_MODE,
+  isCompactMode,
+  isHoverMode,
+  migrateSidebarMode,
+  nextSidebarMode,
+  normalizeSidebarMode,
+  toggleCollapseMode
+} from "../src/sidebarMode.js";
 
 let passed = 0;
 let failed = 0;
@@ -64,8 +77,9 @@ export async function run() {
   check("minutes: max is four hours", TIMER_MAX_MINUTES === 240);
 
   // ---------- presets ----------
-  eq("preset ids", TIMER_PRESETS.map((preset) => preset.id), ["pomodoro25", "deep50", "countdown"]);
+  eq("preset ids", TIMER_PRESETS.map((preset) => preset.id), ["pomodoro25", "deep50", "countdown", "stopwatch"]);
   eq("unknown preset falls back", presetById("nope").id, "pomodoro25");
+  eq("dock sizes", TIMER_SIZES, ["compact", "standard", "large"]);
 
   // ---------- create / start / pause ----------
   let state = createTimerState({ label: "  Macbeth essay  " });
@@ -142,6 +156,46 @@ export async function run() {
   eq("custom minutes configure", [reconfigured.durationMs, reconfigured.label], [12 * 60 * 1000, "Past paper"]);
   eq("configure resets to idle", reconfigured.status, "idle");
 
+  // ---------- stopwatch ----------
+  let stopwatch = createTimerState({ presetId: "stopwatch", label: "Reading" });
+  eq("stopwatch mode", [stopwatch.mode, stopwatch.durationMs, stopwatch.remainingMs], ["stopwatch", 0, 0]);
+  eq("stopwatch label", stopwatch.label, "Reading");
+
+  const swRunning = startTimerState(stopwatch, start);
+  eq("stopwatch starts counting up", [swRunning.status, swRunning.startedAt, swRunning.endAt], ["running", start, null]);
+  eq("stopwatch elapsed", elapsedOf(swRunning, start + 65_000), 65_000);
+  eq("stopwatch display", displayMsOf(swRunning, start + 65_000), 65_000);
+  check("stopwatch never auto-finishes", tickTimerState(swRunning, start + 3_600_000).finished === false);
+
+  const swPaused = pauseTimerState(swRunning, start + 65_000);
+  eq("stopwatch pause freezes elapsed", [swPaused.status, swPaused.elapsedMs, swPaused.startedAt], ["paused", 65_000, null]);
+  eq("stopwatch stays frozen while paused", elapsedOf(swPaused, start + 500_000), 65_000);
+
+  const swResumed = startTimerState(swPaused, start + 120_000);
+  eq("stopwatch resume keeps earlier time", elapsedOf(swResumed, start + 125_000), 70_000);
+  eq("stopwatch resume display", displayMsOf(swResumed, start + 125_000), 70_000);
+
+  const swHydrated = hydrateTimerState(swResumed, start + 180_000);
+  eq("stopwatch reload keeps elapsed", elapsedOf(swHydrated, start + 180_000), 125_000);
+  eq("stopwatch hydrated is still running", swHydrated.status, "running");
+  const swNoStart = hydrateTimerState({ ...swResumed, startedAt: null }, start + 180_000);
+  eq("stopwatch without start becomes paused", swNoStart.status, "paused");
+  const swFinishedRaw = hydrateTimerState({ ...swRunning, status: "finished" }, start + 180_000);
+  eq("finished stopwatch hydrates as idle", swFinishedRaw.status, "idle");
+
+  const swReset = resetTimerState(swResumed);
+  eq("stopwatch reset clears time", [swReset.status, swReset.elapsedMs, swReset.startedAt], ["idle", 0, null]);
+  const swDismissed = dismissTimerState({ ...swResumed, label: "Reading" });
+  eq("stopwatch dismiss clears time and label", [swDismissed.status, swDismissed.elapsedMs, swDismissed.label], ["idle", 0, ""]);
+
+  // ---------- stopwatch logging ----------
+  const stopwatchDay = new Date(2026, 10, 18, 9, 0, 0).getTime();
+  let swHistory = normalizeTimerHistory(null);
+  swHistory = recordFocusTime(swHistory, 59_000, stopwatchDay);
+  eq("sub-minute stopwatch blocks are ignored", swHistory.days, {});
+  swHistory = recordFocusTime(swHistory, 90_000, stopwatchDay);
+  eq("stopwatch blocks log as a session", swHistory.days[dateKeyLocal(stopwatchDay)], { sessions: 1, ms: 90_000 });
+
   // ---------- reset / dismiss ----------
   const reset = resetTimerState({ ...running, cycleCount: 3, phase: "break", label: "x" });
   eq("reset is idle focus", [reset.status, reset.phase], ["idle", "focus"]);
@@ -184,6 +238,24 @@ export async function run() {
   eq("default settings are quiet and neutral", normalizeTimerSettings(null), DEFAULT_TIMER_SETTINGS);
   eq("settings ignore junk numbers", normalizeTimerSettings({ corner: "sideways", sound: "yes" }).corner, "tl");
   eq("settings accept a known corner", normalizeTimerSettings({ corner: "br", sound: true }).corner, "br");
+  eq("settings default to standard size", normalizeTimerSettings({}).size, "standard");
+  eq("settings accept a known size", normalizeTimerSettings({ size: "large" }).size, "large");
+  eq("settings reject an unknown size", normalizeTimerSettings({ size: "huge" }).size, "standard");
+
+  // ---------- sidebar modes ----------
+  eq("sidebar defaults to full", normalizeSidebarMode(null), DEFAULT_SIDEBAR_MODE);
+  eq("sidebar rejects junk", normalizeSidebarMode("floating"), "full");
+  check("hover modes are detected", isHoverMode("hover-compact") && !isHoverMode("compact"));
+  check("compact modes are detected", isCompactMode("compact") && isCompactMode("hover-compact") && !isCompactMode("full"));
+  eq("collapse toggles the compact rail", toggleCollapseMode("full"), "compact");
+  eq("collapse restores the full panel", toggleCollapseMode("hover-compact"), "hover-full");
+  eq("sidebar modes cycle", [nextSidebarMode("full"), nextSidebarMode("compact"), nextSidebarMode("hover-full"), nextSidebarMode("hover-compact")],
+    ["compact", "hover-full", "hover-compact", "full"]);
+  eq("migration keeps an explicit mode", migrateSidebarMode({ stored: "hover-compact", legacyCollapsed: "1" }).mode, "hover-compact");
+  eq("migration turns the old collapse into compact", migrateSidebarMode({ legacyCollapsed: "1" }).mode, "compact");
+  eq("migration turns the old hidden sidebar into hover-full", migrateSidebarMode({ timerSettings: { hideSidebar: true } }).mode, "hover-full");
+  eq("migration combines hidden and collapsed", migrateSidebarMode({ legacyCollapsed: "1", timerSettings: { hideSidebar: true } }).mode, "hover-compact");
+  eq("migration defaults to full", migrateSidebarMode({}).mode, "full");
 
   // ---------- store ----------
   const memoryStorage = () => {
@@ -226,6 +298,40 @@ export async function run() {
   eq("clearData empties history", autoStore.today(), { sessions: 0, ms: 0 });
   eq("clearData keeps device preferences", autoStore.getSettings().autoStart, true);
   autoStore.dispose();
+
+  clock = start;
+  const swStore = createTimerStore({ storage: memoryStorage(), now: () => clock, tickMs: 10_000 });
+  swStore.updateSettings({ size: "large" });
+  swStore.configure({ presetId: "stopwatch", label: "Reading" });
+  swStore.start();
+  clock = start + 90_000;
+  eq("store stopwatch display counts up", displayMsOf(swStore.getState(), clock), 90_000);
+  eq("finishStopwatch returns the block", swStore.finishStopwatch(), 90_000);
+  eq("finishStopwatch logs the block", swStore.today(), { sessions: 1, ms: 90_000 });
+  eq("finishStopwatch resets the timer", swStore.getState().status, "idle");
+
+  swStore.configure({ presetId: "stopwatch" });
+  swStore.start();
+  clock += 30_000;
+  eq("short stopwatch finish returns zero", swStore.finishStopwatch(), 0);
+  eq("short stopwatch is not logged", swStore.today(), { sessions: 1, ms: 90_000 });
+  eq("short stopwatch still resets", swStore.getState().status, "idle");
+
+  swStore.configure({ presetId: "stopwatch" });
+  swStore.start();
+  clock += 70_000;
+  swStore.configure({ presetId: "pomodoro25" });
+  eq("switching preset logs the stopwatch", swStore.today(), { sessions: 2, ms: 160_000 });
+  eq("switching preset returns to pomodoro", swStore.getState().mode, "pomodoro");
+
+  swStore.configure({ presetId: "stopwatch" });
+  swStore.start();
+  clock += 65_000;
+  swStore.dismiss();
+  eq("clearing a stopwatch logs the block", swStore.today(), { sessions: 3, ms: 225_000 });
+  swStore.clearData();
+  eq("clearData keeps the dock size", swStore.getSettings().size, "large");
+  swStore.dispose();
 
   return { passed, failed };
 }

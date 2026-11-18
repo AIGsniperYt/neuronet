@@ -1,8 +1,10 @@
-// Timer tool: the full-screen view over the shared timer store. It also owns
-// the optional off-canvas sidebar, which is opt-in and restores on tool switch.
+// Timer tool: the full-screen view over the shared timer store. The sidebar
+// layout is owned by the shell controller, so choosing a mode here behaves the
+// same as choosing it from the dock.
 import {
   TIMER_MAX_MINUTES,
   TIMER_PRESETS,
+  displayMsOf,
   formatClock,
   formatDuration,
   normalizeMinutes,
@@ -10,11 +12,17 @@ import {
   timerPhaseLabel,
   timerPrimaryLabel
 } from "../timerEngine.js";
+import { SIDEBAR_MODES } from "../sidebarMode.js";
 import { playTimerChime, primeTimerSound } from "../timerSound.js";
 
 const QUICK_MINUTES = [5, 10, 15, 25, 50];
 
 function statusLine(state) {
+  if (state.mode === "stopwatch") {
+    if (state.status === "running") return "Counting up — no deadline";
+    if (state.status === "paused") return "Stopwatch paused";
+    return "Ready to count up";
+  }
   if (state.status === "finished") {
     if (state.mode === "countdown") return "Time's up";
     if (state.phase === "focus") {
@@ -29,14 +37,17 @@ function statusLine(state) {
   return "Ready";
 }
 
-export function initTimerTool({ store, onMinimise }) {
+export function initTimerTool({ store, sidebarMode, onMinimise }) {
   const tool = document.getElementById("timerTool");
   if (!tool) return;
 
   const ring = document.getElementById("timerRing");
+  const ringArc = document.getElementById("timerRingArc");
+  const RING_CIRCUMFERENCE = 2 * Math.PI * 47;
   const phaseEl = document.getElementById("timerPhase");
   const clockEl = document.getElementById("timerClock");
   const statusEl = document.getElementById("timerStatus");
+  const focusLabelEl = document.getElementById("timerFocusLabel");
   const labelInput = document.getElementById("timerLabelInput");
   const presetsEl = document.getElementById("timerPresets");
   const customEl = document.getElementById("timerCustom");
@@ -44,22 +55,23 @@ export function initTimerTool({ store, onMinimise }) {
   const minutesInput = document.getElementById("timerMinutes");
   const primaryBtn = document.getElementById("timerPrimary");
   const resetBtn = document.getElementById("timerReset");
+  const finishBtn = document.getElementById("timerFinish");
   const cycleEl = document.getElementById("timerCycle");
   const metaEl = document.getElementById("timerMeta");
   const todayEl = document.getElementById("timerToday");
   const autoWrap = document.getElementById("timerAutoWrap");
   const autoInput = document.getElementById("timerAutoStart");
-  const sidebarBtn = document.getElementById("timerSidebarBtn");
-  const sidebarLabel = document.getElementById("timerSidebarLabel");
+  const sidebarSelect = document.getElementById("timerSidebarMode");
   const soundBtn = document.getElementById("timerSoundBtn");
   const soundLabel = document.getElementById("timerSoundLabel");
   const minimiseBtn = document.getElementById("timerMinimiseBtn");
 
-  let hotzone = null;
-  let revealTimer = null;
   let cleaned = false;
   let unsubscribe = () => {};
+  let unsubscribeSidebar = () => {};
   let pipsSignature = "";
+  let flash = null;
+  let flashTimer = null;
 
   // ---------- presets ----------
   const presetButtons = new Map();
@@ -98,30 +110,75 @@ export function initTimerTool({ store, onMinimise }) {
     chipsEl?.appendChild(chip);
   }
 
+  if (sidebarSelect) {
+    for (const option of SIDEBAR_MODES) {
+      const item = document.createElement("option");
+      item.value = option.id;
+      item.textContent = option.label;
+      sidebarSelect.appendChild(item);
+    }
+  }
+
+  // ---------- flash feedback ----------
+  function setFlash(text) {
+    flash = { text, until: Date.now() + 4000 };
+    if (flashTimer) clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => {
+      flash = null;
+      flashTimer = null;
+      render(store.getState());
+    }, 4000);
+    render(store.getState());
+  }
+
   // ---------- rendering ----------
   function render(state) {
+    const now = Date.now();
     const running = state.status === "running";
+    const stopped = state.status === "paused";
+    // Setup fades away for the duration of a block and slides back when the
+    // session ends. Pause keeps the focused layout so resuming is seamless.
+    const focused = running || stopped;
     // Changing preset or length rebuilds the session, so keep it read-only
     // until the user resets deliberately.
-    const locked = running || state.status === "paused";
+    const locked = running || stopped;
     const finished = state.status === "finished";
+    const clockMs = displayMsOf(state, now);
+
     tool.classList.toggle("is-running", running);
+    tool.classList.toggle("is-paused", stopped);
+    tool.classList.toggle("is-focused", focused);
     tool.classList.toggle("is-finished", finished);
     tool.dataset.status = state.status;
 
-    const progress = Math.round(progressOf(state, Date.now()) * 1000) / 10;
-    ring?.style.setProperty("--timer-progress", String(progress));
+    const progress = state.mode === "stopwatch" ? 0 : Math.round(progressOf(state, now) * 1000) / 10;
+    if (ringArc) ringArc.style.strokeDashoffset = String(RING_CIRCUMFERENCE * (1 - progress / 100));
     ring?.classList.toggle("is-empty", progress === 0);
+    ring?.classList.toggle("is-stopwatch", state.mode === "stopwatch");
     if (phaseEl) phaseEl.textContent = timerPhaseLabel(state);
-    if (clockEl) clockEl.textContent = formatClock(state.remainingMs);
+    if (clockEl) clockEl.textContent = formatClock(clockMs);
+    if (focusLabelEl) {
+      const showLabel = focused && Boolean(state.label);
+      focusLabelEl.hidden = !showLabel;
+      focusLabelEl.textContent = showLabel ? state.label : "";
+    }
+
+    const flashed = flash && now < flash.until;
     if (statusEl) {
-      statusEl.textContent = statusLine(state);
-      statusEl.dataset.tone = finished ? "accent" : "";
+      statusEl.textContent = flashed ? flash.text : statusLine(state);
+      statusEl.dataset.tone = flashed || finished ? "accent" : "";
     }
 
     if (primaryBtn) {
       primaryBtn.textContent = timerPrimaryLabel(state);
       primaryBtn.disabled = false;
+    }
+    if (finishBtn) {
+      const canFinish = state.mode === "stopwatch" && clockMs > 0;
+      finishBtn.hidden = !canFinish;
+      finishBtn.title = clockMs < 60 * 1000
+        ? "Blocks under a minute are not logged"
+        : "Log this stopwatch block and reset";
     }
 
     if (labelInput && document.activeElement !== labelInput && labelInput.value !== state.label) {
@@ -190,13 +247,19 @@ export function initTimerTool({ store, onMinimise }) {
     if (autoWrap) autoWrap.hidden = state.mode !== "pomodoro";
     if (autoInput) autoInput.checked = store.getSettings().autoStart;
 
-    renderSidebarButton();
+    renderSidebarSelect();
     renderSoundButton();
   }
 
   // ---------- controls ----------
   primaryBtn?.addEventListener("click", () => store.toggle());
   resetBtn?.addEventListener("click", () => store.reset());
+
+  finishBtn?.addEventListener("click", () => {
+    const ms = store.finishStopwatch();
+    if (ms >= 60 * 1000) setFlash(`Logged ${formatDuration(ms)}`);
+    else setFlash("Not logged — under a minute");
+  });
 
   labelInput?.addEventListener("input", () => store.setLabel(labelInput.value));
   labelInput?.addEventListener("keydown", (event) => {
@@ -238,83 +301,17 @@ export function initTimerTool({ store, onMinimise }) {
     store.updateSettings({ autoStart: autoInput.checked });
   });
 
-  // ---------- optional off-canvas sidebar ----------
-  function revealSidebar() {
-    if (cleaned) return;
-    document.getElementById("sidebar")?.classList.add("timer-sidebar-revealed");
-    if (revealTimer) {
-      clearTimeout(revealTimer);
-      revealTimer = null;
-    }
+  // ---------- shared sidebar layout ----------
+  function renderSidebarSelect() {
+    if (!sidebarSelect || !sidebarMode) return;
+    const mode = sidebarMode.getMode();
+    if (sidebarSelect.value !== mode) sidebarSelect.value = mode;
+    const option = SIDEBAR_MODES.find((item) => item.id === mode);
+    sidebarSelect.title = option?.hint || "";
   }
 
-  function scheduleHideSidebar() {
-    if (revealTimer) clearTimeout(revealTimer);
-    revealTimer = setTimeout(() => {
-      document.getElementById("sidebar")?.classList.remove("timer-sidebar-revealed");
-      revealTimer = null;
-    }, 260);
-  }
-
-  function ensureHotzone() {
-    if (hotzone) return;
-    hotzone = document.createElement("div");
-    hotzone.id = "timerSidebarHotzone";
-    hotzone.setAttribute("aria-hidden", "true");
-    hotzone.addEventListener("pointerenter", revealSidebar);
-    document.body.appendChild(hotzone);
-
-    const sidebar = document.getElementById("sidebar");
-    sidebar?.addEventListener("pointerenter", revealSidebar);
-    sidebar?.addEventListener("pointerleave", scheduleHideSidebar);
-    sidebar?.addEventListener("focusin", revealSidebar);
-    sidebar?.addEventListener("focusout", scheduleHideSidebar);
-  }
-
-  function teardownSidebar() {
-    document.getElementById("app")?.classList.remove("timer-sidebar-hidden");
-    document.getElementById("sidebar")?.classList.remove("timer-sidebar-revealed");
-    if (revealTimer) {
-      clearTimeout(revealTimer);
-      revealTimer = null;
-    }
-    if (hotzone) {
-      hotzone.remove();
-      hotzone = null;
-    }
-    const sidebar = document.getElementById("sidebar");
-    sidebar?.removeEventListener("pointerenter", revealSidebar);
-    sidebar?.removeEventListener("pointerleave", scheduleHideSidebar);
-    sidebar?.removeEventListener("focusin", revealSidebar);
-    sidebar?.removeEventListener("focusout", scheduleHideSidebar);
-  }
-
-  function applySidebar(hidden) {
-    const app = document.getElementById("app");
-    app?.classList.toggle("timer-sidebar-hidden", hidden);
-    if (hidden) {
-      ensureHotzone();
-    } else {
-      teardownSidebar();
-    }
-    renderSidebarButton();
-  }
-
-  function renderSidebarButton() {
-    const hidden = store.getSettings().hideSidebar;
-    if (sidebarBtn) {
-      sidebarBtn.setAttribute("aria-pressed", String(hidden));
-      sidebarBtn.title = hidden
-        ? "Show the sidebar again"
-        : "Hide the sidebar and reveal it from the left edge";
-    }
-    if (sidebarLabel) sidebarLabel.textContent = hidden ? "Show sidebar" : "Hide sidebar";
-  }
-
-  sidebarBtn?.addEventListener("click", () => {
-    const next = !store.getSettings().hideSidebar;
-    store.updateSettings({ hideSidebar: next });
-    applySidebar(next);
+  sidebarSelect?.addEventListener("change", () => {
+    sidebarMode?.setMode(sidebarSelect.value);
   });
 
   function renderSoundButton() {
@@ -339,8 +336,6 @@ export function initTimerTool({ store, onMinimise }) {
     } else if (event.key === "r" || event.key === "R") {
       event.preventDefault();
       store.reset();
-    } else if (event.key === "Escape") {
-      document.getElementById("sidebar")?.classList.remove("timer-sidebar-revealed");
     }
   }
 
@@ -351,8 +346,10 @@ export function initTimerTool({ store, onMinimise }) {
     if (cleaned) return;
     cleaned = true;
     unsubscribe?.();
+    unsubscribeSidebar?.();
     document.removeEventListener("keydown", handleKeydown);
-    teardownSidebar();
+    if (flashTimer) clearTimeout(flashTimer);
+    flashTimer = null;
     if (window.__neuronetTimerCleanup === cleanup) delete window.__neuronetTimerCleanup;
     if (window.__neuronetOnReturnToGlobal === returnHome) {
       window.__neuronetOnReturnToGlobal = previousReturnHome;
@@ -374,5 +371,5 @@ export function initTimerTool({ store, onMinimise }) {
 
   const unsubscribeStore = store.subscribe(render);
   unsubscribe = unsubscribeStore;
-  applySidebar(store.getSettings().hideSidebar);
+  if (sidebarMode?.subscribe) unsubscribeSidebar = sidebarMode.subscribe(() => render(store.getState()));
 }

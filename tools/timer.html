@@ -58,6 +58,35 @@
     .timer-ghost-btn:hover { background: rgba(var(--overlay-rgb), 0.09); border-color: rgba(var(--accent-rgb), 0.32); }
     .timer-ghost-btn[aria-pressed="true"] { color: var(--accent); border-color: rgba(var(--accent-rgb), 0.45); background: rgba(var(--accent-rgb), 0.1); }
     .timer-ghost-btn i { font-size: 0.86em; }
+    .timer-ghost-btn[hidden] { display: none; }
+
+    .timer-select {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 36px;
+      padding: 5px 8px 5px 12px;
+      border: 1px solid rgba(var(--overlay-rgb), 0.14);
+      border-radius: 999px;
+      background: rgba(var(--overlay-rgb), 0.04);
+      color: var(--text-main);
+      font: inherit;
+      font-size: var(--text-sm, 0.86rem);
+      cursor: pointer;
+    }
+    .timer-select:hover { border-color: rgba(var(--accent-rgb), 0.32); }
+    .timer-select i { color: var(--accent); font-size: 0.86em; }
+    .timer-select select {
+      max-width: 178px;
+      padding: 3px 2px;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+      outline: none;
+    }
+    .timer-select option { background: var(--surface, #111); color: var(--text-main); }
 
     .timer-stage {
       flex: 1 1 auto;
@@ -71,7 +100,6 @@
     }
 
     .timer-ring {
-      --timer-progress: 0;
       position: relative;
       flex: 0 0 auto;
       width: clamp(248px, 46vh, 400px);
@@ -80,12 +108,35 @@
       max-height: calc(100vw - 48px);
       border-radius: 50%;
       padding: 10px;
-      background:
-        conic-gradient(var(--accent) calc(var(--timer-progress) * 1%), rgba(var(--overlay-rgb), 0.1) 0);
+      background: rgba(var(--overlay-rgb), 0.1);
       box-shadow: 0 24px 70px rgba(0, 0, 0, 0.18), 0 0 60px rgba(var(--accent-rgb), 0.08);
       transition: box-shadow .3s ease;
     }
     .timer-ring.is-empty { background: rgba(var(--overlay-rgb), 0.1); }
+    .timer-ring-progress {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      transform: rotate(-90deg);
+      pointer-events: none;
+    }
+    .timer-ring-track {
+      fill: none;
+      stroke: rgba(var(--overlay-rgb), 0.1);
+      stroke-width: 2.2;
+    }
+    .timer-ring-arc {
+      fill: none;
+      stroke: var(--accent);
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-dasharray: 295.31;
+      stroke-dashoffset: 295.31;
+      transition: stroke-dashoffset .25s linear;
+    }
+    .timer-ring.is-empty .timer-ring-arc { opacity: 0; }
+    .timer-ring.is-stopwatch .timer-ring-arc { display: none; }
     .timer-ring-inner {
       width: 100%;
       height: 100%;
@@ -127,6 +178,28 @@
       min-height: 1.2em;
     }
     .timer-status[data-tone="accent"] { color: var(--accent); }
+    .timer-focus-label {
+      max-width: 88%;
+      margin: 4px 0 0;
+      overflow: hidden;
+      color: rgba(var(--text-rgb), 0.62);
+      font-size: var(--text-sm, 0.88rem);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .timer-focus-label[hidden] { display: none; }
+
+    .timer-ring.is-stopwatch {
+      background: rgba(var(--overlay-rgb), 0.1);
+      box-shadow: inset 0 0 0 2px rgba(var(--accent-rgb), 0.32), 0 24px 70px rgba(0, 0, 0, 0.18);
+    }
+    #timerTool.is-running .timer-ring.is-stopwatch {
+      animation: timer-breathe 3.6s ease-in-out infinite;
+    }
+    @keyframes timer-breathe {
+      0%, 100% { box-shadow: inset 0 0 0 2px rgba(var(--accent-rgb), 0.28), 0 24px 70px rgba(0, 0, 0, 0.18); }
+      50% { box-shadow: inset 0 0 0 2px rgba(var(--accent-rgb), 0.55), 0 24px 78px rgba(var(--accent-rgb), 0.18); }
+    }
 
     .timer-label-field { width: min(460px, 100%); flex: 0 0 auto; }
     .timer-label-field input {
@@ -272,11 +345,64 @@
       letter-spacing: 0.02em;
     }
 
-    #timerTool.is-running .timer-config { opacity: 0.5; }
+    /* Focused session: setup, tally and hints fade away, the ring and actions
+       settle into the centre, then everything slides back on finish. */
+    .timer-ring,
+    .timer-stage,
+    .timer-label-field,
+    .timer-config,
+    .timer-meta,
+    .timer-hint,
+    .timer-actions {
+      transition:
+        opacity .34s ease,
+        transform .42s cubic-bezier(.22, 1, .36, 1),
+        max-height .42s cubic-bezier(.22, 1, .36, 1),
+        margin .42s cubic-bezier(.22, 1, .36, 1),
+        padding .42s cubic-bezier(.22, 1, .36, 1),
+        gap .42s cubic-bezier(.22, 1, .36, 1);
+    }
+    .timer-label-field,
+    .timer-config,
+    .timer-meta {
+      max-height: 360px;
+      overflow: hidden;
+    }
+    .timer-hint { max-height: 48px; }
+    #timerTool.is-focused .timer-stage {
+      justify-content: center;
+      gap: 14px;
+    }
+    #timerTool.is-focused .timer-ring {
+      box-shadow: 0 30px 86px rgba(0, 0, 0, 0.22), 0 0 76px rgba(var(--accent-rgb), 0.14);
+    }
+    #timerTool.is-focused .timer-label-field,
+    #timerTool.is-focused .timer-config,
+    #timerTool.is-focused .timer-meta,
+    #timerTool.is-focused .timer-hint {
+      max-height: 0;
+      margin: 0;
+      padding-block: 0;
+      overflow: hidden;
+      opacity: 0;
+      transform: translateY(14px) scale(.985);
+      visibility: hidden;
+      pointer-events: none;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .timer-ring,
+      .timer-stage,
+      .timer-label-field,
+      .timer-config,
+      .timer-meta,
+      .timer-hint,
+      .timer-actions { transition: none; }
+      #timerTool.is-running .timer-ring.is-stopwatch { animation: none; }
+    }
 
     @media (max-width: 700px) {
       .timer-head { padding: 12px 14px; }
-      #timerSidebarBtn { display: none; }
+      .timer-select { display: none; }
       .timer-heading p, .timer-btn-label { display: none; }
       .timer-ghost-btn { min-height: 40px; padding: 8px 11px; }
       .timer-stage { gap: 14px; padding: 16px 14px 26px; }
@@ -294,14 +420,15 @@
       <i class="fa-solid fa-stopwatch" aria-hidden="true"></i>
       <div>
         <h1>Timer</h1>
-        <p>Pomodoro and countdown timers. Minimise to keep it docked over your work.</p>
+        <p>Pomodoro, countdown and stopwatch timers. Minimise to keep it docked over your work.</p>
       </div>
     </div>
     <div class="timer-head-actions">
-      <button id="timerSidebarBtn" class="timer-ghost-btn" type="button" aria-pressed="false" title="Hide the sidebar and reveal it from the left edge">
+      <label class="timer-select" title="Sidebar layout">
         <i class="fa-solid fa-table-columns" aria-hidden="true"></i>
-        <span class="timer-btn-label" id="timerSidebarLabel">Hide sidebar</span>
-      </button>
+        <span class="sr-only">Sidebar layout</span>
+        <select id="timerSidebarMode"></select>
+      </label>
       <button id="timerSoundBtn" class="timer-ghost-btn" type="button" aria-pressed="false" title="Play a chime when a timer finishes">
         <i class="fa-solid fa-volume-xmark" aria-hidden="true"></i>
         <span class="timer-btn-label" id="timerSoundLabel">Sound off</span>
@@ -315,10 +442,15 @@
 
   <div class="timer-stage">
     <div class="timer-ring" id="timerRing">
+      <svg class="timer-ring-progress" viewBox="0 0 100 100" aria-hidden="true">
+        <circle class="timer-ring-track" cx="50" cy="50" r="47"></circle>
+        <circle class="timer-ring-arc" id="timerRingArc" cx="50" cy="50" r="47"></circle>
+      </svg>
       <div class="timer-ring-inner">
         <p class="timer-phase" id="timerPhase">Focus</p>
         <div class="timer-clock" id="timerClock" role="timer" aria-live="off">25:00</div>
         <p class="timer-status" id="timerStatus" role="status" aria-live="polite">Ready</p>
+        <p class="timer-focus-label" id="timerFocusLabel" hidden></p>
       </div>
     </div>
 
@@ -340,6 +472,10 @@
 
     <div class="timer-actions">
       <button id="timerPrimary" class="timer-primary" type="button">Start focus</button>
+      <button id="timerFinish" class="timer-ghost-btn" type="button" hidden>
+        <i class="fa-solid fa-check" aria-hidden="true"></i>
+        <span>Finish stopwatch</span>
+      </button>
       <button id="timerReset" class="timer-ghost-btn" type="button">
         <i class="fa-solid fa-rotate-left" aria-hidden="true"></i>
         <span>Reset</span>

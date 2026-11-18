@@ -9,6 +9,7 @@ export const TIMER_HISTORY_KEY = "nn-timer-history-v1";
 
 export const TIMER_MAX_MINUTES = 240;
 const TIMER_MAX_MS = TIMER_MAX_MINUTES * 60 * 1000;
+const STOPWATCH_MAX_MS = 24 * 60 * 60 * 1000;
 const HISTORY_DAYS = 60;
 
 export const TIMER_PRESETS = [
@@ -41,14 +42,26 @@ export const TIMER_PRESETS = [
     longBreakMs: 0,
     rounds: 0,
     hint: "any length"
+  },
+  {
+    id: "stopwatch",
+    name: "Stopwatch",
+    mode: "stopwatch",
+    focusMs: 0,
+    breakMs: 0,
+    longBreakMs: 0,
+    rounds: 0,
+    hint: "count up"
   }
 ];
 
+export const TIMER_SIZES = ["compact", "standard", "large"];
+
 export const DEFAULT_TIMER_SETTINGS = Object.freeze({
-  sound: false,       // off until the user turns it on
-  corner: "tl",       // tl | tr | bl | br
-  hideSidebar: false, // opt-in only
-  autoStart: false    // focus -> break still needs a deliberate start
+  sound: false,        // off until the user turns it on
+  corner: "tl",        // tl | tr | bl | br
+  size: "standard",    // compact | standard | large
+  autoStart: false     // focus -> break still needs a deliberate start
 });
 
 export function presetById(id) {
@@ -82,12 +95,18 @@ export function formatDuration(ms) {
 
 // Shared labels keep the dock, the tool and toasts from drifting apart.
 export function timerPhaseLabel(state) {
+  if (state.mode === "stopwatch") return "Stopwatch";
   if (state.status === "finished") return "Time's up";
   if (state.mode === "countdown") return "Countdown";
   return state.phase === "break" ? (state.breakLong ? "Long break" : "Break") : "Focus";
 }
 
 export function timerPrimaryLabel(state) {
+  if (state.mode === "stopwatch") {
+    if (state.status === "running") return "Pause";
+    if (state.status === "paused") return "Resume";
+    return "Start stopwatch";
+  }
   if (state.status === "running") return "Pause";
   if (state.status === "paused") return "Resume";
   if (state.status === "finished") {
@@ -112,9 +131,12 @@ function clampMs(value, fallback) {
 
 export function createTimerState({ presetId = "pomodoro25", minutes = null, label = "" } = {}) {
   const preset = presetById(presetId);
-  const durationMs = preset.mode === "countdown"
-    ? (normalizeMinutes(minutes) || 25) * 60 * 1000
-    : preset.focusMs;
+  const stopwatch = preset.mode === "stopwatch";
+  const durationMs = stopwatch
+    ? 0
+    : preset.mode === "countdown"
+      ? (normalizeMinutes(minutes) || 25) * 60 * 1000
+      : preset.focusMs;
   return {
     version: 1,
     presetId: preset.id,
@@ -124,6 +146,8 @@ export function createTimerState({ presetId = "pomodoro25", minutes = null, labe
     durationMs,
     remainingMs: durationMs,
     endAt: null,
+    elapsedMs: 0,
+    startedAt: null,
     status: "idle",
     cycleCount: 0,
     breakLong: false,
@@ -142,6 +166,21 @@ export function configureTimerState(state, patch = {}) {
 }
 
 export function resetTimerState(state) {
+  if (state.mode === "stopwatch") {
+    return {
+      ...state,
+      phase: "focus",
+      durationMs: 0,
+      remainingMs: 0,
+      endAt: null,
+      elapsedMs: 0,
+      startedAt: null,
+      status: "idle",
+      cycleCount: 0,
+      breakLong: false,
+      finishedAt: null
+    };
+  }
   const durationMs = state.mode === "countdown"
     ? clampMs(state.durationMs, 25 * 60 * 1000)
     : presetById(state.presetId).focusMs;
@@ -151,6 +190,8 @@ export function resetTimerState(state) {
     durationMs,
     remainingMs: durationMs,
     endAt: null,
+    elapsedMs: 0,
+    startedAt: null,
     status: "idle",
     cycleCount: 0,
     breakLong: false,
@@ -159,6 +200,22 @@ export function resetTimerState(state) {
 }
 
 export function dismissTimerState(state) {
+  if (state.mode === "stopwatch") {
+    return {
+      ...state,
+      phase: "focus",
+      label: "",
+      durationMs: 0,
+      remainingMs: 0,
+      endAt: null,
+      elapsedMs: 0,
+      startedAt: null,
+      status: "idle",
+      cycleCount: 0,
+      breakLong: false,
+      finishedAt: null
+    };
+  }
   const durationMs = state.mode === "countdown"
     ? clampMs(state.durationMs, 25 * 60 * 1000)
     : presetById(state.presetId).focusMs;
@@ -169,6 +226,8 @@ export function dismissTimerState(state) {
     durationMs,
     remainingMs: durationMs,
     endAt: null,
+    elapsedMs: 0,
+    startedAt: null,
     status: "idle",
     cycleCount: 0,
     breakLong: false,
@@ -176,8 +235,36 @@ export function dismissTimerState(state) {
   };
 }
 
+export function elapsedOf(state, now) {
+  if (state.mode !== "stopwatch") return 0;
+  const live = state.status === "running" && Number.isFinite(state.startedAt)
+    ? Math.max(0, now - state.startedAt)
+    : 0;
+  return Math.min(STOPWATCH_MAX_MS, Math.max(0, (Number(state.elapsedMs) || 0) + live));
+}
+
+// What the views should show on the clock: count down for timed modes, count
+// up for the stopwatch.
+export function displayMsOf(state, now) {
+  if (state.mode === "stopwatch") return elapsedOf(state, now);
+  if (state.status === "running" && Number.isFinite(state.endAt)) {
+    return Math.max(0, state.endAt - now);
+  }
+  return Math.max(0, state.remainingMs);
+}
+
 export function startTimerState(state, now) {
   if (state.status === "running") return state;
+  if (state.mode === "stopwatch") {
+    return {
+      ...state,
+      status: "running",
+      startedAt: now,
+      remainingMs: 0,
+      endAt: null,
+      finishedAt: null
+    };
+  }
   if (state.status === "finished") return startNextPhase(state, now);
   const remainingMs = state.remainingMs > 0 ? state.remainingMs : state.durationMs;
   return {
@@ -191,6 +278,17 @@ export function startTimerState(state, now) {
 
 export function pauseTimerState(state, now) {
   if (state.status !== "running") return state;
+  if (state.mode === "stopwatch") {
+    const elapsedMs = elapsedOf(state, now);
+    return {
+      ...state,
+      status: "paused",
+      elapsedMs,
+      startedAt: null,
+      remainingMs: 0,
+      endAt: null
+    };
+  }
   const remainingMs = Math.max(0, state.endAt - now);
   if (remainingMs <= 0) return finishTimerState(state, state.endAt);
   return {
@@ -282,24 +380,41 @@ export function startNextPhase(state, now) {
 export function hydrateTimerState(raw, now) {
   if (!raw || typeof raw !== "object") return null;
   const preset = presetById(raw.presetId);
+  const stopwatch = preset.mode === "stopwatch";
   const statuses = ["idle", "running", "paused", "finished"];
-  const status = statuses.includes(raw.status) ? raw.status : "idle";
-  const phase = preset.mode === "countdown" ? "focus" : (raw.phase === "break" ? "break" : "focus");
+  let status = statuses.includes(raw.status) ? raw.status : "idle";
+  if (stopwatch && status === "finished") status = "idle";
+  const phase = preset.mode === "countdown" || stopwatch ? "focus" : (raw.phase === "break" ? "break" : "focus");
   let state = {
     version: 1,
     presetId: preset.id,
     mode: preset.mode,
     phase,
     label: cleanLabel(raw.label),
-    durationMs: clampMs(raw.durationMs, preset.focusMs),
-    remainingMs: clampMs(raw.remainingMs, preset.focusMs),
+    durationMs: stopwatch ? 0 : clampMs(raw.durationMs, preset.focusMs),
+    remainingMs: stopwatch ? 0 : clampMs(raw.remainingMs, preset.focusMs),
     endAt: Number.isFinite(raw.endAt) ? raw.endAt : null,
+    elapsedMs: stopwatch
+      ? Math.min(STOPWATCH_MAX_MS, Math.max(0, Math.round(Number(raw.elapsedMs) || 0)))
+      : 0,
+    startedAt: stopwatch && Number.isFinite(raw.startedAt) ? raw.startedAt : null,
     status,
     cycleCount: Math.max(0, Math.min(99, Math.floor(Number(raw.cycleCount) || 0))),
     breakLong: raw.breakLong === true,
     finishedAt: Number.isFinite(raw.finishedAt) ? raw.finishedAt : null
   };
+  if (stopwatch) {
+    state.breakLong = false;
+    state.endAt = null;
+    if (state.status === "running" && !Number.isFinite(state.startedAt)) {
+      state = { ...state, status: state.elapsedMs > 0 ? "paused" : "idle" };
+    }
+    if (state.status !== "running") state.startedAt = null;
+    return state;
+  }
   if (state.mode === "countdown") state.breakLong = false;
+  state.elapsedMs = 0;
+  state.startedAt = null;
   if (state.status === "running" && !Number.isFinite(state.endAt)) {
     state = { ...state, status: "paused", endAt: null };
   }
@@ -338,21 +453,33 @@ export function normalizeTimerHistory(raw) {
   return { days: Object.fromEntries(entries) };
 }
 
-export function recordTimerSession(history, finishedState) {
-  if (!finishedState || !Number.isFinite(finishedState.finishedAt)) return history;
-  const isFocus = finishedState.mode === "countdown" || finishedState.phase === "focus";
-  if (!isFocus) return history;
-  const key = dateKeyLocal(finishedState.finishedAt);
+function addFocusTime(history, ms, at) {
+  if (!Number.isFinite(ms) || ms <= 0 || !Number.isFinite(at)) return history;
+  const key = dateKeyLocal(at);
   const previous = history.days[key] || { sessions: 0, ms: 0 };
   return normalizeTimerHistory({
     days: {
       ...history.days,
       [key]: {
         sessions: previous.sessions + 1,
-        ms: previous.ms + Math.max(0, finishedState.durationMs)
+        ms: previous.ms + Math.round(ms)
       }
     }
   });
+}
+
+// Stopwatch blocks are only worth logging once they represent real study time.
+export function recordFocusTime(history, ms, at) {
+  if (!Number.isFinite(ms) || ms < 60 * 1000 || !Number.isFinite(at)) return history;
+  return addFocusTime(history, ms, at);
+}
+
+export function recordTimerSession(history, finishedState) {
+  if (!finishedState || !Number.isFinite(finishedState.finishedAt)) return history;
+  if (finishedState.mode === "stopwatch") return history;
+  const isFocus = finishedState.mode === "countdown" || finishedState.phase === "focus";
+  if (!isFocus) return history;
+  return addFocusTime(history, finishedState.durationMs, finishedState.finishedAt);
 }
 
 export function todaySummary(history, now = Date.now()) {
@@ -365,7 +492,7 @@ export function normalizeTimerSettings(raw) {
   return {
     sound: input.sound === true,
     corner: ["tl", "tr", "bl", "br"].includes(input.corner) ? input.corner : "tl",
-    hideSidebar: input.hideSidebar === true,
+    size: TIMER_SIZES.includes(input.size) ? input.size : "standard",
     autoStart: input.autoStart === true
   };
 }
@@ -476,6 +603,19 @@ export function createTimerStore({ storage = null, now = () => Date.now(), tickM
     emit("sync");
   }
 
+  // Stopwatch time only becomes a study session when the user finishes or
+  // leaves it; sub-minute noise is ignored.
+  function logStopwatchTime() {
+    if (state.mode !== "stopwatch") return 0;
+    const at = now();
+    const ms = elapsedOf(state, at);
+    if (ms < 60 * 1000) return 0;
+    const before = history;
+    history = recordFocusTime(history, ms, at);
+    if (history !== before) writeJSON(storage, TIMER_HISTORY_KEY, history);
+    return ms;
+  }
+
   const store = {
     getState: () => state,
     getSettings: () => ({ ...settings }),
@@ -517,10 +657,28 @@ export function createTimerStore({ storage = null, now = () => Date.now(), tickM
       emit("change");
     },
     dismiss() {
+      // Clearing a stopwatch is an implicit finish; a countdown is not.
+      if (state.mode === "stopwatch") logStopwatchTime();
       state = dismissTimerState(state);
       emit("change");
     },
+    // Explicitly close a stopwatch block and credit it to today.
+    finishStopwatch() {
+      const ms = state.mode === "stopwatch" ? elapsedOf(state, now()) : 0;
+      if (state.mode !== "stopwatch") return 0;
+      if (ms < 60 * 1000) {
+        state = resetTimerState(state);
+        emit("change");
+        return 0;
+      }
+      logStopwatchTime();
+      state = resetTimerState(state);
+      emit("change");
+      return ms;
+    },
     configure(patch) {
+      // Leaving a stopwatch should not silently throw away the elapsed block.
+      if (state.mode === "stopwatch") logStopwatchTime();
       state = configureTimerState(state, patch);
       emit("change");
     },
@@ -549,16 +707,36 @@ export function createTimerStore({ storage = null, now = () => Date.now(), tickM
       if (ticker) clearInterval(ticker);
       ticker = null;
       listeners.clear();
+      detachWindowListeners();
     }
   };
 
+  // A stopwatch measures presence, not wall-clock time. Pausing on unload
+  // stops a reload from claiming the minutes the tab spent closed. Countdowns
+  // keep running because they resolve from an absolute `endAt`.
+  function handlePageHide() {
+    if (state.mode === "stopwatch" && state.status === "running") store.pause();
+  }
+
+  function handleStorage(event) {
+    if (event.key === TIMER_STATE_KEY || event.key === TIMER_SETTINGS_KEY || event.key === TIMER_HISTORY_KEY) {
+      sync();
+    }
+  }
+
+  let windowListenersAttached = false;
+  function detachWindowListeners() {
+    if (!windowListenersAttached) return;
+    windowListenersAttached = false;
+    window.removeEventListener("pagehide", handlePageHide);
+    window.removeEventListener("storage", handleStorage);
+  }
+
   // Pick up a timer started or stopped in another tab.
   if (storage && typeof window !== "undefined" && typeof window.addEventListener === "function") {
-    window.addEventListener("storage", (event) => {
-      if (event.key === TIMER_STATE_KEY || event.key === TIMER_SETTINGS_KEY || event.key === TIMER_HISTORY_KEY) {
-        sync();
-      }
-    });
+    window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("storage", handleStorage);
+    windowListenersAttached = true;
   }
 
   ensureTicker();
