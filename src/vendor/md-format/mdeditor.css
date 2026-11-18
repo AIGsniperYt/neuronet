@@ -150,6 +150,30 @@
     background: color-mix(in srgb, var(--md-accent) 16%, var(--md-panel));
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--md-accent) 35%, transparent);
 }
+.mdedit .mdedit-view-group {
+    gap: 1px;
+    padding: 2px;
+}
+.mdedit .mdedit-view-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    min-width: 28px;
+    height: 26px;
+    min-height: 26px;
+    padding: 0;
+}
+.mdedit .mdedit-view-action svg {
+    width: 14px;
+    height: 14px;
+    display: block;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
 .mdedit .mdedit-bar .sep {
     width: 1px;
     height: 18px;

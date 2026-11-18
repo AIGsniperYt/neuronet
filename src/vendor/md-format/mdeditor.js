@@ -252,19 +252,26 @@ export function createEditor(container, opts = {}) {
                 historyControls.appendChild(btn);
             }
             const viewGroup = div("mdedit-action-group");
+            viewGroup.classList.add("mdedit-view-group");
             viewGroup.setAttribute("aria-label", "Editor view");
+            const viewIcons = {
+                md: '<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4.5 5 2 8l2.5 3M11.5 5 14 8l-2.5 3M9.5 4l-3 8"/></svg>',
+                split: '<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="2.5" y="3.5" width="11" height="9" rx="1.5"/><path d="M8 3.5v9"/></svg>',
+                preview: '<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M1.75 8s2.1-3.5 6.25-3.5S14.25 8 14.25 8s-2.1 3.5-6.25 3.5S1.75 8 1.75 8Z"/><circle cx="8" cy="8" r="1.75"/></svg>'
+            };
             for (const [value, label, title] of [
-                ["preview", "Visual", "Edit the rendered document"],
-                ["split", "Split", "Edit markdown beside the rendered document"],
-                ["md", "Source", "Edit raw markdown"]
+                ["md", "Source", "Edit raw markdown"],
+                ["split", "Split", "Edit markdown beside the preview"],
+                ["preview", "Preview", "View the rendered document"]
             ]) {
                 const btn = document.createElement("button");
                 btn.type = "button";
-                btn.className = "mdedit-action";
+                btn.className = "mdedit-action mdedit-view-action";
                 btn.dataset.view = value;
                 btn.setAttribute("aria-pressed", "false");
+                btn.setAttribute("aria-label", label);
                 btn.title = title;
-                btn.textContent = label;
+                btn.innerHTML = viewIcons[value] || label;
                 viewGroup.appendChild(btn);
             }
             const breakGroup = div("mdedit-action-group");
@@ -465,9 +472,15 @@ export function createEditor(container, opts = {}) {
         if (pvOnly) {
             /* preview-only: the textarea is hidden, the contenteditable .md
              * is the typing surface — focus it, not the invisible textarea. */
+            previewPane.style.flex = "1 1 auto";
             (preview.querySelector(".md") || preview).focus();
-        } else if (!mdOnly) {
-            /* split view: the source textarea is the primary input */
+        } else if (mdOnly) {
+            /* source-only: let the editor own the full row instead of keeping
+             * the split ratio as a fixed flex-basis. */
+            editorPane.style.flex = "1 1 auto";
+        } else {
+            /* split view: restore the saved ratio and focus the source. */
+            applySplit();
             editor.focus();
         }
         refresh();
@@ -1114,7 +1127,11 @@ export function createEditor(container, opts = {}) {
      * proportion — the panes are a lens, not bolted to the window.
      * ================================================================== */
     let ratio = splitRatio;
-    const applySplit = () => { editorPane.style.flex = `0 0 ${(ratio * 100).toFixed(1)}%`; };
+    const applySplit = () => {
+        if (currentView !== "split") return;
+        editorPane.style.flex = `0 0 ${(ratio * 100).toFixed(1)}%`;
+        previewPane.style.flex = "1 1 0";
+    };
     let dragging = false;
     dividerEl.addEventListener("mousedown", () => { dragging = true; dividerEl.classList.add("dragging"); }, sig);
     window.addEventListener("mousemove", (e) => {
