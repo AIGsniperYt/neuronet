@@ -87,6 +87,18 @@
       border-color: rgba(var(--accent-rgb), 0.45);
       background: rgba(var(--accent-rgb), 0.12);
     }
+    /* Solid star is always available in the vendored icon set; render the
+       unmarked insight state as a quiet outline instead of fa-regular. */
+    .journal-insight-btn .fa-star {
+      color: transparent;
+      -webkit-text-stroke: 1.6px rgba(var(--text-rgb), 0.45);
+      transition: color .15s ease, -webkit-text-stroke-color .15s ease;
+    }
+    .journal-insight-btn.marked .fa-star,
+    .journal-insight-btn[aria-pressed="true"] .fa-star {
+      color: var(--accent);
+      -webkit-text-stroke: 0 transparent;
+    }
 
     .journal-body {
       flex: 1 1 auto;
@@ -239,35 +251,50 @@
       outline: none;
     }
     .journal-title::placeholder { color: rgba(var(--text-rgb), 0.28); }
+    .journal-prompt-bar {
+      padding: 6px 22px 0;
+      display: flex;
+      align-items: center;
+    }
+    .journal-prompt-toggle {
+      padding: 2px 0;
+      border: 0;
+      background: transparent;
+      color: rgba(var(--text-rgb), 0.3);
+      font: inherit;
+      font-size: 0.7rem;
+      cursor: pointer;
+    }
+    .journal-prompt-toggle:hover { color: rgba(var(--text-rgb), 0.54); }
     .journal-prompt {
-      margin: 10px 22px 0;
+      margin: 4px 22px 0;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
-      padding: 10px 12px;
-      border: 1px dashed rgba(var(--accent-rgb), 0.28);
-      border-radius: 12px;
-      background: rgba(var(--accent-rgb), 0.05);
+      gap: 10px;
+      padding: 6px 10px;
+      border: 1px dashed rgba(var(--accent-rgb), 0.18);
+      border-radius: 10px;
+      background: rgba(var(--accent-rgb), 0.03);
       color: var(--text-muted);
-      font-size: 0.86rem;
-      line-height: 1.45;
+      font-size: 0.8rem;
+      line-height: 1.4;
     }
     .journal-prompt[hidden] { display: none; }
     .journal-prompt-text { flex: 1 1 auto; }
-    .journal-prompt-text em { color: var(--accent); font-style: normal; }
-    .journal-prompt-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+    .journal-prompt-text em { color: rgba(var(--text-rgb), 0.5); font-style: normal; font-size: 0.74rem; }
+    .journal-prompt-actions { display: flex; gap: 4px; flex: 0 0 auto; }
     .journal-chip {
-      padding: 5px 10px;
-      border: 1px solid rgba(var(--overlay-rgb), 0.14);
+      padding: 3px 8px;
+      border: 1px solid rgba(var(--overlay-rgb), 0.12);
       border-radius: 999px;
-      background: rgba(var(--overlay-rgb), 0.04);
-      color: var(--text-main);
+      background: transparent;
+      color: var(--text-muted);
       font: inherit;
-      font-size: 0.76rem;
+      font-size: 0.72rem;
       cursor: pointer;
     }
-    .journal-chip:hover { border-color: rgba(var(--accent-rgb), 0.32); color: var(--accent); }
+    .journal-chip:hover { border-color: rgba(var(--accent-rgb), 0.28); color: var(--accent); }
     .journal-editor-host {
       flex: 1 1 auto;
       min-height: 0;
@@ -299,7 +326,8 @@
       .journal-head { padding: 14px; }
       .journal-heading p { display: none; }
       .journal-title-wrap { padding: 14px 16px 0; }
-      .journal-prompt { margin: 10px 16px 0; }
+      .journal-prompt-bar { padding: 6px 16px 0; }
+      .journal-prompt { margin: 4px 16px 0; }
     }
   </style>
 
@@ -338,8 +366,8 @@
           <div id="journalStats" class="stats"></div>
         </div>
         <div class="journal-editor-actions">
-          <button id="journalInsightBtn" class="journal-btn icon-only" type="button" aria-pressed="false" title="Mark as an insight worth revisiting">
-            <i class="fa-regular fa-star" aria-hidden="true"></i>
+          <button id="journalInsightBtn" class="journal-btn icon-only journal-insight-btn" type="button" aria-pressed="false" title="Mark as an insight worth revisiting">
+            <i class="fa-solid fa-star" aria-hidden="true"></i>
           </button>
           <button id="journalDeleteBtn" class="journal-btn icon-only danger" type="button" title="Delete this entry">
             <i class="fa-solid fa-trash" aria-hidden="true"></i>
@@ -352,12 +380,15 @@
         <input id="journalTitle" class="journal-title" type="text" maxlength="160" placeholder="A title, if it wants one…" autocomplete="off" />
       </div>
 
-      <div id="journalPrompt" class="journal-prompt" hidden>
-        <div class="journal-prompt-text"><em>Starting point:</em> <span id="journalPromptText"></span></div>
+      <div class="journal-prompt-bar">
+        <button id="journalPromptToggle" class="journal-prompt-toggle" type="button">Prompt</button>
+      </div>
+      <div id="journalPrompt" class="journal-prompt" data-open="false" hidden>
+        <div class="journal-prompt-text"><em>Idea:</em> <span id="journalPromptText"></span></div>
         <div class="journal-prompt-actions">
-          <button id="journalPromptUse" class="journal-chip" type="button">Use this</button>
-          <button id="journalPromptShuffle" class="journal-chip" type="button" title="Another prompt">Another</button>
-          <button id="journalPromptDismiss" class="journal-chip" type="button" title="Dismiss">×</button>
+          <button id="journalPromptUse" class="journal-chip" type="button">Insert</button>
+          <button id="journalPromptShuffle" class="journal-chip" type="button" title="Another">Another</button>
+          <button id="journalPromptDismiss" class="journal-chip" type="button" title="Close">×</button>
         </div>
       </div>
 

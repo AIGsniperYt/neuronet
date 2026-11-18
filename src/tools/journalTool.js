@@ -45,6 +45,7 @@ export async function initJournalTool(deps = {}, context = {}) {
     promptUse: $("journalPromptUse"),
     promptShuffle: $("journalPromptShuffle"),
     promptDismiss: $("journalPromptDismiss"),
+    promptToggle: $("journalPromptToggle"),
     editorHost: $("journalEditorHost"),
     status: $("journalStatus")
   };
@@ -153,16 +154,20 @@ export async function initJournalTool(deps = {}, context = {}) {
     const savedLabel = updated ? ` · saved ${formatJournalTime(updated)}` : "";
     if (el.stats) el.stats.textContent = `${words} ${words === 1 ? "word" : "words"}${savedLabel}`;
     if (el.insightBtn) {
-      el.insightBtn.setAttribute("aria-pressed", String(entry.insight === true));
-      el.insightBtn.title = entry.insight ? "Insight marked" : "Mark as an insight worth revisiting";
-      el.insightBtn.innerHTML = `<i class="${entry.insight ? "fa-solid" : "fa-regular"} fa-star" aria-hidden="true"></i>`;
+      const marked = entry.insight === true;
+      el.insightBtn.setAttribute("aria-pressed", String(marked));
+      el.insightBtn.classList.toggle("marked", marked);
+      el.insightBtn.title = marked ? "Insight marked" : "Mark as an insight worth revisiting";
+      // fa-regular webfont isn't vendored; render a solid star and style the
+      // unmarked state as an outline via CSS so it works everywhere.
+      el.insightBtn.innerHTML = `<i class="fa-solid fa-star" aria-hidden="true"></i>`;
     }
   }
 
-  function renderPrompt(entry) {
+  function renderPrompt(_entry) {
+    // Prompts are opt-in: introspective writing doesn't need a nudge by default.
     if (!el.prompt) return;
-    const empty = entry && !String(entry.title || "").trim() && !String(entry.body || "").trim();
-    const show = empty && !promptDismissed;
+    const show = !promptDismissed && el.prompt.dataset.open === "true";
     el.prompt.hidden = !show;
     if (show && el.promptText) {
       el.promptText.textContent = pickJournalPrompt(promptSeed);
@@ -189,6 +194,7 @@ export async function initJournalTool(deps = {}, context = {}) {
     const entry = currentEntry();
     if (!entry) return;
     promptDismissed = false;
+    if (el.prompt) el.prompt.dataset.open = "false";
     loadEntryIntoEditor(entry);
     renderList();
     if (focusEditor) {
@@ -265,6 +271,7 @@ export async function initJournalTool(deps = {}, context = {}) {
     }
     promptSeed = Date.now();
     promptDismissed = false;
+    if (el.prompt) el.prompt.dataset.open = "false";
     currentId = entry.id;
     loadEntryIntoEditor(entry);
     renderList();
@@ -344,12 +351,14 @@ export async function initJournalTool(deps = {}, context = {}) {
 
   editor = createEditor(el.editorHost, {
     value: "",
-    view: "wysiwyg",
+    // Default to source for full writing space; the vendored editor's taskbar
+    // exposes source/split/preview so users can switch when they want to.
+    view: "md",
     toolbar: EDITOR_TOOLBAR,
-    taskbar: false,
-    storage: false,
+    taskbar: true,
+    storage: "nn-journal-editor",
     softBreaks: true,
-    placeholder: "Start anywhere. A thought, a feeling, a question you can't shake…"
+    placeholder: "Write what's on your mind."
   });
   editor.onChange(() => {
     scheduleSave();
@@ -377,9 +386,15 @@ export async function initJournalTool(deps = {}, context = {}) {
     if (entry) renderPrompt(entry);
   });
   el.promptDismiss?.addEventListener("click", () => {
+    if (el.prompt) el.prompt.dataset.open = "false";
     promptDismissed = true;
-    const entry = currentEntry();
-    if (entry) renderPrompt(entry);
+    renderPrompt(currentEntry());
+  });
+  el.promptToggle?.addEventListener("click", () => {
+    promptDismissed = false;
+    promptSeed += 1;
+    if (el.prompt) el.prompt.dataset.open = el.prompt.dataset.open === "true" ? "false" : "true";
+    renderPrompt(currentEntry());
   });
   el.list?.addEventListener("click", (event) => {
     const btn = event.target.closest("[data-entry-id]");

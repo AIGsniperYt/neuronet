@@ -18,8 +18,8 @@ Writing here is also a way to think: talking to yourself on the page can surface
 
 ## MVP behaviour
 
-- Markdown-capable editor (via the vendored `md-format`), large and quiet.
-- One optional, dismissible "starting point" prompt on an empty entry — insertable, never blocking.
+- Markdown-capable editor (via the vendored `md-format`), defaulting to a spacious source view with the built-in source/split/preview toggle available.
+- A small, opt-in prompt ("Prompt") if you want a starting point — never shown by default, insertable and dismissible.
 - Reverse-chronological list grouped by month, with snippet, word count and last-edited time.
 - Autosave; explicit delete with confirmation.
 
