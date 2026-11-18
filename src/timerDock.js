@@ -47,6 +47,7 @@ export function initTimerDock({ store, toast, openTool, isToolActive, sidebarMod
   const menu = document.getElementById("timerDockMenu");
   const chipsEl = document.getElementById("timerDockChips");
   const chipsInlineEl = document.getElementById("timerDockChipsInline");
+  const quickSectionEl = document.getElementById("timerDockQuickSection");
   const labelInput = document.getElementById("timerDockLabel");
   const presetsEl = document.getElementById("timerDockPresets");
   const customEl = document.getElementById("timerDockCustom");
@@ -209,6 +210,17 @@ export function initTimerDock({ store, toast, openTool, isToolActive, sidebarMod
   function render(state) {
     syncTitle(state);
     const show = visible(state);
+    const running = state.status === "running";
+
+    // Keep the state classes truthful even while hidden, so a dock that was
+    // reset or dismissed never comes back wearing stale "running" styling.
+    dock.classList.toggle("is-finished", state.status === "finished");
+    dock.classList.toggle("is-paused", state.status === "paused");
+    dock.classList.toggle("is-running", running);
+    dock.classList.toggle("is-stopwatch", state.mode === "stopwatch");
+    dock.dataset.status = state.status;
+    dock.dataset.phase = state.phase;
+
     dock.hidden = !show;
     if (!show) {
       closeMenu();
@@ -217,16 +229,8 @@ export function initTimerDock({ store, toast, openTool, isToolActive, sidebarMod
 
     const clockMs = displayMsOf(state, Date.now());
     const phase = timerPhaseLabel(state);
-    const running = state.status === "running";
     const locked = running || state.status === "paused";
     const settings = store.getSettings();
-
-    dock.classList.toggle("is-finished", state.status === "finished");
-    dock.classList.toggle("is-paused", state.status === "paused");
-    dock.classList.toggle("is-running", running);
-    dock.classList.toggle("is-stopwatch", state.mode === "stopwatch");
-    dock.dataset.status = state.status;
-    dock.dataset.phase = state.phase;
 
     const label = dockPhaseLabel(state);
     if (phaseEl) phaseEl.textContent = label;
@@ -268,6 +272,7 @@ export function initTimerDock({ store, toast, openTool, isToolActive, sidebarMod
       if (minutesInput.value !== String(minutes)) minutesInput.value = String(minutes);
     }
     if (minutesInput) minutesInput.disabled = locked;
+    if (quickSectionEl) quickSectionEl.hidden = locked;
     dock.querySelectorAll("[data-minutes]").forEach((chip) => {
       const minutes = Number(chip.dataset.minutes);
       const active = isCountdown && Math.round(state.durationMs / 60000) === minutes;

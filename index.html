@@ -3071,7 +3071,7 @@ select {
 .timer-dock.size-compact .timer-dock-grip { width: 16px; height: 26px; }
 .timer-dock.size-compact .timer-dock-btn { width: 26px; height: 26px; font-size: 0.74rem; }
 .timer-dock.size-compact .timer-dock-size { display: none; }
-.timer-dock.size-large { max-width: min(440px, calc(100% - 24px)); padding: 8px 10px 8px 13px; }
+.timer-dock.size-large { width: min(440px, calc(100% - 24px)); max-width: min(440px, calc(100% - 24px)); padding: 8px 10px 8px 13px; }
 .timer-dock.size-large .timer-dock-time { font-size: 1.55rem; }
 .timer-dock.size-large .timer-dock-phase { max-width: 220px; font-size: 10.5px; }
 .timer-dock.size-large .timer-dock-btn { width: 34px; height: 34px; font-size: 0.9rem; }
@@ -3083,6 +3083,10 @@ select {
   padding: 6px 2px 1px 22px;
 }
 .timer-dock.size-large .timer-dock-chips { display: flex; }
+/* Presets are locked for the length of a block, so the shortcut row gets out
+   of the way rather than sitting there disabled. Reset brings it back. */
+.timer-dock.is-running .timer-dock-chips,
+.timer-dock.is-paused .timer-dock-chips { display: none; }
 .timer-dock-chip {
   padding: 4px 9px;
   border: 1px solid rgba(var(--overlay-rgb), 0.14);
@@ -3118,6 +3122,7 @@ select {
 .timer-dock.corner-br .timer-dock-menu { right: 0; }
 .timer-dock-menu[hidden] { display: none; }
 .timer-menu-section { display: flex; flex-direction: column; gap: 6px; margin-bottom: 11px; }
+.timer-menu-section[hidden] { display: none; }
 .timer-menu-label {
   color: rgba(var(--text-rgb), 0.54);
   font-size: 9px;
@@ -3493,7 +3498,7 @@ select {
             <input id="timerDockMinutes" type="number" min="1" max="240" step="1" inputmode="numeric" value="25" />
           </div>
         </div>
-        <div class="timer-menu-section">
+        <div id="timerDockQuickSection" class="timer-menu-section">
           <span class="timer-menu-label">Quick lengths</span>
           <div id="timerDockChipsInline" class="timer-menu-chips" role="group" aria-label="Quick lengths"></div>
         </div>
