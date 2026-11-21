@@ -12,7 +12,7 @@ export const SCHEMA_VERSION = 13;
 // journals: personal reflective entries (STUB — IndexedDB today, planned
 // migration to user-owned PC/file storage later). Exported with the dataset so
 // they survive browser resets and travel with the user's JSON backup.
-const COLLECTIONS = ["nodes", "quotes", "cues", "cards", "heaps", "decks", "subjects", "tasks", "commitments", "journals", "questions", "questionAnswers", "questionBanks", "questionSources", "assessmentSessions", "assessmentAttempts", "questionMedia"];
+const COLLECTIONS = ["nodes", "quotes", "cues", "cards", "heaps", "decks", "subjects", "tasks", "commitments", "journals", "questions", "questionAnswers", "questionBanks", "questionSources", "assessmentSessions", "assessmentAttempts", "questionMedia", "questionTagRecords"];
 
 export function assertCurrentDataset(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {

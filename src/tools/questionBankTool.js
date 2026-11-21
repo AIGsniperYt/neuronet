@@ -3,7 +3,7 @@ import { generateAssessment, questionEvidence } from "./assessmentEngine.js";
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecords, putQuestionRecords, addCard }) {
+export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecords, putQuestionRecords, addCard, getAllTags, addTag }) {
   const file = document.getElementById("questionPdf");
   const name = document.getElementById("questionBankName");
   const status = document.getElementById("questionStatus");
@@ -57,9 +57,11 @@ export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecord
     const questions = (await getQuestionRecords("questions")).filter((q) => (bank.questionIds || []).includes(q.id));
     const attempts = await getQuestionRecords("assessmentAttempts");
     const byTag = new Map();
+    const tagRecords = await getAllTags();
+    const tagNames = new Map(tagRecords.map((tag) => [tag.id, tag.title]));
     for (const q of questions) {
       const evidence = questionEvidence(q.id, attempts);
-      const tags = q.tags?.length ? q.tags : ["Untagged"];
+      const tags = q.tagIds?.length ? q.tagIds.map((id) => tagNames.get(id) || "Unknown topic") : ["Untagged"];
       for (const tag of tags) {
         const row = byTag.get(tag) || { total: 0, unseen: 0, weak: 0, full: 0, repeated: 0 };
         row.total++;
@@ -125,10 +127,21 @@ export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecord
     const questions = await getQuestionRecords("questions");
     const banks = await getQuestionRecords("questionBanks");
     const sources = await getQuestionRecords("questionSources");
+    const requestedNames = [...new Set(items.flatMap((el) => el.querySelector("input").value.split(",").map((x) => x.trim()).filter(Boolean)))];
+    const tagRecords = await getAllTags();
+    const tagIds = new Map(tagRecords.map((tag) => [tag.title.trim().toLowerCase(), tag.id]));
+    for (const title of requestedNames) {
+      const key = title.toLowerCase();
+      if (!tagIds.has(key)) {
+        const record = await addTag({ title, subject: "" });
+        tagIds.set(key, record.id);
+      }
+    }
     const imported = items.map((el, i) => {
       const q = staged[Number(el.dataset.index)];
       const existing = questions.find((row) => row.id === q.id) || {};
-      return { ...existing, id: q.id, kind: "question", prompt: [{ type: "text", text: el.querySelector("textarea").value }], answerIds: [], maxMarks: existing.maxMarks ?? null, tags: el.querySelector("input").value.split(",").map((x) => x.trim()).filter(Boolean), bankIds: [...new Set([...(existing.bankIds || []), bankId])], sourceId, sourceLabel: existing.sourceLabel || file.files[0]?.name, sourcePage: q.page, sourceQuestionLabel: q.label, sourceOrder: i + 1, status: "confirmed", createdAt: existing.createdAt || Date.now(), revision: existing.revision || 1 };
+      const itemTags = el.querySelector("input").value.split(",").map((x) => x.trim()).filter(Boolean).map((title) => tagIds.get(title.toLowerCase())).filter(Boolean);
+      return { ...existing, id: q.id, kind: "question", prompt: [{ type: "text", text: el.querySelector("textarea").value }], answerIds: [], maxMarks: existing.maxMarks ?? null, tagIds: [...new Set([...(existing.tagIds || []), ...itemTags])], bankIds: [...new Set([...(existing.bankIds || []), bankId])], sourceId, sourceLabel: existing.sourceLabel || file.files[0]?.name, sourcePage: q.page, sourceQuestionLabel: q.label, sourceOrder: i + 1, status: "confirmed", createdAt: existing.createdAt || Date.now(), revision: existing.revision || 1 };
     });
     const batch = [...questions, ...imported];
     await replaceQuestionRecords("questions", batch);
@@ -137,8 +150,8 @@ export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecord
     status.textContent = `Saved ${imported.length} questions to “${name.value.trim() || "Practice questions"}”.`;
     commit.hidden = true;
     practice.hidden = false;
-    const allTags = [...new Set(imported.flatMap((q) => q.tags))].sort((a, b) => a.localeCompare(b));
-    topicFilters.innerHTML = allTags.map((tag, i) => `<label><input type="checkbox" value="${esc(tag)}"> ${esc(tag)}</label>`).join("") || "No topics have been tagged in this bank yet.";
+    const allTags = (await getAllTags()).filter((tag) => imported.some((q) => (q.tagIds || []).includes(tag.id))).sort((a, b) => a.title.localeCompare(b.title));
+    topicFilters.innerHTML = allTags.map((tag) => `<label><input type="checkbox" value="${esc(tag.id)}"> ${esc(tag.title)}</label>`).join("") || "No topics have been tagged in this bank yet.";
   });
   generate?.addEventListener("click", async () => {
     const banks = await getQuestionRecords("questionBanks");
@@ -148,7 +161,7 @@ export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecord
     const answers = await getQuestionRecords("questionAnswers");
     const attempts = await getQuestionRecords("assessmentAttempts");
     const selectedTags = [...topicFilters.querySelectorAll("input:checked")].map((el) => el.value);
-    const selection = generateAssessment({ questions: questions.map((q) => ({ ...q, tagIds: q.tags || [] })), attempts, tagIds: selectedTags, count: Number(document.getElementById("questionCount").value) || 8 });
+    const selection = generateAssessment({ questions, attempts, tagIds: selectedTags, count: Number(document.getElementById("questionCount").value) || 8 });
     activeSession = { id: crypto.randomUUID(), bankId: bank.id, status: "in-progress", createdAt: Date.now(), seed: selection.seed, policyVersion: selection.policyVersion, items: selection.items.map((item) => ({ ...item, revision: questions.find((q) => q.id === item.questionId)?.revision || 1 })) };
     const sessions = await getQuestionRecords("assessmentSessions");
     await replaceQuestionRecords("assessmentSessions", [...sessions, activeSession]);

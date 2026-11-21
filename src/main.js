@@ -267,7 +267,7 @@ const tools = {
   questions: {
     name: "Question Bank",
     file: "questions.html",
-    init: () => initQuestionBankTool({ getQuestionRecords, replaceQuestionRecords, putQuestionRecords, addCard })
+    init: () => initQuestionBankTool({ getQuestionRecords, replaceQuestionRecords, putQuestionRecords, addCard, getAllTags, addTag })
   }
 };
 
@@ -998,7 +998,7 @@ async function fetchDemoPayload() {
 
 async function exportDatabaseJson() {
   const questionCollections = ["questions", "questionAnswers", "questionBanks", "questionSources", "assessmentSessions", "assessmentAttempts", "questionMedia"];
-  const [nodes, quotes, cues, cards, heaps, decks, subjects, tasks, commitments, journals, ...questionData] = await Promise.all([
+  const [nodes, quotes, cues, cards, heaps, decks, subjects, tasks, commitments, journals, questionTagRecords, ...questionData] = await Promise.all([
     getAllNodes(),
     getAllQuotes(),
     getAllCues(),
@@ -1009,6 +1009,7 @@ async function exportDatabaseJson() {
     getAllTasks(),
     getAllCommitments(),
     getAllJournals(),
+    getAllTags(),
     ...questionCollections.map(getQuestionRecords)
   ]);
   const media = questionData[questionCollections.indexOf("questionMedia")];
@@ -1030,6 +1031,7 @@ async function exportDatabaseJson() {
     // STUB: personal reflections, exported so they survive the move to
     // PC/file-based storage. Never sent to the cloud sync.
     journals,
+    questionTagRecords,
     ...Object.fromEntries(questionCollections.map((key, i) => [key, questionData[i]]))
   };
 
@@ -1091,12 +1093,27 @@ async function syncTagStoreFromData(data = {}) {
   await rebuildTagStoreFromData(data);
 }
 
+function deriveMarkdownFieldsOnImport(node) {
+  if (!node || typeof node !== "object" || typeof node.contentMarkdown !== "string") {
+    return node;
+  }
+  const softBreaks = node.meta?.softBreaks !== false;
+  const contentHtml = format(node.contentMarkdown || "", "html", { softBreaks }) || "<p><br></p>";
+  const div = document.createElement("div");
+  div.innerHTML = contentHtml;
+  return {
+    ...node,
+    contentHtml,
+    contentText: div.textContent || ""
+  };
+}
+
 async function importPayload(payload) {
   // The JSON is owner-editable, but it must already use the current schema.
   // Old exports are rejected with a version error instead of being rewritten.
   const dataset = assertCurrentDataset(payload);
 
-  const nodes = dataset.nodes;
+  const nodes = (dataset.nodes || []).map(deriveMarkdownFieldsOnImport);
   const quotes = dataset.quotes;
   const cues = dataset.cues;
   const cards = dataset.cards;
@@ -1107,6 +1124,7 @@ async function importPayload(payload) {
   const journals = dataset.journals || [];
   const questionCollections = ["questions", "questionAnswers", "questionBanks", "questionSources", "assessmentSessions", "assessmentAttempts", "questionMedia"];
   const questionData = Object.fromEntries(questionCollections.map((key) => [key, dataset[key] || []]));
+  const questionTagRecords = dataset.questionTagRecords || [];
   for (const media of questionData.questionMedia) {
     if (media.blob?.__neuronetBlob) media.blob = new Blob([new Uint8Array(media.blob.bytes)], { type: media.blob.type || "application/octet-stream" });
   }
@@ -1147,6 +1165,7 @@ async function importPayload(payload) {
     quotes: finalQuotes,
     cards: finalCards
   });
+  for (const tag of questionTagRecords) await addTag(tag);
 
   if (USE_BACKEND && window.currentUser) {
     const [cloudNodes, cloudQuotes, cloudCues] = await Promise.all([
