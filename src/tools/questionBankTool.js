@@ -15,6 +15,7 @@ export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecord
   const test = document.getElementById("questionTest");
   const heatmapBtn = document.getElementById("questionHeatmap");
   const heatmap = document.getElementById("questionHeatmapView");
+  const topicFilters = document.getElementById("questionTopicFilters");
   const captureRead = document.getElementById("captureRead");
   const captureSave = document.getElementById("captureSave");
   let activeSession = null;
@@ -71,6 +72,22 @@ export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecord
   };
   heatmapBtn?.addEventListener("click", renderHeatmap);
   let staged = [];
+  let stagedSourceId = null;
+  const renderStaged = () => {
+    list.innerHTML = staged.map((q, i) => `<article class="question-item" data-index="${i}"><strong>${esc(q.label)} · page ${q.page}</strong><textarea aria-label="Question prompt">${esc(q.text)}</textarea><label>Topic tags (comma separated)<input value="${esc(q.tags || "")}" aria-label="Topic tags"></label></article>`).join("");
+    commit.hidden = !staged.length;
+  };
+  document.getElementById("questionResume")?.addEventListener("click", async () => {
+    const sources = (await getQuestionRecords("questionSources")).filter((source) => source.status === "staging").sort((a, b) => Number(b.importedAt) - Number(a.importedAt));
+    const source = sources[0];
+    if (!source) { status.textContent = "No saved import needs review."; return; }
+    const questions = await getQuestionRecords("questions");
+    staged = questions.filter((q) => source.questionIds.includes(q.id)).map((q) => ({ id: q.id, label: q.sourceQuestionLabel, page: q.sourcePage, text: q.prompt?.map((b) => b.text).join("\n") || "", tags: (q.tags || []).join(", "), order: q.sourceOrder }));
+    stagedSourceId = source.id;
+    name.value = source.bankName || "Practice questions";
+    renderStaged();
+    status.textContent = `Resumed ${staged.length} staged questions from ${source.fileName}.`;
+  });
   extract?.addEventListener("click", async () => {
     if (!file?.files?.[0]) { status.textContent = "Choose a PDF first."; return; }
     extract.disabled = true; status.textContent = "Reading PDF text…";
@@ -88,9 +105,14 @@ export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecord
           buckets.push({ label: match[1].replace(/^Question\s*/i, "Q"), page: line.page, text: match[2] });
         } else if (buckets.length) buckets.at(-1).text += `\n${text}`;
       }
-      staged = buckets.map((q, i) => ({ ...q, order: i + 1, tags: "" }));
-      list.innerHTML = staged.map((q, i) => `<article class="question-item" data-index="${i}"><strong>${esc(q.label)} · page ${q.page}</strong><textarea aria-label="Question prompt">${esc(q.text)}</textarea><label>Topic tags (comma separated)<input value="" aria-label="Topic tags"></label></article>`).join("");
-      commit.hidden = !staged.length;
+      stagedSourceId = crypto.randomUUID();
+      staged = buckets.map((q, i) => ({ ...q, id: crypto.randomUUID(), order: i + 1, tags: "" }));
+      const priorQuestions = await getQuestionRecords("questions");
+      const priorSources = await getQuestionRecords("questionSources");
+      const drafts = staged.map((q) => ({ id: q.id, kind: "question", prompt: [{ type: "text", text: q.text }], answerIds: [], maxMarks: null, tags: [], bankIds: [], sourceId: stagedSourceId, sourceLabel: pdf.name, sourcePage: q.page, sourceQuestionLabel: q.label, sourceOrder: q.order, status: "draft", revision: 1, createdAt: Date.now() }));
+      await replaceQuestionRecords("questions", [...priorQuestions, ...drafts]);
+      await replaceQuestionRecords("questionSources", [...priorSources, { id: stagedSourceId, fileName: pdf.name, bankName: name.value, importedAt: Date.now(), status: "staging", questionIds: staged.map((q) => q.id) }]);
+      renderStaged();
       status.textContent = staged.length ? `Found ${staged.length} possible question boundaries. Review and correct them before saving.` : "No numbered question boundaries found. This PDF may need manual capture or OCR.";
     } catch (error) { status.textContent = `Could not read this PDF: ${error.message}`; }
     finally { extract.disabled = false; }
@@ -98,30 +120,34 @@ export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecord
   commit?.addEventListener("click", async () => {
     const items = [...list.querySelectorAll(".question-item")];
     const bankId = crypto.randomUUID();
-    const sourceId = crypto.randomUUID();
+    const sourceId = stagedSourceId || crypto.randomUUID();
     const questions = await getQuestionRecords("questions");
     const banks = await getQuestionRecords("questionBanks");
     const sources = await getQuestionRecords("questionSources");
     const imported = items.map((el, i) => {
       const q = staged[Number(el.dataset.index)];
-      return { id: crypto.randomUUID(), kind: "question", prompt: [{ type: "text", text: el.querySelector("textarea").value }], answerIds: [], maxMarks: null, tags: el.querySelector("input").value.split(",").map((x) => x.trim()).filter(Boolean), bankIds: [bankId], sourceId, sourceLabel: file.files[0].name, sourcePage: q.page, sourceQuestionLabel: q.label, sourceOrder: i + 1, status: "confirmed", createdAt: Date.now(), revision: 1 };
+      const existing = questions.find((row) => row.id === q.id) || {};
+      return { ...existing, id: q.id, kind: "question", prompt: [{ type: "text", text: el.querySelector("textarea").value }], answerIds: [], maxMarks: existing.maxMarks ?? null, tags: el.querySelector("input").value.split(",").map((x) => x.trim()).filter(Boolean), bankIds: [...new Set([...(existing.bankIds || []), bankId])], sourceId, sourceLabel: existing.sourceLabel || file.files[0]?.name, sourcePage: q.page, sourceQuestionLabel: q.label, sourceOrder: i + 1, status: "confirmed", createdAt: existing.createdAt || Date.now(), revision: existing.revision || 1 };
     });
     const batch = [...questions, ...imported];
     await replaceQuestionRecords("questions", batch);
-    await replaceQuestionRecords("questionSources", [...sources, { id: sourceId, fileName: file.files[0].name, importedAt: Date.now(), status: "committed", questionIds: imported.map((q) => q.id) }]);
+    await replaceQuestionRecords("questionSources", sources.map((source) => source.id === sourceId ? { ...source, status: "committed", questionIds: imported.map((q) => q.id), bankName: name.value } : source));
     await replaceQuestionRecords("questionBanks", [...banks, { id: bankId, name: name.value.trim() || "Practice questions", questionIds: imported.map((q) => q.id), createdAt: Date.now() }]);
     status.textContent = `Saved ${imported.length} questions to “${name.value.trim() || "Practice questions"}”.`;
     commit.hidden = true;
     practice.hidden = false;
+    const allTags = [...new Set(imported.flatMap((q) => q.tags))].sort((a, b) => a.localeCompare(b));
+    topicFilters.innerHTML = allTags.map((tag, i) => `<label><input type="checkbox" value="${esc(tag)}"> ${esc(tag)}</label>`).join("") || "No topics have been tagged in this bank yet.";
   });
   generate?.addEventListener("click", async () => {
     const banks = await getQuestionRecords("questionBanks");
-    const bank = banks.at(-1);
+    const bank = banks.slice().sort((a, b) => Number(b.createdAt) - Number(a.createdAt))[0];
     if (!bank) { status.textContent = "Import a bank first."; return; }
     const questions = (await getQuestionRecords("questions")).filter((q) => (q.bankIds || []).includes(bank.id));
     const answers = await getQuestionRecords("questionAnswers");
     const attempts = await getQuestionRecords("assessmentAttempts");
-    const selection = generateAssessment({ questions: questions.map((q) => ({ ...q, tagIds: q.tags || [] })), attempts, count: Number(document.getElementById("questionCount").value) || 8 });
+    const selectedTags = [...topicFilters.querySelectorAll("input:checked")].map((el) => el.value);
+    const selection = generateAssessment({ questions: questions.map((q) => ({ ...q, tagIds: q.tags || [] })), attempts, tagIds: selectedTags, count: Number(document.getElementById("questionCount").value) || 8 });
     activeSession = { id: crypto.randomUUID(), bankId: bank.id, status: "in-progress", createdAt: Date.now(), seed: selection.seed, policyVersion: selection.policyVersion, items: selection.items.map((item) => ({ ...item, revision: questions.find((q) => q.id === item.questionId)?.revision || 1 })) };
     const sessions = await getQuestionRecords("assessmentSessions");
     await replaceQuestionRecords("assessmentSessions", [...sessions, activeSession]);
