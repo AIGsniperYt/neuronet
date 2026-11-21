@@ -3,6 +3,7 @@ import { questionToMemoryItem } from "../src/tools/memoryQuestionAdapter.js";
 import { createSerializedWriter } from "../src/tools/serializedWriter.js";
 import { decodeQuestionMedia, encodeQuestionMedia } from "../src/tools/questionMediaBackup.js";
 import { createAssessmentAttemptEvents } from "../src/tools/assessmentAttempt.js";
+import { rectsIntersect, textItemsInRegion } from "../src/tools/pdfRegionWorkbench.js";
 
 let passed = 0;
 let failed = 0;
@@ -12,6 +13,15 @@ const check = (name, value) => {
 };
 
 export async function run() {
+  const viewport = { convertToViewportPoint: (x, y) => [x * 2, y * 2] };
+  const extractedRegion = textItemsInRegion([
+    { str: "outside", transform: [0, 0, 0, 0, 1, 1], width: 2, height: 2 },
+    { str: "second", transform: [0, 0, 0, 0, 20, 20], width: 5, height: 2 },
+    { str: "first", transform: [0, 0, 0, 0, 5, 5], width: 5, height: 2 }
+  ], viewport, { left: 8, top: 8, width: 40, height: 40 });
+  check("region extraction selects intersecting PDF text in reading order", extractedRegion === "first second");
+  check("region geometry excludes touching non-overlap", !rectsIntersect({ left: 0, top: 0, width: 4, height: 4 }, { left: 4, top: 0, width: 1, height: 4 }));
+
   const q = (id, tags = ["topic-a"], sourceOrder = 0) => ({ id, tagIds: tags, sourceOrder, maxMarks: 2, status: "confirmed", revision: 1 });
   const questions = [q("a1", ["a"], 1), q("a2", ["a"], 2), q("b1", ["b"], 30), q("b2", ["b"], 40), q("b3", ["b"], 50)];
   const attempt = (id, awardedMarks, createdAt) => ({ id: `event-${id}-${createdAt}`, questionId: id, awardedMarks, maxMarks: 2, status: "scored", createdAt });
@@ -41,6 +51,9 @@ export async function run() {
   canonical.prompt[0].text = "Edited source";
   check("Memory projection follows later canonical edits", questionToMemoryItem(canonical, [{ id: "a", blocks: [{ type: "text", text: "Answer" }] }], null, []).front === "Edited source");
   check("incomplete questions stay out of Q&A Memory", questionToMemoryItem({ ...canonical, answerIds: [] }, [], null) === null);
+  const imageQuestion = { ...canonical, prompt: [{ type: "image", mediaId: "crop", page: 2 }], promptRegions: [{ page: 2 }], answerIds: ["image-answer"] };
+  const imageMemory = questionToMemoryItem(imageQuestion, [{ id: "image-answer", blocks: [{ type: "image", mediaId: "answer-crop", page: 3 }] }], null, [], new Map([["crop", "blob:prompt"], ["answer-crop", "blob:answer"]]));
+  check("Memory resolves canonical question and answer image references", imageMemory.front.includes("blob:prompt") && imageMemory.back.includes("blob:answer"));
 
   const encodedMedia = await encodeQuestionMedia([{ id: "image", blob: new Blob(["pixel bytes"], { type: "image/png" }) }]);
   const restoredMedia = decodeQuestionMedia(JSON.parse(JSON.stringify(encodedMedia)));

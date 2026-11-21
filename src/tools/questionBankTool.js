@@ -2,8 +2,16 @@ import { extractPdfLayoutLinesFromBuffer } from "./pdfBoundaries.js";
 import { generateAssessment, questionEvidence, questionPerformance } from "./assessmentEngine.js";
 import { createSerializedWriter } from "./serializedWriter.js";
 import { createAssessmentAttemptEvents } from "./assessmentAttempt.js";
+import { createPdfRegionWorkbench } from "./pdfRegionWorkbench.js";
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const renderQuestionBlocks = (blocks, mediaById) => (blocks || []).map((block) => {
+  if (block.type === "image") {
+    const src = mediaById.get(block.mediaId);
+    return src ? `<img src="${esc(src)}" alt="Captured page region${block.page ? ` · page ${block.page}` : ""}">` : "";
+  }
+  return `<div>${esc(block.text || "").replace(/\n/g, "<br>")}</div>`;
+}).join("");
 
 export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecords, replaceQuestionCollections, putQuestionRecords, addDeck, getDecksForSubject, getAllTags, addTag }) {
   const file = document.getElementById("questionPdf");
@@ -23,7 +31,63 @@ export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecord
   const captureSave = document.getElementById("captureSave");
   const linkedAnswerRead = document.getElementById("linkedAnswerRead");
   const linkedAnswerSave = document.getElementById("linkedAnswerSave");
+  const captureRegions = { question: [], answer: [], linkedAnswer: [] };
+  const regionConfig = {
+    question: ["captureQuestionPdf", "captureQuestionCanvas", "captureQuestionFrame", "captureQuestionPage", "captureQuestionPrev", "captureQuestionNext", "captureQuestionAdd", "captureQuestionCrop", "captureQuestionRegions"],
+    answer: ["captureAnswerPdf", "captureAnswerCanvas", "captureAnswerFrame", "captureAnswerPage", "captureAnswerPrev", "captureAnswerNext", "captureAnswerAdd", "captureAnswerCrop", "captureAnswerRegions"],
+    linkedAnswer: ["linkedAnswerPdf", "linkedAnswerCanvas", "linkedAnswerFrame", "linkedAnswerPage", "linkedAnswerPrev", "linkedAnswerNext", "linkedAnswerAdd", "linkedAnswerCrop", "linkedAnswerRegions"]
+  };
+  function renderCaptureRegions(role) {
+    const target = document.getElementById(regionConfig[role][8]);
+    target.innerHTML = captureRegions[role].map((region, index) => `<article class="region-item" data-region="${index}"><strong>${esc(region.fileName)} · page ${region.page} · region ${index + 1}</strong><textarea aria-label="Editable extracted text">${esc(region.text)}</textarea><button type="button" data-remove-region="${index}">Remove region</button>${region.crop ? "<span>Image crop included</span>" : ""}</article>`).join("");
+  }
+  const regionEditors = {};
+  for (const [role, ids] of Object.entries(regionConfig)) {
+    const [inputId, canvasId, frameId, pageId, previousId, nextId, addId, cropId] = ids;
+    const input = document.getElementById(inputId);
+    if (!input) continue;
+    regionEditors[role] = createPdfRegionWorkbench({
+      input, canvas: document.getElementById(canvasId), frame: document.getElementById(frameId), pageLabel: document.getElementById(pageId),
+      previous: document.getElementById(previousId), next: document.getElementById(nextId), addRegion: document.getElementById(addId), cropToggle: document.getElementById(cropId),
+      onFile: () => {
+        captureRegions[role] = [];
+        renderCaptureRegions(role);
+        const fallbackId = role === "question" ? "capturePrompt" : role === "answer" ? "captureAnswer" : "linkedAnswerText";
+        document.getElementById(fallbackId).value = "";
+      },
+      onRegion: (region) => { captureRegions[role].push(region); renderCaptureRegions(role); status.textContent = `Added page ${region.page} region. You can edit its extracted text or add more regions.`; }
+    });
+    document.getElementById(ids[8]).addEventListener("input", (event) => {
+      const article = event.target.closest(".region-item");
+      if (article) captureRegions[role][Number(article.dataset.region)].text = event.target.value;
+    });
+    document.getElementById(ids[8]).addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-remove-region]");
+      if (!button) return;
+      captureRegions[role].splice(Number(button.dataset.removeRegion), 1);
+      renderCaptureRegions(role);
+    });
+  }
+  function regionText(role) { return captureRegions[role].map((region) => region.text.trim()).filter(Boolean).join("\n\n"); }
+  async function blocksFromRegions(role, fallbackText) {
+    const regions = captureRegions[role];
+    if (!regions.length) return { blocks: [{ type: "text", text: fallbackText }], media: [], provenance: [] };
+    const media = [];
+    const provenance = [];
+    const blocks = [];
+    for (const region of regions) {
+      if (region.text.trim()) blocks.push({ type: "text", text: region.text.trim() });
+      if (region.crop) {
+        const mediaId = crypto.randomUUID();
+        media.push({ id: mediaId, blob: region.crop, mimeType: region.crop.type || "image/png", createdAt: Date.now(), fileName: region.fileName });
+        blocks.push({ type: "image", mediaId, page: region.page });
+      }
+      provenance.push({ page: region.page, rect: region.rect, fileName: region.fileName });
+    }
+    return { blocks, media, provenance };
+  }
   let activeSession = null;
+  let assessmentImageUrls = [];
   async function ensureMemoryDeck() {
     const decks = await getDecksForSubject("Question Bank");
     return decks.find((deck) => deck.name === "Captured questions")
@@ -44,27 +108,30 @@ export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecord
   }
   linkedAnswerRead?.addEventListener("click", async () => {
     try {
-      document.getElementById("linkedAnswerText").value = await extractDocumentText("linkedAnswerPdf");
+      document.getElementById("linkedAnswerText").value = regionText("linkedAnswer") || await extractDocumentText("linkedAnswerPdf");
       status.textContent = "Extracted editable answer text. Review it and link it to the selected question.";
     } catch (error) { status.textContent = error.message; }
   });
   linkedAnswerSave?.addEventListener("click", async () => {
     const questionId = document.getElementById("answerQuestionSelect").value;
-    const text = document.getElementById("linkedAnswerText").value.trim();
+    const text = regionText("linkedAnswer") || document.getElementById("linkedAnswerText").value.trim();
     const pdf = document.getElementById("linkedAnswerPdf").files[0];
-    if (!questionId || !text || !pdf) { status.textContent = "Choose a question and answer PDF, extract and review its text, then confirm."; return; }
+    if (!questionId || (!text && !captureRegions.linkedAnswer.some((region) => region.crop)) || !pdf) { status.textContent = "Choose a question and answer PDF, capture or extract its contents, then confirm."; return; }
     const questions = await getQuestionRecords("questions");
     const question = questions.find((row) => row.id === questionId);
     if (!question) { status.textContent = "The selected question no longer exists."; return; }
     const answers = await getQuestionRecords("questionAnswers");
     const sources = await getQuestionRecords("questionSources");
+    const mediaRows = await getQuestionRecords("questionMedia");
     const answerId = crypto.randomUUID();
     const memoryDeck = question.memoryDeckId ? null : await ensureMemoryDeck();
     const nextQuestion = { ...question, answerIds: [...new Set([...(question.answerIds || []), answerId])], memoryDeckId: question.memoryDeckId || memoryDeck.id, revision: (question.revision || 1) + 1, updatedAt: Date.now() };
+    const answerContent = await blocksFromRegions("linkedAnswer", text);
     await replaceQuestionCollections({
       questions: questions.map((row) => row.id === questionId ? nextQuestion : row),
-      questionAnswers: [...answers, { id: answerId, blocks: [{ type: "text", text }], sourceId: question.sourceId, sourceLabel: pdf.name, createdAt: Date.now(), status: "confirmed", questionIds: [questionId] }],
-      questionSources: sources.map((source) => source.id === question.sourceId ? { ...source, answerIds: [...new Set([...(source.answerIds || []), answerId])] } : source)
+      questionAnswers: [...answers, { id: answerId, blocks: answerContent.blocks, sourceId: question.sourceId, sourceLabel: pdf.name, sourceRegions: answerContent.provenance, createdAt: Date.now(), status: "confirmed", questionIds: [questionId] }],
+      questionSources: sources.map((source) => source.id === question.sourceId ? { ...source, answerIds: [...new Set([...(source.answerIds || []), answerId])] } : source),
+      questionMedia: [...mediaRows, ...answerContent.media]
     });
     status.textContent = `Linked the answer to ${question.sourceQuestionLabel || "the question"}. Memory now reads the canonical question and answer records.`;
     document.getElementById("linkedAnswerText").value = "";
@@ -73,27 +140,33 @@ export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecord
   captureRead?.addEventListener("click", async () => {
     try {
       const [promptText, answerText] = await Promise.all([extractDocumentText("captureQuestionPdf"), extractDocumentText("captureAnswerPdf")]);
-      document.getElementById("capturePrompt").value = promptText;
-      document.getElementById("captureAnswer").value = answerText;
+      document.getElementById("capturePrompt").value = regionText("question") || promptText;
+      document.getElementById("captureAnswer").value = regionText("answer") || answerText;
       status.textContent = "Extracted editable text from both PDFs. Review it before saving.";
     } catch (error) { status.textContent = error.message; }
   });
   captureSave?.addEventListener("click", async () => {
-    const prompt = document.getElementById("capturePrompt").value.trim();
-    const answer = document.getElementById("captureAnswer").value.trim();
-    if (!prompt || !answer) { status.textContent = "Both question and answer text are required."; return; }
+    const prompt = regionText("question") || document.getElementById("capturePrompt").value.trim();
+    const answer = regionText("answer") || document.getElementById("captureAnswer").value.trim();
+    const questionPdf = document.getElementById("captureQuestionPdf").files[0];
+    const answerPdf = document.getElementById("captureAnswerPdf").files[0];
+    if ((!prompt && !captureRegions.question.some((region) => region.crop)) || (!answer && !captureRegions.answer.some((region) => region.crop)) || !questionPdf || !answerPdf) { status.textContent = "Select both PDFs, capture or extract their contents, then confirm."; return; }
     const questions = await getQuestionRecords("questions");
     const answers = await getQuestionRecords("questionAnswers");
     const sources = await getQuestionRecords("questionSources");
+    const mediaRows = await getQuestionRecords("questionMedia");
     const sourceId = crypto.randomUUID();
     const questionId = crypto.randomUUID();
     const answerId = crypto.randomUUID();
     const memoryDeck = await ensureMemoryDeck();
-    const answerFiles = ["captureQuestionPdf", "captureAnswerPdf"].map((id) => document.getElementById(id).files[0].name);
+    const answerFiles = [questionPdf.name, answerPdf.name];
+    const promptContent = await blocksFromRegions("question", prompt);
+    const answerContent = await blocksFromRegions("answer", answer);
     await replaceQuestionCollections({
-      questionAnswers: [...answers, { id: answerId, blocks: [{ type: "text", text: answer }], sourceId, sourceLabel: answerFiles[1], createdAt: Date.now(), status: "confirmed" }],
-      questions: [...questions, { id: questionId, kind: "question", prompt: [{ type: "text", text: prompt }], answerIds: [answerId], maxMarks: Number(document.getElementById("captureMarks").value) || null, tagIds: [], bankIds: [], memoryDeckId: memoryDeck.id, sourceId, sourceLabel: answerFiles[0], status: "confirmed", revision: 1, createdAt: Date.now() }],
-      questionSources: [...sources, { id: sourceId, fileNames: answerFiles, importedAt: Date.now(), status: "committed", questionIds: [questionId], answerIds: [answerId] }]
+      questionAnswers: [...answers, { id: answerId, blocks: answerContent.blocks, sourceId, sourceLabel: answerFiles[1], sourceRegions: answerContent.provenance, createdAt: Date.now(), status: "confirmed" }],
+      questions: [...questions, { id: questionId, kind: "question", prompt: promptContent.blocks, promptRegions: promptContent.provenance, answerIds: [answerId], maxMarks: Number(document.getElementById("captureMarks").value) || null, tagIds: [], bankIds: [], memoryDeckId: memoryDeck.id, sourceId, sourceLabel: answerFiles[0], status: "confirmed", revision: 1, createdAt: Date.now() }],
+      questionSources: [...sources, { id: sourceId, fileNames: answerFiles, importedAt: Date.now(), status: "committed", questionIds: [questionId], answerIds: [answerId] }],
+      questionMedia: [...mediaRows, ...promptContent.media, ...answerContent.media]
     });
     status.textContent = "Saved the question and linked answer with one stable question ID.";
   });
@@ -266,12 +339,13 @@ export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecord
     list.inert = true;
     try { await flushDraftSave(); }
     catch (error) { status.textContent = `Could not flush the saved import: ${error.message}`; commit.disabled = false; list.inert = false; return; }
+    const committedSourceId = stagedSourceId;
     // Every edit autosave is now settled. Clearing the active source prevents
     // a late debounce from writing draft records over the confirmed batch.
     stagedSourceId = null;
     const items = [...list.querySelectorAll(".question-item")];
     const bankId = crypto.randomUUID();
-    const sourceId = stagedSourceId || crypto.randomUUID();
+    const sourceId = committedSourceId || crypto.randomUUID();
     const questions = await getQuestionRecords("questions");
     const banks = await getQuestionRecords("questionBanks");
     const sources = await getQuestionRecords("questionSources");
@@ -289,7 +363,7 @@ export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecord
       const q = staged[Number(el.dataset.index)];
       const existing = questions.find((row) => row.id === q.id) || {};
       const itemTags = el.querySelector("input").value.split(",").map((x) => x.trim()).filter(Boolean).map((title) => tagIds.get(title.toLowerCase())).filter(Boolean);
-      return { ...existing, id: q.id, kind: "question", prompt: [{ type: "text", text: el.querySelector("textarea").value }], answerIds: [], maxMarks: existing.maxMarks ?? null, tagIds: [...new Set([...(existing.tagIds || []), ...itemTags])], bankIds: [...new Set([...(existing.bankIds || []), bankId])], sourceId, sourceLabel: existing.sourceLabel || file.files[0]?.name, sourcePage: q.page, sourceQuestionLabel: q.label, sourceOrder: i + 1, status: "confirmed", createdAt: existing.createdAt || Date.now(), revision: existing.revision || 1 };
+      return { ...existing, id: q.id, kind: "question", prompt: [{ type: "text", text: el.querySelector("textarea").value }], answerIds: [], maxMarks: existing.maxMarks ?? null, tagIds: [...new Set([...(existing.tagIds || []), ...itemTags])], bankIds: [...new Set([...(existing.bankIds || []), bankId])], sourceId, sourceLabel: existing.sourceLabel || file.files[0]?.name, sourcePage: q.page, sourceQuestionLabel: q.label, sourceOrder: q.order ?? i + 1, status: "confirmed", createdAt: existing.createdAt || Date.now(), revision: existing.revision || 1 };
     });
     const batch = [...questions, ...imported];
     await replaceQuestionCollections({
@@ -312,6 +386,10 @@ export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecord
     if (!bank) { status.textContent = "Import a bank first."; return; }
     const questions = (await getQuestionRecords("questions")).filter((q) => (q.bankIds || []).includes(bank.id));
     const answers = await getQuestionRecords("questionAnswers");
+    const mediaRows = await getQuestionRecords("questionMedia");
+    assessmentImageUrls.forEach((url) => URL.revokeObjectURL(url));
+    assessmentImageUrls = mediaRows.filter((media) => media.blob instanceof Blob).map((media) => URL.createObjectURL(media.blob));
+    const mediaById = new Map(mediaRows.filter((media) => media.blob instanceof Blob).map((media, index) => [media.id, assessmentImageUrls[index]]));
     const attempts = await getQuestionRecords("assessmentAttempts");
     const memoryReviews = await getQuestionRecords("memoryReviews");
     const selectedTags = [...topicFilters.querySelectorAll("input:checked")].map((el) => el.value);
@@ -323,8 +401,8 @@ export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecord
     test.innerHTML = selection.items.map((item, i) => {
       const q = byId.get(item.questionId);
       const linkedAnswers = answers.filter((a) => (q?.answerIds || []).includes(a.id));
-      const answerContent = linkedAnswers.length ? linkedAnswers.map((a) => (a.blocks || []).map((b) => b.text || "").join("\n")).join("\n\n") : "No answer is linked to this question yet.";
-      return `<article class="question-item" data-id="${esc(item.questionId)}" data-shown-at="${Date.now()}"><strong>${i + 1}. ${esc(q?.sourceQuestionLabel || "Question")} · ${esc(item.evidenceState)}</strong><p>${esc(q?.prompt?.map((b) => b.text).join("\n") || "")}</p><details><summary>Reveal answer / mark scheme</summary><p>${esc(answerContent)}</p></details><label>Awarded marks <input class="earned" type="number" min="0" max="${item.maxMarks ?? ""}"></label><label>Maximum marks <input class="maximum" type="number" min="1" value="${item.maxMarks ?? ""}"></label></article>`;
+      const answerContent = linkedAnswers.length ? linkedAnswers.map((a) => renderQuestionBlocks(a.blocks, mediaById)).join("") : "No answer is linked to this question yet.";
+      return `<article class="question-item" data-id="${esc(item.questionId)}" data-shown-at="${Date.now()}"><strong>${i + 1}. ${esc(q?.sourceQuestionLabel || "Question")} · ${esc(item.evidenceState)}</strong><div class="question-content">${renderQuestionBlocks(q?.prompt, mediaById)}</div><details><summary>Reveal answer / mark scheme</summary><div class="question-content">${answerContent}</div></details><label>Awarded marks <input class="earned" type="number" min="0" max="${item.maxMarks ?? ""}"></label><label>Maximum marks <input class="maximum" type="number" min="1" value="${item.maxMarks ?? ""}"></label></article>`;
     }).join("") + '<button id="questionMark" type="button">Save marked questions</button>';
     document.getElementById("questionMark").addEventListener("click", async () => {
       const existingAttempts = await getQuestionRecords("assessmentAttempts");

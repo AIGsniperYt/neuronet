@@ -267,29 +267,43 @@ export async function initMemoryTool(deps, context = {}) {
   // goes through `loadScopedCards`, so deck study, filters, and stats
   // cannot drift apart.
 
+  const questionMediaUrlCache = new Map();
+  function questionMediaUrls(records = []) {
+    const urls = new Map();
+    for (const media of records) {
+      if (!(media.blob instanceof Blob)) continue;
+      if (!questionMediaUrlCache.has(media.id)) questionMediaUrlCache.set(media.id, URL.createObjectURL(media.blob));
+      urls.set(media.id, questionMediaUrlCache.get(media.id));
+    }
+    return urls;
+  }
+
   async function loadCanonicalQuestionMemoryCards() {
     if (typeof getQuestionRecords !== "function") return [];
-    const [questions, answers, decks, tags] = await Promise.all([
-      getQuestionRecords("questions"), getQuestionRecords("questionAnswers"), getAllDecks(), getAllTags()
+    const [questions, answers, decks, tags, media] = await Promise.all([
+      getQuestionRecords("questions"), getQuestionRecords("questionAnswers"), getAllDecks(), getAllTags(), getQuestionRecords("questionMedia")
     ]);
+    const mediaUrls = questionMediaUrls(media);
     return questions.map((question) => questionToMemoryItem(
-      question, answers, decks.find((deck) => deck.id === question.memoryDeckId), tags
+      question, answers, decks.find((deck) => deck.id === question.memoryDeckId), tags, mediaUrls
     )).filter(Boolean);
   }
 
   async function loadScopedCards() {
-    const [allCards, decks, questions, answers, tags] = await Promise.all([
+    const [allCards, decks, questions, answers, tags, media] = await Promise.all([
       getAllCards(), getAllDecks(),
       typeof getQuestionRecords === "function" ? getQuestionRecords("questions") : [],
       typeof getQuestionRecords === "function" ? getQuestionRecords("questionAnswers") : [],
-      getAllTags()
+      getAllTags(),
+      typeof getQuestionRecords === "function" ? getQuestionRecords("questionMedia") : []
     ]);
+    const mediaUrls = questionMediaUrls(media);
     const ordinaryCards = (allCards || []).filter((card) => card.origin !== "question-capture");
     let scopeIds = null;
     if (!state.currentDeckId) {
       const scoped = (await getCardsForDeck(state.currentSubject)) || [];
       const virtual = questions.filter((q) => q.memoryDeckId && decks.some((deck) => deck.id === q.memoryDeckId && deck.subject === state.currentSubject))
-        .map((q) => questionToMemoryItem(q, answers, decks.find((deck) => deck.id === q.memoryDeckId), tags))
+        .map((q) => questionToMemoryItem(q, answers, decks.find((deck) => deck.id === q.memoryDeckId), tags, mediaUrls))
         .filter(Boolean);
       return [...scoped.filter((card) => card.origin !== "question-capture"), ...virtual];
     }
@@ -303,7 +317,7 @@ export async function initMemoryTool(deps, context = {}) {
       || (!card.deckId && card.deck === state.currentSubject)
     ));
     const virtual = questions.filter((q) => scopeIds.has(String(q.memoryDeckId || "")))
-      .map((q) => questionToMemoryItem(q, answers, decks.find((deck) => deck.id === q.memoryDeckId), tags))
+      .map((q) => questionToMemoryItem(q, answers, decks.find((deck) => deck.id === q.memoryDeckId), tags, mediaUrls))
       .filter(Boolean);
     return [...selectedCards, ...virtual];
   }
@@ -7226,6 +7240,8 @@ export async function initMemoryTool(deps, context = {}) {
     quickAddModal?.remove();
     deckDeleteModal?.remove();
     cardPeekModal?.remove();
+    for (const url of questionMediaUrlCache.values()) URL.revokeObjectURL(url);
+    questionMediaUrlCache.clear();
   };
 
   await initialize();
