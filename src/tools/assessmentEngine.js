@@ -29,7 +29,12 @@ export function generateAssessment({ questions = [], attempts = [], tagIds = [],
       const topicA = (a.question.tagIds || []).reduce((n, t) => n + (topicCounts.get(t) || 0), 0);
       const topicB = (b.question.tagIds || []).reduce((n, t) => n + (topicCounts.get(t) || 0), 0);
       const rank = (e) => e.state === "unseen" ? 0 : e.state === "weak" ? 1 : e.state === "provisional-full" ? 2 : 3;
-      return topicA - topicB || rank(a.evidence) - rank(b.evidence) || a.random - b.random;
+      const recentPenalty = (e) => e.lastAt && Date.now() - e.lastAt < 7 * 86400000 ? 1 : 0;
+      const progressionBucket = (row) => Math.floor((Number(row.question.sourceOrder) || 0) / 10);
+      return topicA - topicB
+        || rank(a.evidence) + recentPenalty(a.evidence) - rank(b.evidence) - recentPenalty(b.evidence)
+        || progressionBucket(a) - progressionBucket(b)
+        || a.random - b.random;
     });
     const row = remaining[0]; chosen.push(row);
     for (const t of row.question.tagIds || []) topicCounts.set(t, (topicCounts.get(t) || 0) + 1);
