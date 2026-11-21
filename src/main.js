@@ -1,4 +1,4 @@
-import { initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, getAllSubjects, addSubject, deleteSubject, renameSubject, mergeSubjects, setSubjectOrder, setSubjectLevel, ensureSubjectIdentity, addSubjects, clearSubjects, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForDeckId, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, clearTags, addDeck, addDecks, getAllDecks, getDeck, getDecksForSubject, deleteDeckRecord, deleteDeck, clearDecks, ensureDeckMembership, sortDecksByCreated, buildDeckForest, flattenDeckTree, getDeckDescendantIds, groupDecksBySubject, getDeckPath, describeDeckDeletion, UNSORTED_DECK_NAME, addHeap, addHeaps, getAllHeaps, getHeap, deleteHeap, clearHeaps, addTask, addTasks, getAllTasks, deleteTask, clearTasks, addCommitment, addCommitments, getAllCommitments, deleteCommitment, clearCommitments, addJournal, addJournals, getJournal, getAllJournals, deleteJournal, clearJournals } from "./db.js";
+import { initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, getAllSubjects, addSubject, deleteSubject, renameSubject, mergeSubjects, setSubjectOrder, setSubjectLevel, ensureSubjectIdentity, addSubjects, clearSubjects, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForDeckId, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, clearTags, addDeck, addDecks, getAllDecks, getDeck, getDecksForSubject, deleteDeckRecord, deleteDeck, clearDecks, ensureDeckMembership, sortDecksByCreated, buildDeckForest, flattenDeckTree, getDeckDescendantIds, groupDecksBySubject, getDeckPath, describeDeckDeletion, UNSORTED_DECK_NAME, addHeap, addHeaps, getAllHeaps, getHeap, deleteHeap, clearHeaps, addTask, addTasks, getAllTasks, deleteTask, clearTasks, addCommitment, addCommitments, getAllCommitments, deleteCommitment, clearCommitments, addJournal, addJournals, getJournal, getAllJournals, deleteJournal, clearJournals, getQuestionRecords, replaceQuestionRecords, replaceQuestionCollections, putQuestionRecords } from "./db.js";
 import { syncLocalWithCloud, syncToCloud, deleteCloudNode, deleteCloudQuote, deleteCloudCue, fetchCloudNodes, fetchCloudQuotes, fetchCloudCues } from "./sync.js";
 import { initAnalysisToolV2 } from "./tools/analysisTool.js";
 import { dialog } from "./tools/dialog.js";
@@ -11,6 +11,7 @@ import { initScraperTool } from "./tools/scraperTool.js";
 import { initTasksTool } from "./tools/tasksTool.js";
 import { initTimerTool } from "./tools/timerTool.js";
 import { initJournalTool } from "./tools/journalTool.js";
+import { initQuestionBankTool } from "./tools/questionBankTool.js";
 import { initTimerDock } from "./timerDock.js";
 import { createTimerStore } from "./timerEngine.js";
 import { SIDEBAR_VISIBILITIES, initSidebarMode, isHoverMode, sidebarVisibilityMode } from "./sidebarMode.js";
@@ -262,6 +263,11 @@ const tools = {
       dialog,
       toast
     })
+  },
+  questions: {
+    name: "Question Bank",
+    file: "questions.html",
+    init: () => initQuestionBankTool({ getQuestionRecords, replaceQuestionRecords, putQuestionRecords })
   }
 };
 
@@ -273,7 +279,8 @@ const toolDefinitions = {
   scraper: { name: "Scraper", file: "scraper.html", icon: "fa-solid fa-download", desc: "Fetch grade boundaries from exam board spreadsheets" },
   tasks: { name: "Tasks", file: "tasks.html", icon: "fa-solid fa-list-check", desc: "Track schoolwork, revision and assignments in one list" },
   timer: { name: "Timer", file: "timer.html", icon: "fa-solid fa-stopwatch", desc: "Pomodoro, countdown and stopwatch timers that dock over the rest of the app" },
-  journal: { name: "Journal", file: "journal.html", icon: "fa-solid fa-book-open", desc: "A private space to reflect, think out loud, and keep a record of your insights" }
+  journal: { name: "Journal", file: "journal.html", icon: "fa-solid fa-book-open", desc: "A private space to reflect, think out loud, and keep a record of your insights" },
+  questions: { name: "Question Bank", file: "questions.html", icon: "fa-solid fa-file-circle-question", desc: "Import, review and classify reusable practice questions" }
 };
 
 // ========== AUTH & API ==========
@@ -990,7 +997,8 @@ async function fetchDemoPayload() {
 }
 
 async function exportDatabaseJson() {
-  const [nodes, quotes, cues, cards, heaps, decks, subjects, tasks, commitments, journals] = await Promise.all([
+  const questionCollections = ["questions", "questionAnswers", "questionBanks", "questionSources", "assessmentSessions", "assessmentAttempts", "questionMedia"];
+  const [nodes, quotes, cues, cards, heaps, decks, subjects, tasks, commitments, journals, ...questionData] = await Promise.all([
     getAllNodes(),
     getAllQuotes(),
     getAllCues(),
@@ -1000,8 +1008,13 @@ async function exportDatabaseJson() {
     getAllSubjects(),
     getAllTasks(),
     getAllCommitments(),
-    getAllJournals()
+    getAllJournals(),
+    ...questionCollections.map(getQuestionRecords)
   ]);
+  const media = questionData[questionCollections.indexOf("questionMedia")];
+  for (const item of media) {
+    if (item.blob instanceof Blob) item.blob = { __neuronetBlob: true, type: item.blob.type, bytes: Array.from(new Uint8Array(await item.blob.arrayBuffer())) };
+  }
   const payload = {
     schemaVersion: SCHEMA_VERSION,
     exportedAt: new Date().toISOString(),
@@ -1016,7 +1029,8 @@ async function exportDatabaseJson() {
     commitments,
     // STUB: personal reflections, exported so they survive the move to
     // PC/file-based storage. Never sent to the cloud sync.
-    journals
+    journals,
+    ...Object.fromEntries(questionCollections.map((key, i) => [key, questionData[i]]))
   };
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
@@ -1091,6 +1105,11 @@ async function importPayload(payload) {
   const tasks = dataset.tasks;
   const commitments = dataset.commitments;
   const journals = dataset.journals || [];
+  const questionCollections = ["questions", "questionAnswers", "questionBanks", "questionSources", "assessmentSessions", "assessmentAttempts", "questionMedia"];
+  const questionData = Object.fromEntries(questionCollections.map((key) => [key, dataset[key] || []]));
+  for (const media of questionData.questionMedia) {
+    if (media.blob?.__neuronetBlob) media.blob = new Blob([new Uint8Array(media.blob.bytes)], { type: media.blob.type || "application/octet-stream" });
+  }
 
   await clearNodes();
   await clearQuotes();
@@ -1113,6 +1132,7 @@ async function importPayload(payload) {
   await addTasks(tasks);
   await addCommitments(commitments);
   await addJournals(journals);
+  await replaceQuestionCollections(questionData);
   await ensureSubjectIdentity();
   await ensureDeckMembership();
   // Rebuild the derived tag index from the final imported records. This also
@@ -2851,6 +2871,15 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   await initDB();
   DB_READY = true;
+  // Ask the browser to reduce eviction risk where supported. Backups remain
+  // the recovery path because this request can be denied or unsupported.
+  try {
+    const storage = navigator.storage;
+    if (storage?.persist) await storage.persist();
+    if (storage?.estimate) window.neuronetStorageEstimate = await storage.estimate();
+  } catch (error) {
+    console.warn("[STORAGE] Persistent-storage request failed; keep a current export backup.", error);
+  }
 
   // Every card needs a canonical deck home. This is idempotent and backfills
   // pre-deck databases into an Unsorted deck per subject.

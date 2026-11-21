@@ -1,0 +1,13 @@
+<section class="question-tool">
+  <header><h1>Question Bank</h1><p>Import a practice PDF, review its question boundaries, add topic tags, and save questions to a bank.</p></header>
+  <label>Practice PDF <input id="questionPdf" type="file" accept="application/pdf"></label>
+  <div class="question-row"><label>Bank name <input id="questionBankName" value="Practice questions"></label><button id="questionImport" type="button">Extract questions</button></div>
+  <p id="questionStatus" role="status"></p>
+  <div id="questionItems"></div>
+  <button id="questionCommit" type="button" hidden>Save reviewed questions</button>
+  <details class="question-item"><summary>Capture one question and its answer</summary><label>Question PDF <input id="captureQuestionPdf" type="file" accept="application/pdf"></label><label>Answer / mark scheme PDF <input id="captureAnswerPdf" type="file" accept="application/pdf"></label><button id="captureRead" type="button">Extract both documents</button><label>Question text <textarea id="capturePrompt"></textarea></label><label>Answer text <textarea id="captureAnswer"></textarea></label><label>Maximum marks (optional) <input id="captureMarks" type="number" min="1"></label><button id="captureSave" type="button">Save Q&amp;A</button></details>
+  <section id="questionPractice" hidden><h2>Generate a practice set</h2><label>Question count <input id="questionCount" type="number" min="1" value="8"></label><button id="questionGenerate" type="button">Generate practice set</button><button id="questionHeatmap" type="button">Refresh coverage</button><div id="questionHeatmapView"></div><div id="questionTest"></div></section>
+</section>
+<style>
+.question-tool{max-width:1000px;margin:2rem auto;padding:1.25rem;color:var(--text-primary,#eee)}.question-tool header p{opacity:.75}.question-tool label{display:block;margin:.8rem 0}.question-tool input{padding:.6rem;max-width:100%;background:var(--surface-2,#222);color:inherit;border:1px solid #777;border-radius:6px}.question-row{display:flex;align-items:end;gap:1rem;flex-wrap:wrap}.question-tool button{padding:.65rem 1rem;border-radius:6px;cursor:pointer}.question-item{margin:1rem 0;padding:1rem;border:1px solid #6668;border-radius:8px}.question-item textarea{display:block;width:100%;min-height:7rem;margin:.5rem 0;background:var(--surface-2,#222);color:inherit}.question-item input{width:100%}
+</style>
