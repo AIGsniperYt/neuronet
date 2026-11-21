@@ -76,10 +76,58 @@ export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecord
   heatmapBtn?.addEventListener("click", renderHeatmap);
   let staged = [];
   let stagedSourceId = null;
+  const excludedDraftIds = new Set();
   const renderStaged = () => {
-    list.innerHTML = staged.map((q, i) => `<article class="question-item" data-index="${i}"><strong>${esc(q.label)} · page ${q.page}</strong><textarea aria-label="Question prompt">${esc(q.text)}</textarea><label>Topic tags (comma separated)<input value="${esc(q.tags || "")}" aria-label="Topic tags"></label></article>`).join("");
+    list.innerHTML = staged.map((q, i) => `<article class="question-item" data-index="${i}"><strong>${esc(q.label)} · page ${q.page}</strong><textarea aria-label="Question prompt">${esc(q.text)}</textarea><label>Topic tags (comma separated)<input value="${esc(q.tags || "")}" aria-label="Topic tags"></label><div><button type="button" data-action="split">Split at cursor</button>${i ? '<button type="button" data-action="merge">Merge with previous</button>' : ""}<button type="button" data-action="exclude">Exclude</button></div></article>`).join("");
     commit.hidden = !staged.length;
   };
+  let draftSaveTimer = 0;
+  const persistDrafts = async () => {
+    if (!stagedSourceId) return;
+    const sourceRows = await getQuestionRecords("questionSources");
+    const sources = sourceRows.map((source) => source.id === stagedSourceId ? { ...source, questionIds: staged.map((q) => q.id), excludedQuestionIds: [...excludedDraftIds], bankName: name.value } : source);
+    const allQuestions = await getQuestionRecords("questions");
+    const ids = new Set(staged.map((q) => q.id));
+    const drafts = staged.map((q) => ({ id: q.id, kind: "question", prompt: [{ type: "text", text: q.text }], answerIds: [], maxMarks: null, tags: (q.tags || "").split(",").map((tag) => tag.trim()).filter(Boolean), bankIds: [], sourceId: stagedSourceId, sourcePage: q.page, sourceQuestionLabel: q.label, sourceOrder: q.order, status: "draft", revision: 1, createdAt: q.createdAt || Date.now() }));
+    const retained = allQuestions.filter((q) => !ids.has(q.id)).map((q) => excludedDraftIds.has(q.id) ? { ...q, status: "excluded" } : q);
+    await replaceQuestionRecords("questions", [...retained, ...drafts]);
+    await replaceQuestionRecords("questionSources", sources);
+  };
+  const scheduleDraftSave = () => { clearTimeout(draftSaveTimer); draftSaveTimer = setTimeout(() => persistDrafts().catch((error) => { status.textContent = `Draft save failed: ${error.message}`; }), 300); };
+  list.addEventListener("input", (event) => {
+    const article = event.target.closest(".question-item");
+    if (!article) return;
+    const q = staged[Number(article.dataset.index)];
+    if (event.target.matches("textarea")) q.text = event.target.value;
+    else if (event.target.matches("input")) q.tags = event.target.value;
+    scheduleDraftSave();
+  });
+  list.addEventListener("click", async (event) => {
+    const button = event.target.closest("button[data-action]");
+    if (!button) return;
+    const article = button.closest(".question-item");
+    const index = Number(article.dataset.index);
+    const q = staged[index];
+    if (button.dataset.action === "exclude") { excludedDraftIds.add(q.id); staged.splice(index, 1); }
+    if (button.dataset.action === "merge" && index > 0) {
+      staged[index - 1].text += `\n${q.text}`;
+      staged[index - 1].tags = [...new Set(`${staged[index - 1].tags || ""},${q.tags || ""}`.split(",").map((t) => t.trim()).filter(Boolean))].join(", ");
+      staged.splice(index, 1);
+    }
+    if (button.dataset.action === "split") {
+      const area = article.querySelector("textarea");
+      const cursor = area.selectionStart;
+      if (cursor <= 0 || cursor >= area.value.length) { status.textContent = "Place the cursor inside the question text to split it."; return; }
+      const first = area.value.slice(0, cursor).trim();
+      const second = area.value.slice(cursor).trim();
+      if (!first || !second) return;
+      q.text = first;
+      staged.splice(index + 1, 0, { id: crypto.randomUUID(), label: `${q.label} (continued)`, page: q.page, text: second, tags: q.tags, order: q.order + 0.5 });
+    }
+    staged.forEach((item, i) => { item.order = i + 1; });
+    renderStaged();
+    await persistDrafts();
+  });
   document.getElementById("questionResume")?.addEventListener("click", async () => {
     const sources = (await getQuestionRecords("questionSources")).filter((source) => source.status === "staging").sort((a, b) => Number(b.importedAt) - Number(a.importedAt));
     const source = sources[0];
