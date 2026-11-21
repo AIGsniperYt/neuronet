@@ -3,7 +3,7 @@ import { generateAssessment, questionEvidence } from "./assessmentEngine.js";
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecords, putQuestionRecords }) {
+export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecords, putQuestionRecords, addCard }) {
   const file = document.getElementById("questionPdf");
   const name = document.getElementById("questionBankName");
   const status = document.getElementById("questionStatus");
@@ -47,6 +47,7 @@ export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecord
     await replaceQuestionRecords("questionAnswers", [...answers, { id: answerId, blocks: [{ type: "text", text: answer }], sourceId, sourceLabel: answerFiles[1], createdAt: Date.now(), status: "confirmed" }]);
     await replaceQuestionRecords("questions", [...questions, { id: questionId, kind: "question", prompt: [{ type: "text", text: prompt }], answerIds: [answerId], maxMarks: Number(document.getElementById("captureMarks").value) || null, tags: [], bankIds: [], sourceId, sourceLabel: answerFiles[0], status: "confirmed", revision: 1, createdAt: Date.now() }]);
     await replaceQuestionRecords("questionSources", [...sources, { id: sourceId, fileNames: answerFiles, importedAt: Date.now(), status: "committed", questionIds: [questionId], answerIds: [answerId] }]);
+    await addCard({ id: questionId, questionId, front: prompt, back: answer, deck: "Question Bank", tags: [], origin: "question-capture", links: { nodeId: questionId } });
     status.textContent = "Saved the question and linked answer with one stable question ID.";
   });
   const renderHeatmap = async () => {
