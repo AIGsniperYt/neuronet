@@ -2957,6 +2957,7 @@ function questionStorageError(error) {
 }
 export function putQuestionRecord(storeName, record) {
   assertQuestionStore(storeName);
+  if (storeName === "assessmentAttempts") return putQuestionRecords(storeName, [record]).then((rows) => rows[0] || null);
   const value = { ...record, id: record.id || crypto.randomUUID(), updatedAt: Date.now() };
   if (storeName === "assessmentAttempts" && !value.createdAt) value.createdAt = Date.now();
   return new Promise((resolve, reject) => {
@@ -2973,8 +2974,27 @@ export function putQuestionRecords(storeName, records) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(storeName, "readwrite");
     const store = tx.objectStore(storeName);
-    for (const value of values) store.put(value);
-    tx.oncomplete = () => { emitDBChange({ type: "question-records", store: storeName, ids: values.map((v) => v.id) }); resolve(values); };
+    let written = values;
+    if (storeName === "assessmentAttempts") {
+      written = [];
+      const seenPairs = new Set();
+      for (const value of values) {
+        const pair = `${value.sessionId}\u0000${value.questionId}`;
+        if (!value.sessionId || !value.questionId || seenPairs.has(pair)) continue;
+        seenPairs.add(pair);
+        const request = store.index("sessionId").getAll(value.sessionId);
+        request.onsuccess = () => {
+          const alreadyScored = request.result.some((attempt) => attempt.questionId === value.questionId && attempt.status === "scored");
+          if (!alreadyScored) {
+            store.add(value);
+            written.push(value);
+          }
+        };
+      }
+    } else {
+      for (const value of values) store.put(value);
+    }
+    tx.oncomplete = () => { emitDBChange({ type: "question-records", store: storeName, ids: written.map((v) => v.id) }); resolve(written); };
     tx.onerror = () => reject(questionStorageError(tx.error));
     tx.onabort = () => reject(questionStorageError(tx.error));
   });

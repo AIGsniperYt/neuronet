@@ -24,6 +24,7 @@ const check = (name, result) => { console.log(`${result ? "ok" : "FAIL"} ${name}
 try {
   browser = await puppeteer.launch({ headless: true, executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome", args: ["--no-sandbox", "--disable-setuid-sandbox"] });
   const page = await browser.newPage();
+  page.on("pageerror", (error) => console.error(`browser page error: ${error.message}`));
   await page.goto(`http://127.0.0.1:${port}/tools/questions.html`, { waitUntil: "domcontentloaded" });
   const result = await page.evaluate(async () => {
     window.DEMO_MODE = true;
@@ -31,10 +32,11 @@ try {
     const db = await import("/src/db.js");
     await db.initDB();
     await db.replaceQuestionCollections({
-      questions: [{ id: "q-one", status: "confirmed", memoryState: { U: 0.8 } }, { id: "draft-one", status: "draft", sourceId: "batch-one" }],
+      questions: [{ id: "q-one", status: "confirmed", prompt: [{ type: "text", text: "Resume this question" }], answerIds: ["ans-one"], bankIds: ["bank-one"], maxMarks: 2, memoryState: { U: 0.8 } }, { id: "draft-one", status: "draft", sourceId: "batch-one" }],
       questionAnswers: [{ id: "ans-one", blocks: [{ type: "text", text: "Answer" }] }],
       questionBanks: [{ id: "bank-one", questionIds: ["q-one"] }],
       questionSources: [{ id: "batch-one", status: "staging", questionIds: ["draft-one"], fileName: "practice.pdf" }],
+      assessmentSessions: [{ id: "session-resume", bankId: "bank-one", status: "in-progress", mode: "practice", totalElapsedMs: 42000, items: [{ questionId: "q-one" }] }],
       questionMedia: [{ id: "media-one", blob: new Blob(["original media"], { type: "text/plain" }) }]
     });
     const before = await db.getQuestionRecords("questions");
@@ -53,6 +55,11 @@ try {
     try { await db.recordQuestionMemoryReview({ ...savedQuestion.find((q) => q.id === "q-one"), memoryState: { U: 0.9 } }, memoryEvent); } catch { duplicateRejected = true; }
     const afterDuplicate = await db.getQuestionRecords("questions");
     const stableOnDuplicate = afterDuplicate.find((q) => q.id === "q-one").memoryState.U === 0.1 && (await db.getQuestionRecords("memoryReviews")).length === 1;
+    const racingSubmissions = await Promise.all([
+      db.putQuestionRecords("assessmentAttempts", [{ id: "race-a", sessionId: "race-session", questionId: "q-one", awardedMarks: 1, maxMarks: 2, status: "scored" }]),
+      db.putQuestionRecords("assessmentAttempts", [{ id: "race-b", sessionId: "race-session", questionId: "q-one", awardedMarks: 2, maxMarks: 2, status: "scored" }])
+    ]);
+    const raceWinner = (await db.getQuestionRecords("assessmentAttempts")).filter((attempt) => attempt.sessionId === "race-session");
     const collections = ["questions", "questionAnswers", "questionBanks", "questionSources", "assessmentSessions", "assessmentAttempts", "memoryReviews", "questionMedia"];
     const mediaBackup = await import("/src/tools/questionMediaBackup.js");
     const snapshot = Object.fromEntries(await Promise.all(collections.map(async (name) => [name, await db.getQuestionRecords(name)])));
@@ -64,20 +71,46 @@ try {
     const restoredQuestions = await db.getQuestionRecords("questions");
     const restoredAnswers = await db.getQuestionRecords("questionAnswers");
     const restoredSources = await db.getQuestionRecords("questionSources");
+    const restoredSessions = await db.getQuestionRecords("assessmentSessions");
     const media = (await db.getQuestionRecords("questionMedia"))[0].blob;
+    const tool = await import("/src/tools/questionBankTool.js");
+    const addDeck = async (row) => ({ ...row, id: "memory-deck" });
+    tool.initQuestionBankTool({
+      getQuestionRecords: db.getQuestionRecords,
+      replaceQuestionRecords: db.replaceQuestionRecords,
+      replaceQuestionCollections: db.replaceQuestionCollections,
+      putQuestionRecords: db.putQuestionRecords,
+      addDeck,
+      getDecksForSubject: async () => [],
+      getAllTags: async () => [],
+      addTag: async (tag) => ({ ...tag, id: crypto.randomUUID() })
+    });
+    for (let i = 0; i < 50 && document.getElementById("questionPractice").hidden; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+    document.getElementById("questionResumeAssessment").click();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const resumableUi = document.querySelector("#questionTest .question-item")?.textContent.includes("Resume this question") && Boolean(document.querySelector("#questionTest #questionMark"));
     return {
       atomicPreserved: badSaveRejected && atomicPreserved,
       memoryEventAtomic: savedQuestion.find((q) => q.id === "q-one").memoryState.U === 0.1 && reviews.length === 1,
       duplicateAtomic: duplicateRejected && stableOnDuplicate,
+      duplicateSubmissionRace: racingSubmissions.flat().length === 1 && raceWinner.length === 1,
       mediaRoundTrip: media instanceof Blob && await media.text() === "original media",
-      freshRestoreReferences: restoredQuestions.some((q) => q.id === "q-one") && restoredQuestions.some((q) => q.id === "draft-one") && restoredAnswers[0]?.id === "ans-one" && restoredSources[0]?.status === "staging" && restoredSources[0]?.questionIds[0] === "draft-one"
+      freshRestoreReferences: restoredQuestions.some((q) => q.id === "q-one") && restoredQuestions.some((q) => q.id === "draft-one") && restoredAnswers[0]?.id === "ans-one" && restoredSources[0]?.status === "staging" && restoredSources[0]?.questionIds[0] === "draft-one",
+      resumableSession: restoredSessions[0]?.status === "in-progress" && restoredSessions[0]?.totalElapsedMs === 42000 && restoredSessions[0]?.mode === "practice",
+      resumableUi,
+      resumeStatus: document.getElementById("questionStatus").textContent,
+      resumeContent: document.getElementById("questionTest").innerHTML
     };
   });
   check("failed multi-store restore rolls back atomically", result.atomicPreserved);
   check("Memory review and canonical question schedule persist together", result.memoryEventAtomic);
   check("duplicate review event cannot overwrite question state", result.duplicateAtomic);
+  check("concurrent assessment submissions cannot score a question twice", result.duplicateSubmissionRace);
   check("IndexedDB preserves media Blob bytes", result.mediaRoundTrip);
   check("fresh database restore preserves canonical IDs and linked records", result.freshRestoreReferences);
+  check("fresh database restore preserves resumable assessment session timing", result.resumableSession);
+  check("assessment UI reopens an incomplete saved session", result.resumableUi);
+  if (!result.resumableUi) console.log(`resume debug: ${result.resumeStatus} ${result.resumeContent}`);
 } finally {
   if (browser) await browser.close();
   await new Promise((resolve) => server.close(resolve));

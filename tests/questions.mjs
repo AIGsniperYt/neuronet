@@ -59,9 +59,10 @@ export async function run() {
   const restoredMedia = decodeQuestionMedia(JSON.parse(JSON.stringify(encodedMedia)));
   check("backup encoding restores media bytes and MIME type", restoredMedia[0].blob.type === "image/png" && await restoredMedia[0].blob.text() === "pixel bytes");
 
-  const submitted = createAssessmentAttemptEvents({ sessionId: "session", now: 900, entries: [{ questionId: "q1", awardedMarks: "1", maxMarks: "2" }, { questionId: "q2", awardedMarks: "3", maxMarks: "2" }] });
+  const submitted = createAssessmentAttemptEvents({ sessionId: "session", now: 900, mode: "timed", entries: [{ questionId: "q1", awardedMarks: "1", maxMarks: "2", elapsedMs: 4500 }, { questionId: "q2", awardedMarks: "3", maxMarks: "2" }] });
   const duplicateSubmit = createAssessmentAttemptEvents({ sessionId: "session", now: 901, entries: [{ questionId: "q1", awardedMarks: "2", maxMarks: "2" }], existingAttempts: submitted });
   check("raw marks are preserved and invalid totals rejected", submitted.length === 1 && submitted[0].awardedMarks === 1 && submitted[0].maxMarks === 2);
+  check("attempts retain assessment mode and per-question timing", submitted[0].mode === "timed" && submitted[0].elapsedMs === 4500 && submitted[0].createdAt === 900);
   check("duplicate scoring submissions for a session are ignored", duplicateSubmit.length === 0);
 
   const writer = createSerializedWriter();

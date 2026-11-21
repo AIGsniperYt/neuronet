@@ -380,31 +380,36 @@ export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecord
     topicFilters.innerHTML = allTags.map((tag) => `<label><input type="checkbox" value="${esc(tag.id)}"> ${esc(tag.title)}</label>`).join("") || "No topics have been tagged in this bank yet.";
     await refreshAnswerQuestions();
   });
-  generate?.addEventListener("click", async () => {
-    const banks = await getQuestionRecords("questionBanks");
-    const bank = banks.slice().sort((a, b) => Number(b.createdAt) - Number(a.createdAt))[0];
-    if (!bank) { status.textContent = "Import a bank first."; return; }
-    const questions = (await getQuestionRecords("questions")).filter((q) => (q.bankIds || []).includes(bank.id));
+  async function renderAssessmentSession(session) {
+    const allQuestions = await getQuestionRecords("questions");
+    const questions = allQuestions.filter((question) => session.items.some((item) => item.questionId === question.id));
     const answers = await getQuestionRecords("questionAnswers");
     const mediaRows = await getQuestionRecords("questionMedia");
     assessmentImageUrls.forEach((url) => URL.revokeObjectURL(url));
     assessmentImageUrls = mediaRows.filter((media) => media.blob instanceof Blob).map((media) => URL.createObjectURL(media.blob));
     const mediaById = new Map(mediaRows.filter((media) => media.blob instanceof Blob).map((media, index) => [media.id, assessmentImageUrls[index]]));
     const attempts = await getQuestionRecords("assessmentAttempts");
-    const memoryReviews = await getQuestionRecords("memoryReviews");
-    const selectedTags = [...topicFilters.querySelectorAll("input:checked")].map((el) => el.value);
-    const selection = generateAssessment({ questions, attempts, memoryReviews, tagIds: selectedTags, count: Number(document.getElementById("questionCount").value) || 8 });
-    activeSession = { id: crypto.randomUUID(), bankId: bank.id, status: "in-progress", createdAt: Date.now(), seed: selection.seed, asOf: selection.asOf, policyVersion: selection.policyVersion, tagIds: selectedTags, targetCount: Number(document.getElementById("questionCount").value) || 8, items: selection.items };
+    const scored = new Map(attempts.filter((attempt) => attempt.sessionId === session.id && attempt.status === "scored").map((attempt) => [attempt.questionId, attempt]));
+    session.resumedAt = Date.now();
+    session.updatedAt = session.resumedAt;
+    activeSession = session;
     const sessions = await getQuestionRecords("assessmentSessions");
-    await replaceQuestionRecords("assessmentSessions", [...sessions, activeSession]);
-    const byId = new Map(questions.map((q) => [q.id, q]));
-    test.innerHTML = selection.items.map((item, i) => {
-      const q = byId.get(item.questionId);
-      const linkedAnswers = answers.filter((a) => (q?.answerIds || []).includes(a.id));
-      const answerContent = linkedAnswers.length ? linkedAnswers.map((a) => renderQuestionBlocks(a.blocks, mediaById)).join("") : "No answer is linked to this question yet.";
-      return `<article class="question-item" data-id="${esc(item.questionId)}" data-shown-at="${Date.now()}"><strong>${i + 1}. ${esc(q?.sourceQuestionLabel || "Question")} · ${esc(item.evidenceState)}</strong><div class="question-content">${renderQuestionBlocks(q?.prompt, mediaById)}</div><details><summary>Reveal answer / mark scheme</summary><div class="question-content">${answerContent}</div></details><label>Awarded marks <input class="earned" type="number" min="0" max="${item.maxMarks ?? ""}"></label><label>Maximum marks <input class="maximum" type="number" min="1" value="${item.maxMarks ?? ""}"></label></article>`;
-    }).join("") + '<button id="questionMark" type="button">Save marked questions</button>';
-    document.getElementById("questionMark").addEventListener("click", async () => {
+    await replaceQuestionRecords("assessmentSessions", sessions.map((row) => row.id === session.id ? session : row));
+    const byId = new Map(questions.map((question) => [question.id, question]));
+    test.innerHTML = session.items.map((item, i) => {
+      const question = byId.get(item.questionId);
+      const linkedAnswers = answers.filter((answer) => (question?.answerIds || []).includes(answer.id));
+      const answerContent = linkedAnswers.length ? linkedAnswers.map((answer) => renderQuestionBlocks(answer.blocks, mediaById)).join("") : "No answer is linked to this question yet.";
+      const attempt = scored.get(item.questionId);
+      return `<article class="question-item" data-id="${esc(item.questionId)}" data-shown-at="${Date.now()}"><strong>${i + 1}. ${esc(question?.sourceQuestionLabel || "Question")} · ${esc(item.evidenceState)}</strong><div class="question-content">${renderQuestionBlocks(question?.prompt, mediaById)}</div><details><summary>Reveal answer / mark scheme</summary><div class="question-content">${answerContent}</div></details><label>Awarded marks <input class="earned" type="number" min="0" max="${item.maxMarks ?? ""}" value="${attempt?.awardedMarks ?? ""}" ${attempt ? "disabled" : ""}></label><label>Maximum marks <input class="maximum" type="number" min="1" value="${attempt?.maxMarks ?? item.maxMarks ?? ""}" ${attempt ? "disabled" : ""}></label></article>`;
+    }).join("") + (session.status === "completed" ? "<p>This session is complete.</p>" : '<button id="questionMark" type="button">Save marked questions</button>');
+    let submissionPending = false;
+    document.getElementById("questionMark")?.addEventListener("click", async () => {
+      if (submissionPending) return;
+      submissionPending = true;
+      const submitButton = document.getElementById("questionMark");
+      submitButton.disabled = true;
+      try {
       const existingAttempts = await getQuestionRecords("assessmentAttempts");
       const entries = [...test.querySelectorAll(".question-item")].map((el) => ({
         questionId: el.dataset.id,
@@ -412,20 +417,67 @@ export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecord
         maxMarks: el.querySelector(".maximum").value,
         elapsedMs: Math.max(0, Date.now() - Number(el.dataset.shownAt || Date.now()))
       }));
-      const alreadyScored = new Set(existingAttempts.filter((a) => a.sessionId === activeSession.id && a.status === "scored").map((a) => a.questionId));
-      const events = createAssessmentAttemptEvents({ sessionId: activeSession.id, entries, existingAttempts, mode: "practice" });
-      await putQuestionRecords("assessmentAttempts", events);
-      for (const el of test.querySelectorAll(".question-item")) {
-        if (events.some((event) => event.questionId === el.dataset.id) || alreadyScored.has(el.dataset.id)) {
-          el.querySelector(".earned").disabled = true;
-          el.querySelector(".maximum").disabled = true;
+      const alreadyScored = new Set(existingAttempts.filter((attempt) => attempt.sessionId === activeSession.id && attempt.status === "scored").map((attempt) => attempt.questionId));
+      const events = createAssessmentAttemptEvents({ sessionId: activeSession.id, entries, existingAttempts, mode: activeSession.mode || "practice" });
+      const persistedEvents = await putQuestionRecords("assessmentAttempts", events);
+      const savedAttempts = await getQuestionRecords("assessmentAttempts");
+      for (const element of test.querySelectorAll(".question-item")) {
+        if (persistedEvents.some((event) => event.questionId === element.dataset.id) || alreadyScored.has(element.dataset.id)) {
+          element.querySelector(".earned").disabled = true;
+          element.querySelector(".maximum").disabled = true;
         }
       }
-      activeSession.status = alreadyScored.size + events.length >= activeSession.items.length ? "completed" : "in-progress";
+      const elapsed = Math.max(0, Date.now() - Number(activeSession.resumedAt || Date.now()));
+      activeSession.totalElapsedMs = Math.max(0, Number(activeSession.totalElapsedMs) || 0) + elapsed;
+      activeSession.resumedAt = Date.now();
+      activeSession.updatedAt = activeSession.resumedAt;
+      activeSession.status = new Set(savedAttempts.filter((attempt) => attempt.sessionId === activeSession.id && attempt.status === "scored").map((attempt) => attempt.questionId)).size >= activeSession.items.length ? "completed" : "in-progress";
       const allSessions = await getQuestionRecords("assessmentSessions");
-      await replaceQuestionRecords("assessmentSessions", allSessions.map((s) => s.id === activeSession.id ? activeSession : s));
-      status.textContent = `Saved ${events.length} marked responses. Unmarked questions remain unscored.`;
+      await replaceQuestionRecords("assessmentSessions", allSessions.map((row) => row.id === activeSession.id ? activeSession : row));
+      status.textContent = `Saved ${persistedEvents.length} marked responses. Unmarked questions remain available to resume.`;
       await renderHeatmap();
+      } catch (error) {
+        status.textContent = `Could not save assessment marks: ${error.message}`;
+      } finally {
+        submissionPending = false;
+        if (activeSession?.status === "in-progress" && submitButton.isConnected) submitButton.disabled = false;
+      }
     });
+  }
+  document.getElementById("questionResumeAssessment")?.addEventListener("click", async () => {
+    const resumable = (await getQuestionRecords("assessmentSessions"))
+      .filter((session) => session.status === "in-progress" && Array.isArray(session.items) && session.items.length)
+      .sort((a, b) => Number(b.updatedAt || b.createdAt) - Number(a.updatedAt || a.createdAt));
+    if (!resumable.length) { status.textContent = "No incomplete practice session is available to resume."; return; }
+    await renderAssessmentSession(resumable[0]);
+    status.textContent = `Resumed the ${resumable[0].items.length}-question practice session.`;
   });
+
+  generate?.addEventListener("click", async () => {
+    const banks = await getQuestionRecords("questionBanks");
+    const bank = banks.slice().sort((a, b) => Number(b.createdAt) - Number(a.createdAt))[0];
+    if (!bank) { status.textContent = "Import a bank first."; return; }
+    const questions = (await getQuestionRecords("questions")).filter((q) => (q.bankIds || []).includes(bank.id));
+    const attempts = await getQuestionRecords("assessmentAttempts");
+    const memoryReviews = await getQuestionRecords("memoryReviews");
+    const selectedTags = [...topicFilters.querySelectorAll("input:checked")].map((el) => el.value);
+    const selection = generateAssessment({ questions, attempts, memoryReviews, tagIds: selectedTags, count: Number(document.getElementById("questionCount").value) || 8 });
+    activeSession = { id: crypto.randomUUID(), bankId: bank.id, status: "in-progress", mode: "practice", createdAt: Date.now(), startedAt: Date.now(), resumedAt: Date.now(), updatedAt: Date.now(), totalElapsedMs: 0, seed: selection.seed, asOf: selection.asOf, policyVersion: selection.policyVersion, tagIds: selectedTags, targetCount: Number(document.getElementById("questionCount").value) || 8, items: selection.items };
+    const sessions = await getQuestionRecords("assessmentSessions");
+    await replaceQuestionRecords("assessmentSessions", [...sessions, activeSession]);
+    await renderAssessmentSession(activeSession);
+  });
+
+  (async () => {
+    const banks = (await getQuestionRecords("questionBanks")).slice().sort((a, b) => Number(b.createdAt) - Number(a.createdAt));
+    if (!banks.length) return;
+    practice.hidden = false;
+    const questions = await getQuestionRecords("questions");
+    const bankQuestions = questions.filter((question) => (question.bankIds || []).includes(banks[0].id));
+    const allTags = await getAllTags();
+    const usedTags = new Set(bankQuestions.flatMap((question) => question.tagIds || []));
+    topicFilters.innerHTML = allTags.filter((tag) => usedTags.has(tag.id)).sort((a, b) => a.title.localeCompare(b.title))
+      .map((tag) => `<label><input type="checkbox" value="${esc(tag.id)}"> ${esc(tag.title)}</label>`).join("") || "No topics have been tagged in this bank yet.";
+    await refreshAnswerQuestions();
+  })().catch((error) => { status.textContent = `Could not load saved question banks: ${error.message}`; });
 }
