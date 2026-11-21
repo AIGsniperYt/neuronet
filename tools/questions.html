@@ -3,10 +3,12 @@
   <label>Practice PDF <input id="questionPdf" type="file" accept="application/pdf"></label>
   <div class="question-row"><label>Bank name <input id="questionBankName" value="Practice questions"></label><button id="questionImport" type="button">Extract questions</button></div>
   <button id="questionResume" type="button">Resume saved import</button>
+  <div class="question-row"><label>Bulk topic tag <input id="questionBulkTag" placeholder="e.g. Chapter 6 — Circle equations"></label><button id="questionTagApply" type="button">Apply to selected</button><button id="questionTagRemove" type="button">Remove from selected</button></div>
   <p id="questionStatus" role="status"></p>
   <div id="questionItems"></div>
   <button id="questionCommit" type="button" hidden>Save reviewed questions</button>
   <details class="question-item"><summary>Capture one question and its answer</summary><label>Question PDF <input id="captureQuestionPdf" type="file" accept="application/pdf"></label><label>Answer / mark scheme PDF <input id="captureAnswerPdf" type="file" accept="application/pdf"></label><button id="captureRead" type="button">Extract both documents</button><label>Question text <textarea id="capturePrompt"></textarea></label><label>Answer text <textarea id="captureAnswer"></textarea></label><label>Maximum marks (optional) <input id="captureMarks" type="number" min="1"></label><button id="captureSave" type="button">Save Q&amp;A</button></details>
+  <details class="question-item"><summary>Link an answer to an imported question</summary><label>Question <select id="answerQuestionSelect"></select></label><label>Answer / mark scheme PDF <input id="linkedAnswerPdf" type="file" accept="application/pdf"></label><button id="linkedAnswerRead" type="button">Extract answer text</button><label>Editable answer text <textarea id="linkedAnswerText"></textarea></label><button id="linkedAnswerSave" type="button">Confirm and link answer</button></details>
   <section id="questionPractice" hidden><h2>Generate a practice set</h2><label>Question count <input id="questionCount" type="number" min="1" value="8"></label><fieldset><legend>Topics to include (leave clear for all)</legend><div id="questionTopicFilters"></div></fieldset><button id="questionGenerate" type="button">Generate practice set</button><button id="questionHeatmap" type="button">Refresh coverage</button><div id="questionHeatmapView"></div><div id="questionTest"></div></section>
 </section>
 <style>

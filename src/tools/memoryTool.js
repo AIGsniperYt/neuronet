@@ -10,6 +10,7 @@ import {
 } from "./sessionEta.js";
 import { shouldAutoCredit } from "./commitmentsModel.js";
 import { summarizeSignals } from "./studyItem.js";
+import { questionToMemoryItem } from "./memoryQuestionAdapter.js";
 
 export const STUDY_COMPLETE_EVENT = "neuronet:study-complete";
 
@@ -44,6 +45,9 @@ export async function initMemoryTool(deps, context = {}) {
     addCard,
     addCards,
     getAllCards,
+    getQuestionRecords,
+    getAllTags,
+    recordQuestionMemoryReview,
     getCard,
     getCardsForDeck,
     getCardsForDeckId,
@@ -263,20 +267,45 @@ export async function initMemoryTool(deps, context = {}) {
   // goes through `loadScopedCards`, so deck study, filters, and stats
   // cannot drift apart.
 
+  async function loadCanonicalQuestionMemoryCards() {
+    if (typeof getQuestionRecords !== "function") return [];
+    const [questions, answers, decks, tags] = await Promise.all([
+      getQuestionRecords("questions"), getQuestionRecords("questionAnswers"), getAllDecks(), getAllTags()
+    ]);
+    return questions.map((question) => questionToMemoryItem(
+      question, answers, decks.find((deck) => deck.id === question.memoryDeckId), tags
+    )).filter(Boolean);
+  }
+
   async function loadScopedCards() {
+    const [allCards, decks, questions, answers, tags] = await Promise.all([
+      getAllCards(), getAllDecks(),
+      typeof getQuestionRecords === "function" ? getQuestionRecords("questions") : [],
+      typeof getQuestionRecords === "function" ? getQuestionRecords("questionAnswers") : [],
+      getAllTags()
+    ]);
+    const ordinaryCards = (allCards || []).filter((card) => card.origin !== "question-capture");
+    let scopeIds = null;
     if (!state.currentDeckId) {
-      return (await getCardsForDeck(state.currentSubject)) || [];
+      const scoped = (await getCardsForDeck(state.currentSubject)) || [];
+      const virtual = questions.filter((q) => q.memoryDeckId && decks.some((deck) => deck.id === q.memoryDeckId && deck.subject === state.currentSubject))
+        .map((q) => questionToMemoryItem(q, answers, decks.find((deck) => deck.id === q.memoryDeckId), tags))
+        .filter(Boolean);
+      return [...scoped.filter((card) => card.origin !== "question-capture"), ...virtual];
     }
-    const [allCards, decks] = await Promise.all([getAllCards(), getAllDecks()]);
-    const scopeIds = new Set(
+    scopeIds = new Set(
       state.directCardsOnly
         ? [state.currentDeckId]
         : getDeckDescendantIds(decks, state.currentDeckId)
     );
-    return (allCards || []).filter((card) => (
+    const selectedCards = ordinaryCards.filter((card) => (
       scopeIds.has(String(card.deckId || ""))
       || (!card.deckId && card.deck === state.currentSubject)
     ));
+    const virtual = questions.filter((q) => scopeIds.has(String(q.memoryDeckId || "")))
+      .map((q) => questionToMemoryItem(q, answers, decks.find((deck) => deck.id === q.memoryDeckId), tags))
+      .filter(Boolean);
+    return [...selectedCards, ...virtual];
   }
 
   function deckLabel(deck, decks = []) {
@@ -1460,7 +1489,18 @@ export async function initMemoryTool(deps, context = {}) {
     currentCard.review.responseTimeMs = responseTimeMs;
     currentCard.memoryState = updatedMemoryState;
 
-    if (persistKind === "card") {
+    if (persistKind === "question") {
+      const updatedQuestion = { ...persistRecord, memoryState: updatedMemoryState, updatedAt: nowMs };
+      const reviewEvent = {
+        id: crypto.randomUUID(), type: "memory-review", questionId: persistRecord.id,
+        rating: grade, responseTimeMs, dwellMs, phase, createdAt: nowMs,
+        schedule: { nextReview: updatedMemoryState.nextReview, interval: updatedMemoryState.interval },
+        context: "flashcard-recall"
+      };
+      state.session.suppressDBChange++;
+      await recordQuestionMemoryReview(updatedQuestion, reviewEvent);
+      currentCard.record = updatedQuestion;
+    } else if (persistKind === "card") {
       const updatedCard = {
         ...persistRecord,
         meta: mergeMemoryStateIntoMeta(persistRecord.meta || {}, updatedMemoryState),
@@ -1669,7 +1709,7 @@ export async function initMemoryTool(deps, context = {}) {
   }
 
   async function loadLaunchpad() {
-    const [allDecks, allCards] = await Promise.all([getAllDecks(), getAllCards()]);
+    const [allDecks, allCards, questionCards] = await Promise.all([getAllDecks(), getAllCards(), loadCanonicalQuestionMemoryCards()]);
     if (!deckList) return;
 
     if (deckSortBtn) {
@@ -1701,7 +1741,7 @@ export async function initMemoryTool(deps, context = {}) {
     }
 
     deckList.innerHTML = "";
-    const cards = allCards || [];
+    const cards = [...(allCards || []).filter((card) => card.origin !== "question-capture"), ...questionCards];
     if (!decks || decks.length === 0) {
       deckList.innerHTML = query
         ? `<div style="color: var(--text-muted);">No decks match “${escapeHtml(state.deckSearch)}”.</div>`
@@ -1929,11 +1969,12 @@ export async function initMemoryTool(deps, context = {}) {
   }
 
   function createCardStudyItem(card) {
+    const questionBacked = Boolean(card.questionId && card._question);
     return {
       id: card.id,
-      memoryKind: "card",
+      memoryKind: questionBacked ? "question" : "card",
       type: "card-learning",
-      record: card,
+      record: questionBacked ? card._question : card,
       review: { required: true, graded: false, grade: null, responseTimeMs: null },
       front: {
         content: card.front,
@@ -3251,6 +3292,13 @@ export async function initMemoryTool(deps, context = {}) {
           tags: cardRecord.tags || []
         },
         memoryState: candidate.memoryState
+      };
+    } else if (candidate.memoryKind === "question") {
+      card = {
+        ...candidate,
+        type: "card-learning",
+        review: { required: true, graded: false, grade: null, responseTimeMs: null },
+        memoryState: candidate.memoryState || {}
       };
     } else if (candidate.memoryKind === "quote") {
       const quote = candidate.record;

@@ -3,6 +3,8 @@ import { syncLocalWithCloud, syncToCloud, deleteCloudNode, deleteCloudQuote, del
 import { initAnalysisToolV2 } from "./tools/analysisTool.js";
 import { dialog } from "./tools/dialog.js";
 import { initMemoryTool, STUDY_COMPLETE_EVENT } from "./tools/memoryTool.js";
+import { recordQuestionMemoryReview } from "./db.js";
+import { decodeQuestionMedia, encodeQuestionMedia } from "./tools/questionMediaBackup.js";
 import { initMindmapTool } from "./tools/mindmapTool.js";
 import { summarizeSignals } from "./tools/studyItem.js";
 import { initTrackerTool } from "./tools/trackerTool.js";
@@ -267,7 +269,7 @@ const tools = {
   questions: {
     name: "Question Bank",
     file: "questions.html",
-    init: () => initQuestionBankTool({ getQuestionRecords, replaceQuestionRecords, replaceQuestionCollections, putQuestionRecords, addCard, getAllTags, addTag })
+    init: () => initQuestionBankTool({ getQuestionRecords, replaceQuestionRecords, replaceQuestionCollections, putQuestionRecords, addDeck, getDecksForSubject, getAllTags, addTag })
   }
 };
 
@@ -997,7 +999,7 @@ async function fetchDemoPayload() {
 }
 
 async function exportDatabaseJson() {
-  const questionCollections = ["questions", "questionAnswers", "questionBanks", "questionSources", "assessmentSessions", "assessmentAttempts", "questionMedia"];
+  const questionCollections = ["questions", "questionAnswers", "questionBanks", "questionSources", "assessmentSessions", "assessmentAttempts", "memoryReviews", "questionMedia"];
   const [nodes, quotes, cues, cards, heaps, decks, subjects, tasks, commitments, journals, questionTagRecords, ...questionData] = await Promise.all([
     getAllNodes(),
     getAllQuotes(),
@@ -1012,10 +1014,7 @@ async function exportDatabaseJson() {
     getAllTags(),
     ...questionCollections.map(getQuestionRecords)
   ]);
-  const media = questionData[questionCollections.indexOf("questionMedia")];
-  for (const item of media) {
-    if (item.blob instanceof Blob) item.blob = { __neuronetBlob: true, type: item.blob.type, bytes: Array.from(new Uint8Array(await item.blob.arrayBuffer())) };
-  }
+  questionData[questionCollections.indexOf("questionMedia")] = await encodeQuestionMedia(questionData[questionCollections.indexOf("questionMedia")]);
   const payload = {
     schemaVersion: SCHEMA_VERSION,
     exportedAt: new Date().toISOString(),
@@ -1122,12 +1121,10 @@ async function importPayload(payload) {
   const tasks = dataset.tasks;
   const commitments = dataset.commitments;
   const journals = dataset.journals || [];
-  const questionCollections = ["questions", "questionAnswers", "questionBanks", "questionSources", "assessmentSessions", "assessmentAttempts", "questionMedia"];
+  const questionCollections = ["questions", "questionAnswers", "questionBanks", "questionSources", "assessmentSessions", "assessmentAttempts", "memoryReviews", "questionMedia"];
   const questionData = Object.fromEntries(questionCollections.map((key) => [key, dataset[key] || []]));
   const questionTagRecords = dataset.questionTagRecords || [];
-  for (const media of questionData.questionMedia) {
-    if (media.blob?.__neuronetBlob) media.blob = new Blob([new Uint8Array(media.blob.bytes)], { type: media.blob.type || "application/octet-stream" });
-  }
+  questionData.questionMedia = decodeQuestionMedia(questionData.questionMedia);
 
   await clearNodes();
   await clearQuotes();
@@ -2890,6 +2887,18 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   await initDB();
   DB_READY = true;
+  // Remove the early same-ID card projections now that Memory reads canonical
+  // question and answer records through its adapter. The question record and
+  // its review history remain untouched.
+  try {
+    const [legacyCards, canonicalQuestions] = await Promise.all([getAllCards(), getQuestionRecords("questions")]);
+    const canonicalIds = new Set(canonicalQuestions.map((question) => question.id));
+    for (const card of legacyCards) {
+      if (card.origin === "question-capture" && canonicalIds.has(card.questionId || card.id)) await deleteCard(card.id);
+    }
+  } catch (error) {
+    console.warn("[MEMORY] Could not remove obsolete question card projections:", error);
+  }
   // Ask the browser to reduce eviction risk where supported. Backups remain
   // the recovery path because this request can be denied or unsupported.
   try {

@@ -12,6 +12,8 @@
 - `node tests/preview_test.mjs` — legacy boundary preview behavior.
 - `node tests/gcse_boundary_golden_suite.mjs` — real-value parser golden fixtures and zero-fabrication identity checks; `LIVE=1` refetches the real board PDFs instead of cached text.
 - `node tests/e2e_tracker.mjs` — real-browser Tracker + Scraper smoke test (offline; `LIVE=1` adds a live Pearson Jun 2024 refetch). Requires a Chrome/Chromium binary (`CHROME_PATH`, default `/usr/bin/google-chrome`) and `puppeteer-core`; the repo deliberately has no package.json, so run it on a machine that provides both.
+- `node tests/questions.mjs` — selection replay, topic fairness, separate assessment/Memory evidence, canonical Memory adapter, serialized saves, and media backup bytes.
+- `node tests/e2e_questions.mjs` — browser-backed IndexedDB atomic restore, append-only Memory review, duplicate-event rollback, and media Blob persistence. Requires Chrome and `puppeteer-core`.
 
 The frontend has no production build, lint, or typecheck script; Pages publishes the static tree directly.
 

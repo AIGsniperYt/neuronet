@@ -19,7 +19,7 @@ const throws = (name, fn) => {
 };
 
 export async function run() {
-  eq("schema version is 12", SCHEMA_VERSION, 12);
+  eq("schema version is 13", SCHEMA_VERSION, 13);
 
   const minimal = assertCurrentDataset({ schemaVersion: 12 });
   check("missing collections default to arrays", ["nodes", "quotes", "cues", "cards", "heaps", "decks", "subjects", "tasks", "commitments", "journals"].every((key) => Array.isArray(minimal[key])));

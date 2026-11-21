@@ -4,7 +4,7 @@ let db;
 // Structural schema only: store/index creation. Data-shape changes are handled
 // on write (promoteTags / promoteStudyPriority) and old profiles are reset by
 // importing the committed demo dataset, not migrated in place.
-const DB_VERSION = 18;
+const DB_VERSION = 19;
 
 // Decks are canonical folders inside a subject. Cards point at one deck via
 // deckId; the legacy `card.deck` string remains the subject owner until the
@@ -184,6 +184,7 @@ export function initDB() {
         questionSources: ["createdAt"],
         assessmentSessions: ["createdAt", "status", "bankId"],
         assessmentAttempts: ["createdAt", "sessionId", "questionId"],
+        memoryReviews: ["createdAt", "questionId"],
         questionMedia: ["createdAt"]
       })) {
         if (!db.objectStoreNames.contains(name)) {
@@ -2943,7 +2944,7 @@ export function clearJournals() {
 
 // Shared persistence boundary for the structured question and assessment
 // records. Keep writes transactional and records keyed by stable IDs.
-const QUESTION_STORES = ["questions", "questionAnswers", "questionBanks", "questionSources", "assessmentSessions", "assessmentAttempts", "questionMedia"];
+const QUESTION_STORES = ["questions", "questionAnswers", "questionBanks", "questionSources", "assessmentSessions", "assessmentAttempts", "memoryReviews", "questionMedia"];
 function assertQuestionStore(storeName) {
   if (!QUESTION_STORES.includes(storeName)) throw new Error(`Unsupported question store: ${storeName}`);
   if (!db) throw new Error("IndexedDB is not initialized");
@@ -3006,12 +3007,33 @@ export function replaceQuestionCollections(collections) {
   const names = Object.keys(collections);
   return new Promise((resolve, reject) => {
     const tx = db.transaction(names, "readwrite");
-    for (const name of names) {
-      const store = tx.objectStore(name);
-      store.clear();
-      for (const record of collections[name] || []) store.put(record);
+    try {
+      for (const name of names) {
+        const store = tx.objectStore(name);
+        store.clear();
+        for (const record of collections[name] || []) store.put(record);
+      }
+    } catch (error) {
+      try { tx.abort(); } catch { /* transaction already inactive */ }
+      reject(error);
+      return;
     }
     tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(questionStorageError(tx.error));
+    tx.onabort = () => reject(questionStorageError(tx.error));
+  });
+}
+export function recordQuestionMemoryReview(question, event) {
+  assertQuestionStore("questions");
+  assertQuestionStore("memoryReviews");
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(["questions", "memoryReviews"], "readwrite");
+    tx.objectStore("questions").put(question);
+    tx.objectStore("memoryReviews").add(event);
+    tx.oncomplete = () => {
+      emitDBChange({ type: "question-memory-review", ids: [question.id] });
+      resolve({ question, event });
+    };
     tx.onerror = () => reject(questionStorageError(tx.error));
     tx.onabort = () => reject(questionStorageError(tx.error));
   });
