@@ -3,7 +3,7 @@ import { generateAssessment, questionEvidence } from "./assessmentEngine.js";
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecords, putQuestionRecords, addCard, getAllTags, addTag }) {
+export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecords, replaceQuestionCollections, putQuestionRecords, addCard, getAllTags, addTag }) {
   const file = document.getElementById("questionPdf");
   const name = document.getElementById("questionBankName");
   const status = document.getElementById("questionStatus");
@@ -44,9 +44,11 @@ export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecord
     const questionId = crypto.randomUUID();
     const answerId = crypto.randomUUID();
     const answerFiles = ["captureQuestionPdf", "captureAnswerPdf"].map((id) => document.getElementById(id).files[0].name);
-    await replaceQuestionRecords("questionAnswers", [...answers, { id: answerId, blocks: [{ type: "text", text: answer }], sourceId, sourceLabel: answerFiles[1], createdAt: Date.now(), status: "confirmed" }]);
-    await replaceQuestionRecords("questions", [...questions, { id: questionId, kind: "question", prompt: [{ type: "text", text: prompt }], answerIds: [answerId], maxMarks: Number(document.getElementById("captureMarks").value) || null, tags: [], bankIds: [], sourceId, sourceLabel: answerFiles[0], status: "confirmed", revision: 1, createdAt: Date.now() }]);
-    await replaceQuestionRecords("questionSources", [...sources, { id: sourceId, fileNames: answerFiles, importedAt: Date.now(), status: "committed", questionIds: [questionId], answerIds: [answerId] }]);
+    await replaceQuestionCollections({
+      questionAnswers: [...answers, { id: answerId, blocks: [{ type: "text", text: answer }], sourceId, sourceLabel: answerFiles[1], createdAt: Date.now(), status: "confirmed" }],
+      questions: [...questions, { id: questionId, kind: "question", prompt: [{ type: "text", text: prompt }], answerIds: [answerId], maxMarks: Number(document.getElementById("captureMarks").value) || null, tagIds: [], bankIds: [], sourceId, sourceLabel: answerFiles[0], status: "confirmed", revision: 1, createdAt: Date.now() }],
+      questionSources: [...sources, { id: sourceId, fileNames: answerFiles, importedAt: Date.now(), status: "committed", questionIds: [questionId], answerIds: [answerId] }]
+    });
     await addCard({ id: questionId, questionId, front: prompt, back: answer, deck: "Question Bank", tags: [], origin: "question-capture", links: { nodeId: questionId } });
     status.textContent = "Saved the question and linked answer with one stable question ID.";
   });
@@ -90,8 +92,7 @@ export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecord
     const ids = new Set(staged.map((q) => q.id));
     const drafts = staged.map((q) => ({ id: q.id, kind: "question", prompt: [{ type: "text", text: q.text }], answerIds: [], maxMarks: null, tags: (q.tags || "").split(",").map((tag) => tag.trim()).filter(Boolean), bankIds: [], sourceId: stagedSourceId, sourcePage: q.page, sourceQuestionLabel: q.label, sourceOrder: q.order, status: "draft", revision: 1, createdAt: q.createdAt || Date.now() }));
     const retained = allQuestions.filter((q) => !ids.has(q.id)).map((q) => excludedDraftIds.has(q.id) ? { ...q, status: "excluded" } : q);
-    await replaceQuestionRecords("questions", [...retained, ...drafts]);
-    await replaceQuestionRecords("questionSources", sources);
+    await replaceQuestionCollections({ questions: [...retained, ...drafts], questionSources: sources });
   };
   const scheduleDraftSave = () => { clearTimeout(draftSaveTimer); draftSaveTimer = setTimeout(() => persistDrafts().catch((error) => { status.textContent = `Draft save failed: ${error.message}`; }), 300); };
   list.addEventListener("input", (event) => {
@@ -161,8 +162,10 @@ export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecord
       const priorQuestions = await getQuestionRecords("questions");
       const priorSources = await getQuestionRecords("questionSources");
       const drafts = staged.map((q) => ({ id: q.id, kind: "question", prompt: [{ type: "text", text: q.text }], answerIds: [], maxMarks: null, tags: [], bankIds: [], sourceId: stagedSourceId, sourceLabel: pdf.name, sourcePage: q.page, sourceQuestionLabel: q.label, sourceOrder: q.order, status: "draft", revision: 1, createdAt: Date.now() }));
-      await replaceQuestionRecords("questions", [...priorQuestions, ...drafts]);
-      await replaceQuestionRecords("questionSources", [...priorSources, { id: stagedSourceId, fileName: pdf.name, bankName: name.value, importedAt: Date.now(), status: "staging", questionIds: staged.map((q) => q.id) }]);
+      await replaceQuestionCollections({
+        questions: [...priorQuestions, ...drafts],
+        questionSources: [...priorSources, { id: stagedSourceId, fileName: pdf.name, bankName: name.value, importedAt: Date.now(), status: "staging", questionIds: staged.map((q) => q.id) }]
+      });
       renderStaged();
       status.textContent = staged.length ? `Found ${staged.length} possible question boundaries. Review and correct them before saving.` : "No numbered question boundaries found. This PDF may need manual capture or OCR.";
     } catch (error) { status.textContent = `Could not read this PDF: ${error.message}`; }
@@ -192,9 +195,11 @@ export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecord
       return { ...existing, id: q.id, kind: "question", prompt: [{ type: "text", text: el.querySelector("textarea").value }], answerIds: [], maxMarks: existing.maxMarks ?? null, tagIds: [...new Set([...(existing.tagIds || []), ...itemTags])], bankIds: [...new Set([...(existing.bankIds || []), bankId])], sourceId, sourceLabel: existing.sourceLabel || file.files[0]?.name, sourcePage: q.page, sourceQuestionLabel: q.label, sourceOrder: i + 1, status: "confirmed", createdAt: existing.createdAt || Date.now(), revision: existing.revision || 1 };
     });
     const batch = [...questions, ...imported];
-    await replaceQuestionRecords("questions", batch);
-    await replaceQuestionRecords("questionSources", sources.map((source) => source.id === sourceId ? { ...source, status: "committed", questionIds: imported.map((q) => q.id), bankName: name.value } : source));
-    await replaceQuestionRecords("questionBanks", [...banks, { id: bankId, name: name.value.trim() || "Practice questions", questionIds: imported.map((q) => q.id), createdAt: Date.now() }]);
+    await replaceQuestionCollections({
+      questions: batch,
+      questionSources: sources.map((source) => source.id === sourceId ? { ...source, status: "committed", questionIds: imported.map((q) => q.id), bankName: name.value } : source),
+      questionBanks: [...banks, { id: bankId, name: name.value.trim() || "Practice questions", questionIds: imported.map((q) => q.id), createdAt: Date.now() }]
+    });
     status.textContent = `Saved ${imported.length} questions to “${name.value.trim() || "Practice questions"}”.`;
     commit.hidden = true;
     practice.hidden = false;

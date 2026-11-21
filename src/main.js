@@ -267,7 +267,7 @@ const tools = {
   questions: {
     name: "Question Bank",
     file: "questions.html",
-    init: () => initQuestionBankTool({ getQuestionRecords, replaceQuestionRecords, putQuestionRecords, addCard, getAllTags, addTag })
+    init: () => initQuestionBankTool({ getQuestionRecords, replaceQuestionRecords, replaceQuestionCollections, putQuestionRecords, addCard, getAllTags, addTag })
   }
 };
 
