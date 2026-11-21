@@ -7,12 +7,12 @@
  * loads it exactly as written.
  */
 
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
 
 // journals: personal reflective entries (STUB — IndexedDB today, planned
 // migration to user-owned PC/file storage later). Exported with the dataset so
 // they survive browser resets and travel with the user's JSON backup.
-const COLLECTIONS = ["nodes", "quotes", "cues", "cards", "heaps", "decks", "subjects", "tasks", "commitments", "journals"];
+const COLLECTIONS = ["nodes", "quotes", "cues", "cards", "heaps", "decks", "subjects", "tasks", "commitments", "journals", "questions", "questionAnswers", "questionBanks", "questionSources", "assessmentSessions", "assessmentAttempts", "questionMedia"];
 
 export function assertCurrentDataset(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
@@ -23,14 +23,14 @@ export function assertCurrentDataset(payload) {
   if (!Number.isFinite(version)) {
     throw new Error("Invalid NeuroNet export: missing schemaVersion.");
   }
-  if (version !== SCHEMA_VERSION) {
+  if (version !== 12 && version !== SCHEMA_VERSION) {
     throw new Error(
       `This export uses schema ${version}, but this build expects schema ${SCHEMA_VERSION}. ` +
       "Re-export it from an up-to-date NeuroNet build."
     );
   }
 
-  const dataset = { ...payload };
+  const dataset = { ...payload, schemaVersion: SCHEMA_VERSION };
   for (const key of COLLECTIONS) {
     if (payload[key] !== undefined && !Array.isArray(payload[key])) {
       throw new Error(`Invalid NeuroNet export: "${key}" must be an array.`);
