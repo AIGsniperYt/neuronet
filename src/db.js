@@ -2948,6 +2948,12 @@ function assertQuestionStore(storeName) {
   if (!QUESTION_STORES.includes(storeName)) throw new Error(`Unsupported question store: ${storeName}`);
   if (!db) throw new Error("IndexedDB is not initialized");
 }
+function questionStorageError(error) {
+  if (error?.name === "QuotaExceededError") {
+    return new Error("NeuroNet storage is full. Export a backup, free browser storage, then retry saving these questions or media.", { cause: error });
+  }
+  return error || new Error("Question data could not be saved.");
+}
 export function putQuestionRecord(storeName, record) {
   assertQuestionStore(storeName);
   const value = { ...record, id: record.id || crypto.randomUUID(), updatedAt: Date.now() };
@@ -2956,8 +2962,8 @@ export function putQuestionRecord(storeName, record) {
     const tx = db.transaction(storeName, "readwrite");
     tx.objectStore(storeName).put(value);
     tx.oncomplete = () => { emitDBChange({ type: "question-record", store: storeName, ids: [value.id] }); resolve(value); };
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
+    tx.onerror = () => reject(questionStorageError(tx.error));
+    tx.onabort = () => reject(questionStorageError(tx.error));
   });
 }
 export function putQuestionRecords(storeName, records) {
@@ -2968,8 +2974,8 @@ export function putQuestionRecords(storeName, records) {
     const store = tx.objectStore(storeName);
     for (const value of values) store.put(value);
     tx.oncomplete = () => { emitDBChange({ type: "question-records", store: storeName, ids: values.map((v) => v.id) }); resolve(values); };
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
+    tx.onerror = () => reject(questionStorageError(tx.error));
+    tx.onabort = () => reject(questionStorageError(tx.error));
   });
 }
 export function getQuestionRecords(storeName) {
@@ -2991,8 +2997,8 @@ export function replaceQuestionRecords(storeName, records) {
     store.clear();
     for (const value of values) store.put(value);
     tx.oncomplete = () => resolve(values);
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
+    tx.onerror = () => reject(questionStorageError(tx.error));
+    tx.onabort = () => reject(questionStorageError(tx.error));
   });
 }
 export function replaceQuestionCollections(collections) {
@@ -3006,7 +3012,7 @@ export function replaceQuestionCollections(collections) {
       for (const record of collections[name] || []) store.put(record);
     }
     tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
+    tx.onerror = () => reject(questionStorageError(tx.error));
+    tx.onabort = () => reject(questionStorageError(tx.error));
   });
 }

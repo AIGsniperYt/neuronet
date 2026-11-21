@@ -119,13 +119,19 @@ export function initQuestionBankTool({ getQuestionRecords, replaceQuestionRecord
     const bank = banks.at(-1);
     if (!bank) { status.textContent = "Import a bank first."; return; }
     const questions = (await getQuestionRecords("questions")).filter((q) => (q.bankIds || []).includes(bank.id));
+    const answers = await getQuestionRecords("questionAnswers");
     const attempts = await getQuestionRecords("assessmentAttempts");
     const selection = generateAssessment({ questions: questions.map((q) => ({ ...q, tagIds: q.tags || [] })), attempts, count: Number(document.getElementById("questionCount").value) || 8 });
     activeSession = { id: crypto.randomUUID(), bankId: bank.id, status: "in-progress", createdAt: Date.now(), seed: selection.seed, policyVersion: selection.policyVersion, items: selection.items.map((item) => ({ ...item, revision: questions.find((q) => q.id === item.questionId)?.revision || 1 })) };
     const sessions = await getQuestionRecords("assessmentSessions");
     await replaceQuestionRecords("assessmentSessions", [...sessions, activeSession]);
     const byId = new Map(questions.map((q) => [q.id, q]));
-    test.innerHTML = selection.items.map((item, i) => `<article class="question-item" data-id="${esc(item.questionId)}"><strong>${i + 1}. ${esc(byId.get(item.questionId)?.sourceQuestionLabel || "Question")} · ${esc(item.evidenceState)}</strong><p>${esc(byId.get(item.questionId)?.prompt?.map((b) => b.text).join("\n") || "")}</p><label>Awarded marks <input class="earned" type="number" min="0" max="${item.maxMarks ?? ""}" ${item.maxMarks == null ? "disabled" : ""}></label><label>Maximum marks <input class="maximum" type="number" min="1" value="${item.maxMarks ?? ""}"></label></article>`).join("") + '<button id="questionMark" type="button">Save marked questions</button>';
+    test.innerHTML = selection.items.map((item, i) => {
+      const q = byId.get(item.questionId);
+      const linkedAnswers = answers.filter((a) => (q?.answerIds || []).includes(a.id));
+      const answerContent = linkedAnswers.length ? linkedAnswers.map((a) => (a.blocks || []).map((b) => b.text || "").join("\n")).join("\n\n") : "No answer is linked to this question yet.";
+      return `<article class="question-item" data-id="${esc(item.questionId)}"><strong>${i + 1}. ${esc(q?.sourceQuestionLabel || "Question")} · ${esc(item.evidenceState)}</strong><p>${esc(q?.prompt?.map((b) => b.text).join("\n") || "")}</p><details><summary>Reveal answer / mark scheme</summary><p>${esc(answerContent)}</p></details><label>Awarded marks <input class="earned" type="number" min="0" max="${item.maxMarks ?? ""}"></label><label>Maximum marks <input class="maximum" type="number" min="1" value="${item.maxMarks ?? ""}"></label></article>`;
+    }).join("") + '<button id="questionMark" type="button">Save marked questions</button>';
     document.getElementById("questionMark").addEventListener("click", async () => {
       const events = [...test.querySelectorAll(".question-item")].flatMap((el) => {
         const earned = el.querySelector(".earned").value;
