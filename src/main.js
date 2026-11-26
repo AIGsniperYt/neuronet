@@ -1,4 +1,4 @@
-import { initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, getAllSubjects, addSubject, deleteSubject, renameSubject, mergeSubjects, setSubjectOrder, setSubjectLevel, ensureSubjectIdentity, addSubjects, clearSubjects, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForDeckId, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, clearTags, addDeck, addDecks, getAllDecks, getDeck, getDecksForSubject, deleteDeckRecord, deleteDeck, clearDecks, ensureDeckMembership, sortDecksByCreated, buildDeckForest, flattenDeckTree, getDeckDescendantIds, groupDecksBySubject, getDeckPath, describeDeckDeletion, UNSORTED_DECK_NAME, addHeap, addHeaps, getAllHeaps, getHeap, deleteHeap, clearHeaps, addTask, addTasks, getAllTasks, deleteTask, clearTasks, addCommitment, addCommitments, getAllCommitments, deleteCommitment, clearCommitments, addJournal, addJournals, getJournal, getAllJournals, deleteJournal, clearJournals, getQuestionRecords, replaceQuestionRecords, replaceQuestionCollections, putQuestionRecords } from "./db.js";
+import { initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, getAllSubjects, addSubject, deleteSubject, renameSubject, mergeSubjects, setSubjectOrder, setSubjectLevel, ensureSubjectIdentity, addSubjects, clearSubjects, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForDeckId, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, clearTags, addDeck, addDecks, getAllDecks, getDeck, getDecksForSubject, deleteDeckRecord, deleteDeck, clearDecks, ensureDeckMembership, sortDecksByCreated, buildDeckForest, flattenDeckTree, getDeckDescendantIds, groupDecksBySubject, getDeckPath, describeDeckDeletion, UNSORTED_DECK_NAME, addHeap, addHeaps, getAllHeaps, getHeap, deleteHeap, clearHeaps, addTask, addTasks, getAllTasks, deleteTask, clearTasks, addCommitment, addCommitments, getAllCommitments, deleteCommitment, clearCommitment, addJournal, addJournals, getJournal, getAllJournals, deleteJournal, clearJournals, getQuestionRecords, replaceQuestionRecords, replaceQuestionCollections, putQuestionRecord, putQuestionRecords } from "./db.js";
 import { syncLocalWithCloud, syncToCloud, deleteCloudNode, deleteCloudQuote, deleteCloudCue, fetchCloudNodes, fetchCloudQuotes, fetchCloudCues } from "./sync.js";
 import { initAnalysisToolV2 } from "./tools/analysisTool.js";
 import { dialog } from "./tools/dialog.js";
@@ -23,6 +23,7 @@ import { estimateCardsMs } from "./tools/sessionEta.js";
 import { formatDueLabel, toDateKey } from "./tools/tasksModel.js";
 import { flushBoundaryCache } from "./tools/gradeBoundaries.js";
 import { SCHEMA_VERSION, assertCurrentDataset } from "./schema.js";
+import { format } from "./vendor/md-format/mdeditor.js";
 import { initCanvas } from "./canvas.js";
 import { parseSubjectName, subjectKey, groupSubjectRecords, compareSubjectRecords } from "./subjectModel.js";
 
@@ -150,6 +151,9 @@ const tools = {
       addCard,
       addCards,
       getAllCards,
+      getQuestionRecords,
+      getAllTags,
+      recordQuestionMemoryReview,
       getCard,
       getCardsForDeck,
       getCardsForDeckId,

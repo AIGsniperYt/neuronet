@@ -3,7 +3,7 @@
  * ----------------------------------------------------------------------------
  * The demo page used to own all of its runtime in index.html; this file is
  * that same machinery pulled out behind one factory so anything can host an
- * editor: the demo page, a SPA, neuronet's taskbar-driven UI, you name it.
+ * editor: the demo page, a SPA, an app-specific toolbar UI, you name it.
  *
  * Usage:
  *

@@ -155,7 +155,7 @@ function renderHtml(tree, opts = {}) {
 /* renderHtmlInline(children, opts) — walk a list of INLINE nodes.
  * opts.softBreaks promotes a single newline (softbreak) to a visible line
  * break. The library is markdown-first: OFF by default, hosts that want a
- * "regular editor" feel (like neuronet) opt in explicitly. */
+ * "regular editor" feel opt in explicitly. */
 function renderHtmlInline(children, opts = {}) {
     let out = "";
     for (const node of children || []) {
