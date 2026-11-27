@@ -1,5 +1,5 @@
 import { initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, getAllSubjects, addSubject, deleteSubject, renameSubject, mergeSubjects, setSubjectOrder, setSubjectLevel, ensureSubjectIdentity, addSubjects, clearSubjects, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForDeckId, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, clearTags, addDeck, addDecks, getAllDecks, getDeck, getDecksForSubject, deleteDeckRecord, deleteDeck, clearDecks, ensureDeckMembership, sortDecksByCreated, buildDeckForest, flattenDeckTree, getDeckDescendantIds, groupDecksBySubject, getDeckPath, describeDeckDeletion, UNSORTED_DECK_NAME, addHeap, addHeaps, getAllHeaps, getHeap, deleteHeap, clearHeaps, addTask, addTasks, getAllTasks, deleteTask, clearTasks, addCommitment, addCommitments, getAllCommitments, deleteCommitment, clearCommitments, addJournal, addJournals, getJournal, getAllJournals, deleteJournal, clearJournals } from "./db.js";
-import { syncLocalWithCloud, syncToCloud, deleteCloudNode, deleteCloudQuote, deleteCloudCue, fetchCloudNodes, fetchCloudQuotes, fetchCloudCues } from "./sync.js";
+import { syncLocalWithCloud, syncNow } from "./sync.js";
 import { initAnalysisToolV2 } from "./tools/analysisTool.js";
 import { dialog } from "./tools/dialog.js";
 import { initMemoryTool, STUDY_COMPLETE_EVENT } from "./tools/memoryTool.js";
@@ -42,7 +42,7 @@ const DEFAULT_PROFILE = {
   picture: "https://via.placeholder.com/40"
 };
 
-let syncInProgress = false;
+let syncDebounceTimer = null;
 
 let currentToolName = "";
 let previousToolName = "";
@@ -315,28 +315,27 @@ async function fetchUser() {
   }
 }
 
+function scheduleCloudSync() {
+  if (!USE_BACKEND || !window.currentUser) return;
+  clearTimeout(syncDebounceTimer);
+  syncDebounceTimer = setTimeout(() => {
+    syncNow(window.currentUser).catch((error) => {
+      console.warn("[SYNC] Deferred sync failed; local changes remain queued:", error.message);
+    });
+  }, 900);
+}
+
 async function backupLocalNodesToCloud() {
-  if (!USE_BACKEND || !window.currentUser || syncInProgress) return;
-  syncInProgress = true;
-  try {
-    const [localNodes, localQuotes] = await Promise.all([getAllNodes(), getAllQuotes()]);
-    await syncToCloud(localNodes, localQuotes);
-  } catch (error) {
-    console.log("Background cloud backup skipped", error);
-  } finally {
-    syncInProgress = false;
-  }
+  scheduleCloudSync();
 }
 
 async function syncAfterLogin() {
-  if (!USE_BACKEND || !window.currentUser || syncInProgress) return;
-  syncInProgress = true;
+  if (!USE_BACKEND || !window.currentUser) return;
   try {
-    await syncLocalWithCloud();
+    const summary = await syncLocalWithCloud(window.currentUser);
+    console.info("[SYNC] Initial synchronisation complete:", summary);
   } catch (error) {
-    console.log("Cloud merge failed", error);
-  } finally {
-    syncInProgress = false;
+    console.warn("[SYNC] Initial synchronisation deferred:", error.message);
   }
 }
 
@@ -457,26 +456,14 @@ async function removeNodeEverywhere(id) {
 
   await deleteNode(id);
 
-  if (!USE_BACKEND || !window.currentUser) return;
-
-  try {
-    await deleteCloudNode(id);
-  } catch (error) {
-    console.log("Cloud delete skipped", error);
-  }
+  // deleteNode() atomically records a tombstone in the local sync outbox.
 }
 
 async function removeQuoteEverywhere(id) {
   await deleteQuoteCascadeLocal(id);
   await deleteQuote(id);
 
-  if (!USE_BACKEND || !window.currentUser) return;
-
-  try {
-    await deleteCloudQuote(id);
-  } catch (error) {
-    console.log("Cloud quote delete skipped", error);
-  }
+  // deleteQuote() atomically records a tombstone in the local sync outbox.
 }
 
 function isEmptyAnalysisNode(node) {
@@ -573,9 +560,7 @@ async function deleteSubjectCascadeEverywhere(subjectName) {
   for (const node of relatedNodes) {
     if (!node?.id) continue;
     await deleteNode(node.id);
-    if (USE_BACKEND && window.currentUser) {
-      try { await deleteCloudNode(node.id); } catch (error) { console.log("Cloud delete skipped", error); }
-    }
+    // The local delete has already queued a cloud tombstone.
   }
 
   // Cards are the study source of truth, so remove them with the subject.
@@ -599,13 +584,7 @@ async function deleteSubjectCascadeEverywhere(subjectName) {
 async function removeCueEverywhere(id) {
   await deleteCue(id);
 
-  if (!USE_BACKEND || !window.currentUser) return;
-
-  try {
-    await deleteCloudCue(id);
-  } catch (error) {
-    console.log("Cloud cue delete skipped", error);
-  }
+  // deleteCue() atomically records a tombstone in the local sync outbox.
 }
 
 // ---- toast notifications ----
@@ -1128,19 +1107,8 @@ async function importPayload(payload) {
     cards: finalCards
   });
 
-  if (USE_BACKEND && window.currentUser) {
-    const [cloudNodes, cloudQuotes, cloudCues] = await Promise.all([
-      fetchCloudNodes(),
-      fetchCloudQuotes(),
-      fetchCloudCues()
-    ]);
-    await Promise.all([
-      ...cloudNodes.map((node) => deleteCloudNode(node.id)),
-      ...cloudQuotes.map((quote) => deleteCloudQuote(quote.id)),
-      ...cloudCues.map((cue) => deleteCloudCue(cue.id))
-    ]);
-    await syncToCloud(nodes, quotes, cues);
-  }
+  // Imported records and deletions have already been coalesced into the
+  // IndexedDB outbox. The normal sync path will merge them with cloud state.
 
   // Refresh global launchpad with fresh data
   await renderDashboard();
@@ -1272,21 +1240,8 @@ async function wipeDatabase() {
   // need its own wipe path. Clearing them here keeps "delete all data" honest.
   await clearJournals();
   timerStore.clearData();
-  if (USE_BACKEND && window.currentUser) {
-    try {
-      const [cloudNodes, cloudQuotes, cloudCues] = await Promise.all([
-        fetchCloudNodes(), fetchCloudQuotes(), fetchCloudCues()
-      ]);
-      await Promise.all([
-        ...cloudNodes.map((node) => deleteCloudNode(node.id)),
-        ...cloudQuotes.map((quote) => deleteCloudQuote(quote.id)),
-        ...cloudCues.map((cue) => deleteCloudCue(cue.id))
-      ]);
-      await syncToCloud([], [], []);
-    } catch (error) {
-      console.log("Cloud wipe skipped", error);
-    }
-  }
+  // Local clear operations queue deletion tombstones. Any cloud-only records
+  // are preserved rather than being silently erased by a device-local wipe.
   await renderDashboard();
   document.dispatchEvent(new Event("db-change"));
   if (currentToolName) await loadTool(currentToolName);
@@ -3079,9 +3034,16 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Keep the sidebar subject pills (and launchpad subjects) in sync with any
   // database change across all tools.
-  document.addEventListener("db-change", async () => {
+  document.addEventListener("db-change", async (event) => {
     await renderSidebarSubjects();
     await renderDashboard();
+    if (!event.detail?.remote) scheduleCloudSync();
+  });
+
+  window.addEventListener("online", scheduleCloudSync);
+  window.addEventListener("pageshow", scheduleCloudSync);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) scheduleCloudSync();
   });
 
   const unpinCancel = document.getElementById("unpinCancel");
