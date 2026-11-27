@@ -62,6 +62,7 @@ function toWorkerOperation(operation) {
     recordId: String(operation.recordId),
     type: operation.type,
     baseVersion: Number(operation.baseVersion) || 0,
+    firstQueuedAt: Number(operation.firstQueuedAt || operation.queuedAt) || Date.now(),
     ...(operation.type === "upsert" ? { payload: operation.payload } : {})
   };
 }
@@ -156,7 +157,11 @@ async function restoreSnapshot() {
     }
 
     if (!finished) throw new Error("Cloud snapshot exceeded the maximum recovery page count.");
-    const summary = await completeSyncSnapshot(snapshot.snapshotId, Number(snapshot.revision));
+    const summary = await completeSyncSnapshot(
+      snapshot.snapshotId,
+      Number(snapshot.revision),
+      Number(snapshot.lastCompactedAt) || 0
+    );
     try {
       await post("snapshot/finish", { snapshotId: snapshot.snapshotId });
     } catch {
