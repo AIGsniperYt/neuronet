@@ -3353,8 +3353,16 @@ export function stageSyncSnapshotPage(snapshotId, records = []) {
     if (!db || !db.objectStoreNames.contains("syncSnapshotRecords")) {
       return reject(new Error("Snapshot staging is unavailable"));
     }
-    const tx = db.transaction("syncSnapshotRecords", "readwrite");
+    const tx = db.transaction(["syncSnapshotRecords", "syncState"], "readwrite");
     const store = tx.objectStore("syncSnapshotRecords");
+    const activeRequest = tx.objectStore("syncState").get("activeSnapshot");
+    activeRequest.onsuccess = () => {
+      const active = activeRequest.result?.value;
+      if (active?.snapshotId !== snapshotId) {
+        tx.abort();
+        return;
+      }
+    };
     for (const record of records) {
       if (!record || !SYNC_COLLECTIONS.has(record.collection) ||
           typeof record.recordId !== "string" || !record.recordId ||
@@ -3399,7 +3407,7 @@ export function completeSyncSnapshot(snapshotId, revision) {
     ];
     const tx = db.transaction(stores, "readwrite");
     const data = { local: {} };
-    let remaining = names.length + 4;
+    let remaining = names.length + 5;
     let failed = false;
     let snapshotSummary = null;
 
@@ -3431,9 +3439,14 @@ export function completeSyncSnapshot(snapshotId, revision) {
     accept("meta", tx.objectStore("syncMeta").getAll());
     accept("conflicts", tx.objectStore("syncConflicts").getAll());
     accept("remote", tx.objectStore("syncSnapshotRecords").index("snapshotId").getAll(snapshotId));
+    accept("activeSnapshot", tx.objectStore("syncState").get("activeSnapshot"));
 
     function reconcile() {
       try {
+        if (data.activeSnapshot?.value?.snapshotId !== snapshotId ||
+            Number(data.activeSnapshot?.value?.revision) !== snapshotRevision) {
+          throw new Error("This cloud snapshot is no longer the active recovery session.");
+        }
         const outbox = tx.objectStore("syncOutbox");
         const meta = tx.objectStore("syncMeta");
         const conflicts = tx.objectStore("syncConflicts");
@@ -3665,7 +3678,7 @@ export function queueSyncSnapshot() {
 
 
 
-const SYNC_LOCK_TTL_MS = 15 * 60 * 1000;
+const SYNC_LOCK_TTL_MS = 5 * 60 * 1000;
 
 export function acquireSyncLock(owner) {
   if (typeof owner !== "string" || !owner) return Promise.reject(new Error("A sync lock owner is required"));
