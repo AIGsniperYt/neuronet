@@ -3,7 +3,8 @@ import {
   getAllDecks, getAllSubjects, getAllTasks, getAllCommitments,
   getSyncOutbox, acknowledgeSyncOperation, saveSyncConflict,
   applyRemoteSyncChanges, getSyncCursor, getSyncState, setSyncState,
-  queueSyncSnapshot, getSyncConflicts
+  queueSyncSnapshot, getSyncConflicts,
+  beginSyncSnapshot, stageSyncSnapshotPage, completeSyncSnapshot
 } from "./db.js";
 
 const BACKEND = "https://neuronet-backend.onrender.com";
@@ -89,6 +90,12 @@ async function pullChanges() {
 
   for (let page = 0; page < MAX_PULL_PAGES; page += 1) {
     const result = await post("pull", { cursor, limit: 250 });
+    if (result.resetRequired) {
+      const error = new Error("Cloud change history has been compacted; this device needs a fresh snapshot.");
+      error.resetRequired = true;
+      error.baselineRevision = Number(result.baselineRevision) || 0;
+      throw error;
+    }
     const changes = Array.isArray(result.changes) ? result.changes : [];
 
     if (!changes.length) break;
@@ -98,6 +105,74 @@ async function pullChanges() {
     if (!result.hasMore) break;
   }
   return pulled;
+}
+
+
+async function restoreSnapshot() {
+  emitStatus("snapshotting");
+  const snapshot = await post("snapshot/start");
+  if (!snapshot.snapshotId || !Number.isSafeInteger(Number(snapshot.revision)) || Number(snapshot.revision) < 0) {
+    throw new Error("Cloud sync returned invalid snapshot metadata.");
+  }
+
+  await beginSyncSnapshot(snapshot.snapshotId, Number(snapshot.revision));
+  let cursor = {};
+  let pages = 0;
+  let received = 0;
+
+  try {
+    while (pages < 10000) {
+      const page = await post("snapshot/page", {
+        snapshotId: snapshot.snapshotId,
+        cursor,
+        limit: 200
+      });
+      if (page.snapshotId !== snapshot.snapshotId ||
+          Number(page.revision) !== Number(snapshot.revision) ||
+          !Array.isArray(page.records)) {
+        throw new Error("Cloud snapshot page did not match the active snapshot.");
+      }
+
+      await stageSyncSnapshotPage(snapshot.snapshotId, page.records);
+      received += page.records.length;
+      pages += 1;
+      emitStatus("snapshotting", { pages, received, expected: Number(snapshot.recordCount) || null });
+
+      if (!page.hasMore) break;
+      if (!page.nextCursor || typeof page.nextCursor.collection !== "string" ||
+          typeof page.nextCursor.recordId !== "string") {
+        throw new Error("Cloud snapshot pagination ended unexpectedly.");
+      }
+      cursor = page.nextCursor;
+    }
+
+    if (pages >= 10000) throw new Error("Cloud snapshot exceeded the maximum recovery page count.");
+    const summary = await completeSyncSnapshot(snapshot.snapshotId, Number(snapshot.revision));
+    try {
+      await post("snapshot/finish", { snapshotId: snapshot.snapshotId });
+    } catch {
+      // Snapshot leases expire automatically; a failed cleanup request must
+      // not undo a locally committed snapshot.
+    }
+    return { ...summary, pages, received };
+  } catch (error) {
+    try {
+      await post("snapshot/finish", { snapshotId: snapshot.snapshotId });
+    } catch {
+      // An abandoned lease is bounded by its server-side expiry.
+    }
+    throw error;
+  }
+}
+
+async function pullWithSnapshotRecovery() {
+  try {
+    return await pullChanges();
+  } catch (error) {
+    if (!error?.resetRequired) throw error;
+    await restoreSnapshot();
+    return pullChanges();
+  }
 }
 
 async function pushChanges() {
@@ -192,9 +267,15 @@ async function runSync(user) {
 
   // Pull first: identical records can adopt cloud versions; differing edits
   // are preserved as conflicts instead of silently overwriting one another.
-  const pulledBefore = await pullChanges();
+  let snapshot = null;
+  const localCursor = await getSyncCursor();
+  if (localCursor < Number(cloud.baselineRevision || 0)) {
+    snapshot = await restoreSnapshot();
+  }
+
+  const pulledBefore = await pullWithSnapshotRecovery();
   const pushed = await pushChanges();
-  const pulledAfter = await pullChanges();
+  const pulledAfter = await pullWithSnapshotRecovery();
 
   await setSyncState("initialized:" + accountId, true);
 
@@ -205,7 +286,9 @@ async function runSync(user) {
     pushed: pushed.pushed,
     conflicts: conflicts.length,
     pending: remaining.length,
-    cloudRevision: Number(cloud.revision) || 0
+    cloudRevision: Number(cloud.revision) || 0,
+    snapshotRestored: !!snapshot,
+    snapshotRecords: Number(snapshot?.recordCount || 0)
   };
 
   emitStatus(summary.conflicts ? "conflict" : summary.pending ? "pending" : "synced", summary);
