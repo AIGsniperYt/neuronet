@@ -3015,6 +3015,7 @@ export function getSyncOutbox(limit = 100) {
     let operations = [];
     request.onsuccess = () => {
       operations = (request.result || [])
+        .filter((operation) => !operation.blocked)
         .sort((a, b) => Number(a.queuedAt || 0) - Number(b.queuedAt || 0))
         .slice(0, Math.max(1, Math.min(100, Number(limit) || 100)));
       for (const operation of operations) {
@@ -3063,8 +3064,15 @@ export function saveSyncConflict(conflict) {
   return new Promise((resolve, reject) => {
     if (!db || !conflict?.collection || !conflict?.recordId) return reject(new Error("Invalid sync conflict"));
     const key = syncRecordKey(conflict.collection, conflict.recordId);
-    const tx = db.transaction("syncConflicts", "readwrite");
-    tx.objectStore("syncConflicts").put({ ...conflict, key, updatedAt: Date.now() });
+    const tx = db.transaction(["syncConflicts", "syncOutbox"], "readwrite");
+    const pendingStore = tx.objectStore("syncOutbox");
+    const pendingRequest = pendingStore.get(key);
+    pendingRequest.onsuccess = () => {
+      if (pendingRequest.result) {
+        pendingStore.put({ ...pendingRequest.result, blocked: true });
+      }
+      tx.objectStore("syncConflicts").put({ ...conflict, key, updatedAt: Date.now() });
+    };
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error);
@@ -3179,6 +3187,7 @@ export function applyRemoteSyncChanges(changes = [], nextCursor = 0) {
               updatedAt: Date.now()
             });
           } else {
+            outbox.put({ ...pending, blocked: true });
             conflicts.put({
               key,
               collection: change.collection,
@@ -3205,7 +3214,7 @@ export function applyRemoteSyncChanges(changes = [], nextCursor = 0) {
     }
 
     tx.oncomplete = () => {
-      emitDBChange({ type: "sync-pull-applied", count: valid.length });
+      if (valid.length) emitDBChange({ type: "sync-pull-applied", count: valid.length });
       resolve();
     };
     tx.onerror = () => reject(tx.error);
@@ -3238,5 +3247,27 @@ export function queueSyncSnapshot() {
       tx.onerror = () => reject(tx.error);
       tx.onabort = () => reject(tx.error);
     });
+  });
+}
+
+
+export function getSyncState(key) {
+  return new Promise((resolve,reject)=>{
+    if(!db||!db.objectStoreNames.contains("syncState"))return resolve(null);
+    const tx=db.transaction("syncState","readonly");
+    const request=tx.objectStore("syncState").get(String(key));
+    request.onsuccess=()=>resolve(request.result?.value ?? null);
+    request.onerror=()=>reject(request.error);
+  });
+}
+
+export function setSyncState(key,value) {
+  return new Promise((resolve,reject)=>{
+    if(!db||!db.objectStoreNames.contains("syncState"))return reject(new Error("Sync state store is unavailable"));
+    const tx=db.transaction("syncState","readwrite");
+    tx.objectStore("syncState").put({key:String(key),value,updatedAt:Date.now()});
+    tx.oncomplete=()=>resolve(value);
+    tx.onerror=()=>reject(tx.error);
+    tx.onabort=()=>reject(tx.error);
   });
 }
