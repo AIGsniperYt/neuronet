@@ -3392,8 +3392,9 @@ export function stageSyncSnapshotPage(snapshotId, records = []) {
   });
 }
 
-export function completeSyncSnapshot(snapshotId, revision) {
+export function completeSyncSnapshot(snapshotId, revision, compactedAt = 0) {
   const snapshotRevision = Number(revision);
+  const snapshotCompactedAt = Number(compactedAt) || 0;
   if (typeof snapshotId !== "string" || !snapshotId ||
       !Number.isSafeInteger(snapshotRevision) || snapshotRevision < 0) {
     return Promise.reject(new Error("Invalid cloud snapshot completion"));
@@ -3585,24 +3586,35 @@ export function completeSyncSnapshot(snapshotId, revision) {
             conflicts.delete(key);
             recordStore.delete(String(pending.recordId));
             writeMeta(key, pending.collection, pending.recordId, 0, snapshotRevision);
-          } else if (Number(recordMeta?.serverVersion || 0) > 0 || existingConflict) {
-            if (pending.payload) recordStore.put(pending.payload);
-            outbox.put({ ...pending, blocked: true });
-            conflicts.put({
-              ...(existingConflict || {}),
-              key,
-              collection: pending.collection,
-              recordId: String(pending.recordId),
-              localOperation: pending,
-              remoteChange: deletedRemoteChange(),
-              updatedAt: Date.now()
-            });
-            writeMeta(key, pending.collection, pending.recordId, 0, snapshotRevision);
-            conflictCount += 1;
           } else {
-            if (pending.payload) recordStore.put(pending.payload);
-            writeMeta(key, pending.collection, pending.recordId, 0, snapshotRevision);
+            const firstQueuedAt = Number(pending.firstQueuedAt || pending.queuedAt) || 0;
+            const predatesCompaction = snapshotCompactedAt > 0 &&
+              firstQueuedAt > 0 && firstQueuedAt <= snapshotCompactedAt;
+            if (Number(recordMeta?.serverVersion || 0) > 0 || existingConflict || predatesCompaction) {
+              if (pending.payload) recordStore.put(pending.payload);
+              outbox.put({ ...pending, blocked: true });
+              conflicts.put({
+                ...(existingConflict || {}),
+                key,
+                collection: pending.collection,
+                recordId: String(pending.recordId),
+                localOperation: pending,
+                remoteChange: {
+                  ...deletedRemoteChange(),
+                  reason: predatesCompaction && !existingConflict
+                    ? "pending-operation-predates-compacted-baseline"
+                    : "record-absent-from-cloud-snapshot"
+                },
+                updatedAt: Date.now()
+              });
+              writeMeta(key, pending.collection, pending.recordId, 0, snapshotRevision);
+              conflictCount += 1;
+            } else {
+              if (pending.payload) recordStore.put(pending.payload);
+              writeMeta(key, pending.collection, pending.recordId, 0, snapshotRevision);
+            }
           }
+
         }
 
         for (const record of data.remote) staging.delete(record.key);
@@ -3616,6 +3628,7 @@ export function completeSyncSnapshot(snapshotId, revision) {
           key: "lastSnapshot",
           value: {
             revision: snapshotRevision,
+            compactedAt: snapshotCompactedAt,
             completedAt: Date.now(),
             recordCount: data.remote.length
           },
@@ -3628,7 +3641,8 @@ export function completeSyncSnapshot(snapshotId, revision) {
           queuedOrphans,
           conflicts: conflictCount,
           recordCount: data.remote.length,
-          revision: snapshotRevision
+          revision: snapshotRevision,
+          compactedAt: snapshotCompactedAt
         };
       } catch (error) {
         failed = true;
