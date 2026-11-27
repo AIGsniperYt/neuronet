@@ -3159,7 +3159,9 @@ export function resolveSyncConflict(collection, recordId, choice) {
             type: current ? "upsert" : "delete",
             payload: current || null,
             queuedAt: Date.now(),
-            firstQueuedAt: Number(conflict.localOperation?.firstQueuedAt || conflict.localOperation?.queuedAt) || Date.now()
+            // Choosing the local copy is an explicit user decision to re-create
+            // a record that may have disappeared before the retained baseline.
+            firstQueuedAt: Date.now()
           });
         };
       }
