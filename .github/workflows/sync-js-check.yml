@@ -1,0 +1,31 @@
+name: Frontend sync syntax checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/db.js"
+      - "src/sync.js"
+      - "src/main.js"
+      - ".github/workflows/sync-js-check.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/db.js"
+      - "src/sync.js"
+      - "src/main.js"
+      - ".github/workflows/sync-js-check.yml"
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check browser module syntax
+        run: |
+          node --input-type=module --check < src/db.js
+          node --input-type=module --check < src/sync.js
+          node --input-type=module --check < src/main.js
