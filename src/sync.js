@@ -175,13 +175,24 @@ async function restoreSnapshot() {
 }
 
 async function pullWithSnapshotRecovery() {
-  try {
-    return await pullChanges();
-  } catch (error) {
-    if (!error?.resetRequired) throw error;
-    await restoreSnapshot();
-    return pullChanges();
+  let pulled = 0;
+
+  // Another device may compact again while this device is downloading or
+  // reconciling its snapshot. Retry a bounded number of complete baselines
+  // rather than failing after the first reset race.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return pulled + await pullChanges();
+    } catch (error) {
+      if (!error?.resetRequired) throw error;
+      const snapshot = await restoreSnapshot();
+      pulled += Number(snapshot?.recordCount || 0);
+    }
   }
+
+  throw new Error(
+    "Cloud history is changing faster than this device can recover. Your local data remains safe; retry synchronisation shortly."
+  );
 }
 
 async function pushChanges() {
