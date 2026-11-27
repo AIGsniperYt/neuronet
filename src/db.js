@@ -3270,6 +3270,14 @@ export function applyRemoteSyncChanges(changes = [], nextCursor = 0) {
               updatedAt: Date.now()
             });
           }
+          meta.put({
+            key,
+            collection: change.collection,
+            recordId: String(change.recordId),
+            serverVersion: Number(change.version) || 0,
+            serverRevision: Number(change.revision) || 0,
+            updatedAt: Date.now()
+          });
           return;
         }
 
