@@ -3722,7 +3722,7 @@ export function releaseSyncLock(owner) {
   return new Promise((resolve, reject) => {
     if (!db || !db.objectStoreNames.contains("syncState")) return resolve(false);
     const tx = db.transaction("syncState", "readwrite");
-    const store = tx.objectStore("syncLock");
+    const store = tx.objectStore("syncState");
     const request = store.get("syncLock");
     let released = false;
     request.onsuccess = () => {
