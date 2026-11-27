@@ -3232,8 +3232,18 @@ export function applyRemoteSyncChanges(changes = [], nextCursor = 0) {
     for (const change of valid) {
       const key = syncRecordKey(change.collection, change.recordId);
       const pendingRequest = outbox.get(key);
-      pendingRequest.onsuccess = () => {
-        const pending = pendingRequest.result;
+      const metaRequest = meta.get(key);
+      let pendingReady = false;
+      let metaReady = false;
+      let pending = null;
+      let currentMeta = null;
+      const applyWhenReady = () => {
+        if (!pendingReady || !metaReady) return;
+        const incomingVersion = Number(change.version) || 0;
+        // A snapshot may already contain a record newer than this change page.
+        // Never roll that record back while replaying changes after the snapshot
+        // revision; the cursor can still advance because the newer state is local.
+        if (Number(currentMeta?.serverVersion || 0) >= incomingVersion) return;
         const localRecords = tx.objectStore(change.collection);
 
         if (pending) {
@@ -3273,6 +3283,16 @@ export function applyRemoteSyncChanges(changes = [], nextCursor = 0) {
           serverRevision: Number(change.revision) || 0,
           updatedAt: Date.now()
         });
+      };
+      pendingRequest.onsuccess = () => {
+        pending = pendingRequest.result || null;
+        pendingReady = true;
+        applyWhenReady();
+      };
+      metaRequest.onsuccess = () => {
+        currentMeta = metaRequest.result || null;
+        metaReady = true;
+        applyWhenReady();
       };
     }
 
