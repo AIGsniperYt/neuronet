@@ -31,12 +31,42 @@ function mutationTransaction(storeName) {
 function queueSyncUpsert(tx, collection, record) {
   if (!SYNC_COLLECTIONS.has(collection) || !record?.id) return;
   const recordId = String(record.id);
-  tx.objectStore("syncOutbox").put({ key: syncRecordKey(collection, recordId), collection, recordId, operationId: crypto.randomUUID(), type: "upsert", payload: record, queuedAt: Date.now() });
+  const key = syncRecordKey(collection, recordId);
+  const store = tx.objectStore("syncOutbox");
+  const existing = store.get(key);
+  existing.onsuccess = () => {
+    // A conflicted operation remains blocked until the user resolves it.
+    // New local edits replace its payload but must not silently retry it.
+    store.put({
+      key,
+      collection,
+      recordId,
+      operationId: crypto.randomUUID(),
+      type: "upsert",
+      payload: record,
+      queuedAt: Date.now(),
+      ...(existing.result?.blocked ? { blocked: true } : {})
+    });
+  };
 }
 function queueSyncDelete(tx, collection, recordId) {
   if (!SYNC_COLLECTIONS.has(collection) || recordId == null) return;
   const id = String(recordId);
-  tx.objectStore("syncOutbox").put({ key: syncRecordKey(collection, id), collection, recordId: id, operationId: crypto.randomUUID(), type: "delete", payload: null, queuedAt: Date.now() });
+  const key = syncRecordKey(collection, id);
+  const store = tx.objectStore("syncOutbox");
+  const existing = store.get(key);
+  existing.onsuccess = () => {
+    store.put({
+      key,
+      collection,
+      recordId: id,
+      operationId: crypto.randomUUID(),
+      type: "delete",
+      payload: null,
+      queuedAt: Date.now(),
+      ...(existing.result?.blocked ? { blocked: true } : {})
+    });
+  };
 }
 function queueSyncClear(tx, collection, recordStore) {
   if (!SYNC_COLLECTIONS.has(collection)) return;
@@ -3239,8 +3269,19 @@ export function queueSyncSnapshot() {
   ]).then((collections) => {
     const names = ["nodes", "quotes", "cues", "cards", "heaps", "decks", "subjects", "tasks", "commitments"];
     const tx = db.transaction([...names, "syncOutbox"], "readwrite");
+    const outbox = tx.objectStore("syncOutbox");
     for (let i = 0; i < names.length; i += 1) {
-      for (const record of collections[i] || []) queueSyncUpsert(tx, names[i], record);
+      for (const record of collections[i] || []) {
+        const recordId = String(record.id);
+        const key = syncRecordKey(names[i], recordId);
+        const existing = outbox.get(key);
+        existing.onsuccess = () => {
+          // Snapshot seeding is idempotent: never replace an operation that
+          // may already have reached the server but whose acknowledgement was
+          // lost. The ordinary mutation path is responsible for newer edits.
+          if (!existing.result) queueSyncUpsert(tx, names[i], record);
+        };
+      }
     }
     return new Promise((resolve, reject) => {
       tx.oncomplete = () => resolve(collections.reduce((sum, rows) => sum + rows.length, 0));
