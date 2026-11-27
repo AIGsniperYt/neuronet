@@ -231,6 +231,7 @@ export function addNode(node) {
 
     const tx = mutationTransaction("nodes");
     const store = tx.objectStore("nodes");
+    queueSyncUpsert(tx, "nodes", record);
     const req = store.put(record);
 
     req.onerror = () => reject(req.error);
@@ -265,6 +266,7 @@ export function addNodes(nodes) {
 
     for (const record of records) {
       store.put(record);
+      queueSyncUpsert(tx, "nodes", record);
     }
 
     tx.oncomplete = () => {
@@ -406,6 +408,7 @@ export function deleteNode(id) {
 
     const tx = mutationTransaction("nodes");
     const store = tx.objectStore("nodes");
+    queueSyncDelete(tx, "nodes", id);
     const req = store.delete(id);
 
     req.onerror = () => reject(req.error);
@@ -426,7 +429,9 @@ export function clearNodes() {
     }
 
     const tx = mutationTransaction("nodes");
-    const req = tx.objectStore("nodes").clear();
+    const store = tx.objectStore("nodes");
+    queueSyncClear(tx, "nodes", store);
+    const req = store.clear();
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
       emitDBChange({ type: "clear", store: "nodes" });
@@ -459,6 +464,7 @@ export function addQuote(quote) {
 
     const tx = mutationTransaction("quotes");
     const store = tx.objectStore("quotes");
+    queueSyncUpsert(tx, "quotes", record);
     const req = store.put(record);
 
     req.onerror = () => reject(req.error);
@@ -493,6 +499,7 @@ export function addQuotes(quotes) {
 
     for (const record of records) {
       store.put(record);
+      queueSyncUpsert(tx, "quotes", record);
     }
 
     tx.oncomplete = () => {
@@ -592,6 +599,7 @@ export function deleteQuote(id) {
 
     const tx = mutationTransaction("quotes");
     const store = tx.objectStore("quotes");
+    queueSyncDelete(tx, "quotes", id);
     const req = store.delete(id);
 
     req.onerror = () => reject(req.error);
@@ -612,7 +620,9 @@ export function clearQuotes() {
     }
 
     const tx = mutationTransaction("quotes");
-    const req = tx.objectStore("quotes").clear();
+    const store = tx.objectStore("quotes");
+    queueSyncClear(tx, "quotes", store);
+    const req = store.clear();
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
       emitDBChange({ type: "clear", store: "quotes" });
@@ -822,6 +832,7 @@ export function addCue(cue) {
 
     const tx = mutationTransaction("cues");
     const store = tx.objectStore("cues");
+    queueSyncUpsert(tx, "cues", record);
     const req = store.put(record);
 
     req.onerror = () => reject(req.error);
@@ -861,6 +872,7 @@ export function addCues(cues) {
 
     for (const record of records) {
       store.put(record);
+      queueSyncUpsert(tx, "cues", record);
     }
 
     tx.oncomplete = () => {
@@ -911,6 +923,7 @@ export function deleteCue(id) {
 
     const tx = mutationTransaction("cues");
     const store = tx.objectStore("cues");
+    queueSyncDelete(tx, "cues", id);
     const req = store.delete(id);
 
     req.onerror = () => reject(req.error);
@@ -931,7 +944,9 @@ export function clearCues() {
     }
 
     const tx = mutationTransaction("cues");
-    const req = tx.objectStore("cues").clear();
+    const store = tx.objectStore("cues");
+    queueSyncClear(tx, "cues", store);
+    const req = store.clear();
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
       emitDBChange({ type: "clear", store: "cues" });
@@ -1014,6 +1029,7 @@ export function updateCueLinks(cueId, quoteId, analysisId) {
       cue.analysisId = analysisId || null;
       cue.updatedAt = Date.now();
       store.put(cue);
+      queueSyncUpsert(tx, "cues", cue);
       tx.oncomplete = () => {
         emitDBChange({ type: "upsert-cue", ids: [cueId] });
         resolve(cue);
@@ -1169,6 +1185,7 @@ export async function addCard(card) {
 
   return new Promise((resolve, reject) => {
     const tx = mutationTransaction("cards");
+    queueSyncUpsert(tx, "cards", record);
     const req = tx.objectStore("cards").put(record);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -1197,7 +1214,10 @@ export async function addCards(cards) {
   return new Promise((resolve, reject) => {
     const tx = mutationTransaction("cards");
     const store = tx.objectStore("cards");
-    for (const record of records) store.put(record);
+    for (const record of records) {
+      store.put(record);
+      queueSyncUpsert(tx, "cards", record);
+    }
 
     tx.oncomplete = () => {
       emitDBChange({ type: "bulk-upsert-card", ids: records.map((record) => record.id) });
@@ -1322,6 +1342,7 @@ export function deleteCard(id) {
     }
 
     const tx = mutationTransaction("cards");
+    queueSyncDelete(tx, "cards", id);
     const req = tx.objectStore("cards").delete(id);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -1349,7 +1370,9 @@ export function clearCards() {
     }
 
     const tx = mutationTransaction("cards");
-    const req = tx.objectStore("cards").clear();
+    const store = tx.objectStore("cards");
+    queueSyncClear(tx, "cards", store);
+    const req = store.clear();
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
       emitDBChange({ type: "clear", store: "cards" });
@@ -1416,6 +1439,7 @@ export function addDeck(deck) {
 
     const record = normalizeDeckRecord(deck);
     const tx = mutationTransaction("decks");
+    queueSyncUpsert(tx, "decks", record);
     const req = tx.objectStore("decks").put(record);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -1442,7 +1466,10 @@ export function addDecks(decks) {
 
     const tx = mutationTransaction("decks");
     const store = tx.objectStore("decks");
-    for (const record of records) store.put(record);
+    for (const record of records) {
+      store.put(record);
+      queueSyncUpsert(tx, "decks", record);
+    }
 
     tx.oncomplete = () => {
       emitDBChange({ type: "bulk-upsert-deck", ids: records.map((record) => record.id) });
@@ -1506,6 +1533,7 @@ export function deleteDeckRecord(id) {
     }
 
     const tx = mutationTransaction("decks");
+    queueSyncDelete(tx, "decks", id);
     const req = tx.objectStore("decks").delete(id);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -1525,7 +1553,9 @@ export function clearDecks() {
     }
 
     const tx = mutationTransaction("decks");
-    const req = tx.objectStore("decks").clear();
+    const store = tx.objectStore("decks");
+    queueSyncClear(tx, "decks", store);
+    const req = store.clear();
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
       emitDBChange({ type: "clear", store: "decks" });
@@ -1843,6 +1873,7 @@ export function addHeap(heap) {
 
     const record = normalizeHeapRecord(heap);
     const tx = mutationTransaction("heaps");
+    queueSyncUpsert(tx, "heaps", record);
     const req = tx.objectStore("heaps").put(record);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -1869,7 +1900,10 @@ export function addHeaps(heaps) {
 
     const tx = mutationTransaction("heaps");
     const store = tx.objectStore("heaps");
-    for (const record of records) store.put(record);
+    for (const record of records) {
+      store.put(record);
+      queueSyncUpsert(tx, "heaps", record);
+    }
     tx.oncomplete = () => {
       emitDBChange({ type: "bulk-upsert-heap", ids: records.map((record) => record.id) });
       resolve(records);
@@ -1921,6 +1955,7 @@ export function deleteHeap(id) {
     }
 
     const tx = mutationTransaction("heaps");
+    queueSyncDelete(tx, "heaps", id);
     const req = tx.objectStore("heaps").delete(id);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -1940,7 +1975,9 @@ export function clearHeaps() {
     }
 
     const tx = mutationTransaction("heaps");
-    const req = tx.objectStore("heaps").clear();
+    const store = tx.objectStore("heaps");
+    queueSyncClear(tx, "heaps", store);
+    const req = store.clear();
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
       emitDBChange({ type: "clear", store: "heaps" });
@@ -2071,7 +2108,7 @@ function readAll(storeName) {
   return new Promise((resolve, reject) => { const tx = db.transaction(storeName, "readonly"); const req = tx.objectStore(storeName).getAll(); req.onsuccess = () => resolve(req.result || []); req.onerror = () => reject(req.error); });
 }
 function writeRows(storeName, rows, mode = "readwrite") {
-  return new Promise((resolve, reject) => { const tx = db.transaction(storeName, mode); const store = tx.objectStore(storeName); for (const row of rows) store.put(row); tx.oncomplete = () => resolve(rows); tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error); });
+  return new Promise((resolve, reject) => { const tx = mode === "readwrite" && SYNC_COLLECTIONS.has(storeName) ? mutationTransaction(storeName) : db.transaction(storeName, mode); const store = tx.objectStore(storeName); for (const row of rows) { store.put(row); queueSyncUpsert(tx, storeName, row); } tx.oncomplete = () => resolve(rows); tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error); });
 }
 export async function getAllSubjects() { return (await readAll("subjects")).sort(compareSubjectRecords); }
 export async function getSubject(id) { const all = await getAllSubjects(); return all.find((s) => s.id === id) || null; }
@@ -2079,7 +2116,7 @@ export async function getSubjectByKey(key) { const all = await getAllSubjects();
 export async function resolveSubject(idOrKey) { return await getSubject(idOrKey) || await getSubjectByKey(idOrKey); }
 export async function getSubjects() { return getAllSubjects(); }
 export async function addSubjects(records = []) { return writeRows("subjects", records.map((record) => ({ ...record, keyNorm: String(record.key || "").trim().toLocaleLowerCase() }))); }
-export async function clearSubjects() { return new Promise((resolve, reject) => { const tx = mutationTransaction("subjects"); tx.objectStore("subjects").clear(); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); }); }
+export async function clearSubjects() { return new Promise((resolve, reject) => { const tx = mutationTransaction("subjects"); const store = tx.objectStore("subjects"); queueSyncClear(tx, "subjects", store); store.clear(); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); }); }
 export async function addSubject(nameOrOptions) {
   const parsed = typeof nameOrOptions === "string" ? parseSubjectName(nameOrOptions) : { name: nameOrOptions?.name || "", level: nameOrOptions?.level || "" };
   const key = subjectKey(parsed.name, parsed.level); if (!key) throw new Error("Subject name is required");
@@ -2131,7 +2168,7 @@ export async function deleteSubject(idOrKey) {
     ...quotes.filter((r) => r.subjectId === subject.id || (!r.subjectId && subjectKeyMatches(r.subject, key))).map((r) => deleteQuote(r.id)),
     ...cues.filter((r) => r.subjectId === subject.id || (!r.subjectId && subjectKeyMatches(r.subject, key))).map((r) => deleteCue(r.id))
   ]);
-  await new Promise((resolve, reject) => { const tx = mutationTransaction("subjects"); tx.objectStore("subjects").delete(subject.id); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); }); return subject;
+  await new Promise((resolve, reject) => { const tx = mutationTransaction("subjects"); queueSyncDelete(tx, "subjects", subject.id); tx.objectStore("subjects").delete(subject.id); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); }); return subject;
 }
 export async function mergeSubjects(sourceId, targetId) {
   const source = await resolveSubject(sourceId); const target = await resolveSubject(targetId); if (!source || !target || source.id === target.id) return target;
@@ -2165,7 +2202,7 @@ export async function mergeSubjects(sourceId, targetId) {
     for (const child of childDecks) await addDeck({ ...child, parentId: targetUnsorted.id, updatedAt: now });
     await deleteDeckRecord(sourceUnsorted.id);
   }
-  await new Promise((resolve, reject) => { const tx = mutationTransaction("subjects"); tx.objectStore("subjects").delete(source.id); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); });
+  await new Promise((resolve, reject) => { const tx = mutationTransaction("subjects"); queueSyncDelete(tx, "subjects", source.id); tx.objectStore("subjects").delete(source.id); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); });
   const node = (await getAllNodes()).find((r) => r.id === `subject-${source.id}`); if (node) await deleteNode(node.id); return target;
 }
 export async function ensureSubjectIdentity() {
@@ -2559,6 +2596,7 @@ export function addTask(task) {
 
     const record = normalizeTaskRecord(task);
     const tx = mutationTransaction("tasks");
+    queueSyncUpsert(tx, "tasks", record);
     const req = tx.objectStore("tasks").put(record);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -2585,7 +2623,10 @@ export function addTasks(tasks) {
 
     const tx = mutationTransaction("tasks");
     const store = tx.objectStore("tasks");
-    for (const record of records) store.put(record);
+    for (const record of records) {
+      store.put(record);
+      queueSyncUpsert(tx, "tasks", record);
+    }
     tx.oncomplete = () => {
       emitDBChange({ type: "bulk-upsert-task", ids: records.map((record) => record.id) });
       resolve(records);
@@ -2622,6 +2663,7 @@ export function deleteTask(id) {
     }
 
     const tx = mutationTransaction("tasks");
+    queueSyncDelete(tx, "tasks", id);
     const req = tx.objectStore("tasks").delete(id);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -2641,7 +2683,9 @@ export function clearTasks() {
     }
 
     const tx = mutationTransaction("tasks");
-    const req = tx.objectStore("tasks").clear();
+    const store = tx.objectStore("tasks");
+    queueSyncClear(tx, "tasks", store);
+    const req = store.clear();
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
       emitDBChange({ type: "clear", store: "tasks" });
@@ -2719,6 +2763,7 @@ export function addCommitment(commitment) {
 
     const record = normalizeCommitmentRecord(commitment);
     const tx = mutationTransaction("commitments");
+    queueSyncUpsert(tx, "commitments", record);
     const req = tx.objectStore("commitments").put(record);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -2745,7 +2790,10 @@ export function addCommitments(commitments) {
 
     const tx = mutationTransaction("commitments");
     const store = tx.objectStore("commitments");
-    for (const record of records) store.put(record);
+    for (const record of records) {
+      store.put(record);
+      queueSyncUpsert(tx, "commitments", record);
+    }
     tx.oncomplete = () => {
       emitDBChange({ type: "bulk-upsert-commitment", ids: records.map((record) => record.id) });
       resolve(records);
@@ -2782,6 +2830,7 @@ export function deleteCommitment(id) {
     }
 
     const tx = mutationTransaction("commitments");
+    queueSyncDelete(tx, "commitments", id);
     const req = tx.objectStore("commitments").delete(id);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -2801,7 +2850,9 @@ export function clearCommitments() {
     }
 
     const tx = mutationTransaction("commitments");
-    const req = tx.objectStore("commitments").clear();
+    const store = tx.objectStore("commitments");
+    queueSyncClear(tx, "commitments", store);
+    const req = store.clear();
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
       emitDBChange({ type: "clear", store: "commitments" });
