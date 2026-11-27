@@ -3214,7 +3214,7 @@ export function applyRemoteSyncChanges(changes = [], nextCursor = 0) {
     }
 
     tx.oncomplete = () => {
-      if (valid.length) emitDBChange({ type: "sync-pull-applied", count: valid.length });
+      if (valid.length) emitDBChange({ type: "sync-pull-applied", count: valid.length, remote: true });
       resolve();
     };
     tx.onerror = () => reject(tx.error);
