@@ -4,12 +4,14 @@ import {
   getSyncOutbox, acknowledgeSyncOperation, saveSyncConflict,
   applyRemoteSyncChanges, getSyncCursor, getSyncState, setSyncState,
   queueSyncSnapshot, getSyncConflicts,
-  beginSyncSnapshot, stageSyncSnapshotPage, completeSyncSnapshot
+  beginSyncSnapshot, stageSyncSnapshotPage, completeSyncSnapshot,
+  acquireSyncLock, renewSyncLock, releaseSyncLock
 } from "./db.js";
 
 const BACKEND = "https://neuronet-backend.onrender.com";
 const MAX_PULL_PAGES = 20;
 const MAX_PUSH_BODY_BYTES = 360 * 1024;
+const SYNC_LOCK_OWNER = crypto.randomUUID();
 let activeSync = null;
 
 function emitStatus(status, detail = {}) {
@@ -21,6 +23,9 @@ function emitStatus(status, detail = {}) {
 }
 
 async function post(path, payload = {}) {
+  if (!await renewSyncLock(SYNC_LOCK_OWNER)) {
+    throw new Error("Cloud sync lost its browser-tab lock. Your local changes remain safe; retry sync.");
+  }
   const response = await fetch(BACKEND + "/api/sync/" + path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -243,7 +248,7 @@ async function pushChanges() {
   return { pushed, conflicts };
 }
 
-async function runSync(user) {
+async function runSyncUnlocked(user) {
   if (!user || !user.id) {
     throw new Error("The signed-in account has no stable account ID. Please sign in again.");
   }
@@ -297,6 +302,25 @@ async function runSync(user) {
 
   emitStatus(summary.conflicts ? "conflict" : summary.pending ? "pending" : "synced", summary);
   return summary;
+}
+
+
+async function runSync(user) {
+  const acquired = await acquireSyncLock(SYNC_LOCK_OWNER);
+  if (!acquired) {
+    emitStatus("busy");
+    return { busy: true, pulled: 0, pushed: 0, conflicts: 0, pending: 0 };
+  }
+
+  try {
+    return await runSyncUnlocked(user);
+  } finally {
+    try {
+      await releaseSyncLock(SYNC_LOCK_OWNER);
+    } catch {
+      // A stale lock has a bounded expiry and cannot invalidate local data.
+    }
+  }
 }
 
 export function syncNow(user = (typeof window !== "undefined" ? window.currentUser : null)) {
