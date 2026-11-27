@@ -4,7 +4,7 @@ let db;
 // Structural schema only: store/index creation. Data-shape changes are handled
 // on write (promoteTags / promoteStudyPriority) and old profiles are reset by
 // importing the committed demo dataset, not migrated in place.
-const DB_VERSION = 18;
+const DB_VERSION = 19;
 
 // Decks are canonical folders inside a subject. Cards point at one deck via
 // deckId; the legacy `card.deck` string remains the subject owner until the
@@ -231,6 +231,10 @@ export function initDB() {
       if (!db.objectStoreNames.contains("syncMeta")) db.createObjectStore("syncMeta", { keyPath: "key" });
       if (!db.objectStoreNames.contains("syncState")) db.createObjectStore("syncState", { keyPath: "key" });
       if (!db.objectStoreNames.contains("syncConflicts")) db.createObjectStore("syncConflicts", { keyPath: "key" });
+      if (!db.objectStoreNames.contains("syncSnapshotRecords")) {
+        const snapshotStore = db.createObjectStore("syncSnapshotRecords", { keyPath: "key" });
+        snapshotStore.createIndex("snapshotId", "snapshotId", { unique: false });
+      }
     };
 
     request.onsuccess = (e) => {
