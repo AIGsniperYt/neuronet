@@ -3373,6 +3373,7 @@ export function completeSyncSnapshot(snapshotId, revision) {
     const data = { local: {} };
     let remaining = names.length + 4;
     let failed = false;
+    let snapshotSummary = null;
 
     const failRequest = (request) => {
       request.onerror = () => {
@@ -3514,6 +3515,7 @@ export function completeSyncSnapshot(snapshotId, revision) {
               remoteChange: deletedRemoteChange(),
               updatedAt: Date.now()
             });
+            writeMeta(key, local.collection, local.record.id, 0, snapshotRevision);
             conflictCount += 1;
           } else if (Number(recordMeta?.serverVersion || 0) > 0) {
             recordStore.delete(String(local.record.id));
@@ -3576,7 +3578,7 @@ export function completeSyncSnapshot(snapshotId, revision) {
           updatedAt: Date.now()
         });
 
-        tx.__snapshotSummary = {
+        snapshotSummary = {
           applied,
           removed,
           queuedOrphans,
@@ -3594,10 +3596,10 @@ export function completeSyncSnapshot(snapshotId, revision) {
     tx.oncomplete = () => {
       emitDBChange({
         type: "sync-snapshot-applied",
-        count: tx.__snapshotSummary?.recordCount || 0,
+        count: snapshotSummary?.recordCount || 0,
         remote: true
       });
-      resolve(tx.__snapshotSummary || { revision: snapshotRevision });
+      resolve(snapshotSummary || { revision: snapshotRevision });
     };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error || new Error("Snapshot reconciliation transaction aborted"));
