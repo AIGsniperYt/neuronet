@@ -119,6 +119,7 @@ async function restoreSnapshot() {
   let cursor = {};
   let pages = 0;
   let received = 0;
+  let finished = false;
 
   try {
     while (pages < 10000) {
@@ -138,7 +139,10 @@ async function restoreSnapshot() {
       pages += 1;
       emitStatus("snapshotting", { pages, received, expected: Number(snapshot.recordCount) || null });
 
-      if (!page.hasMore) break;
+      if (!page.hasMore) {
+        finished = true;
+        break;
+      }
       if (!page.nextCursor || typeof page.nextCursor.collection !== "string" ||
           typeof page.nextCursor.recordId !== "string") {
         throw new Error("Cloud snapshot pagination ended unexpectedly.");
@@ -146,7 +150,7 @@ async function restoreSnapshot() {
       cursor = page.nextCursor;
     }
 
-    if (pages >= 10000) throw new Error("Cloud snapshot exceeded the maximum recovery page count.");
+    if (!finished) throw new Error("Cloud snapshot exceeded the maximum recovery page count.");
     const summary = await completeSyncSnapshot(snapshot.snapshotId, Number(snapshot.revision));
     try {
       await post("snapshot/finish", { snapshotId: snapshot.snapshotId });
