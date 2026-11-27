@@ -237,7 +237,8 @@ async function pushChanges() {
               payload: outcome.currentPayload || null,
               version: Number(outcome.currentVersion) || 0,
               revision: Number(outcome.currentRevision) || 0,
-              operationId: outcome.currentOperationId || null
+              operationId: outcome.currentOperationId || null,
+              reason: outcome.reason || null
             }
           });
           conflicts += 1;
