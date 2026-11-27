@@ -3295,6 +3295,315 @@ export function getSyncCursor() {
   });
 }
 
+
+export function beginSyncSnapshot(snapshotId, revision) {
+  if (typeof snapshotId !== "string" || !snapshotId || !Number.isSafeInteger(Number(revision)) || Number(revision) < 0) {
+    return Promise.reject(new Error("Invalid cloud snapshot metadata"));
+  }
+  return new Promise((resolve, reject) => {
+    if (!db || !db.objectStoreNames.contains("syncSnapshotRecords")) {
+      return reject(new Error("Snapshot staging is unavailable; reload NeuroNet to update its local database."));
+    }
+    const tx = db.transaction(["syncSnapshotRecords", "syncState"], "readwrite");
+    tx.objectStore("syncSnapshotRecords").clear();
+    tx.objectStore("syncState").put({
+      key: "activeSnapshot",
+      value: { snapshotId, revision: Number(revision), startedAt: Date.now() },
+      updatedAt: Date.now()
+    });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export function stageSyncSnapshotPage(snapshotId, records = []) {
+  if (typeof snapshotId !== "string" || !snapshotId || !Array.isArray(records)) {
+    return Promise.reject(new Error("Invalid cloud snapshot page"));
+  }
+  return new Promise((resolve, reject) => {
+    if (!db || !db.objectStoreNames.contains("syncSnapshotRecords")) {
+      return reject(new Error("Snapshot staging is unavailable"));
+    }
+    const tx = db.transaction("syncSnapshotRecords", "readwrite");
+    const store = tx.objectStore("syncSnapshotRecords");
+    for (const record of records) {
+      if (!record || !SYNC_COLLECTIONS.has(record.collection) ||
+          typeof record.recordId !== "string" || !record.recordId ||
+          !record.payload || String(record.payload.id) !== record.recordId ||
+          !Number.isSafeInteger(Number(record.version)) || Number(record.version) < 1) {
+        tx.abort();
+        return reject(new Error("Cloud snapshot contained an invalid record"));
+      }
+      const key = snapshotId + "\u001e" + syncRecordKey(record.collection, record.recordId);
+      store.put({
+        key,
+        snapshotId,
+        collection: record.collection,
+        recordId: record.recordId,
+        payload: record.payload,
+        version: Number(record.version),
+        revision: Number(record.revision) || 0,
+        updatedAt: Number(record.updatedAt) || Date.now()
+      });
+    }
+    tx.oncomplete = () => resolve(records.length);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error("Snapshot staging transaction aborted"));
+  });
+}
+
+export function completeSyncSnapshot(snapshotId, revision) {
+  const snapshotRevision = Number(revision);
+  if (typeof snapshotId !== "string" || !snapshotId ||
+      !Number.isSafeInteger(snapshotRevision) || snapshotRevision < 0) {
+    return Promise.reject(new Error("Invalid cloud snapshot completion"));
+  }
+
+  return new Promise((resolve, reject) => {
+    if (!db || !db.objectStoreNames.contains("syncSnapshotRecords")) {
+      return reject(new Error("Snapshot staging is unavailable"));
+    }
+    const names = [...SYNC_COLLECTIONS];
+    const stores = [
+      ...names, "syncOutbox", "syncMeta", "syncConflicts",
+      "syncState", "syncSnapshotRecords"
+    ];
+    const tx = db.transaction(stores, "readwrite");
+    const data = { local: {} };
+    let remaining = names.length + 4;
+    let failed = false;
+
+    const failRequest = (request) => {
+      request.onerror = () => {
+        failed = true;
+        reject(request.error || new Error("Unable to read local data for snapshot recovery"));
+      };
+    };
+    const accept = (key, request) => {
+      failRequest(request);
+      request.onsuccess = () => {
+        data[key] = request.result || [];
+        remaining -= 1;
+        if (remaining === 0 && !failed) reconcile();
+      };
+    };
+
+    names.forEach((collection) => {
+      const request = tx.objectStore(collection).getAll();
+      failRequest(request);
+      request.onsuccess = () => {
+        data.local[collection] = request.result || [];
+        remaining -= 1;
+        if (remaining === 0 && !failed) reconcile();
+      };
+    });
+    accept("outbox", tx.objectStore("syncOutbox").getAll());
+    accept("meta", tx.objectStore("syncMeta").getAll());
+    accept("conflicts", tx.objectStore("syncConflicts").getAll());
+    accept("remote", tx.objectStore("syncSnapshotRecords").index("snapshotId").getAll(snapshotId));
+
+    function reconcile() {
+      try {
+        const outbox = tx.objectStore("syncOutbox");
+        const meta = tx.objectStore("syncMeta");
+        const conflicts = tx.objectStore("syncConflicts");
+        const state = tx.objectStore("syncState");
+        const staging = tx.objectStore("syncSnapshotRecords");
+        const pendingByKey = new Map(data.outbox.map((item) => [item.key, item]));
+        const metaByKey = new Map(data.meta.map((item) => [item.key, item]));
+        const conflictByKey = new Map(data.conflicts.map((item) => [item.key, item]));
+        const localByKey = new Map();
+
+        for (const collection of names) {
+          for (const record of data.local[collection]) {
+            localByKey.set(syncRecordKey(collection, record.id), { collection, record });
+          }
+        }
+
+        const remoteByKey = new Map();
+        for (const record of data.remote) {
+          remoteByKey.set(syncRecordKey(record.collection, record.recordId), record);
+        }
+
+        const writeMeta = (key, collection, recordId, serverVersion, serverRevision) => {
+          meta.put({
+            key,
+            collection,
+            recordId: String(recordId),
+            serverVersion: Number(serverVersion) || 0,
+            serverRevision: Number(serverRevision) || 0,
+            updatedAt: Date.now()
+          });
+        };
+        const remoteChangeFor = (record) => ({
+          type: "upsert",
+          payload: record.payload,
+          version: record.version,
+          revision: record.revision || snapshotRevision,
+          operationId: null
+        });
+        const deletedRemoteChange = () => ({
+          type: "delete",
+          payload: null,
+          version: 0,
+          revision: snapshotRevision,
+          operationId: null
+        });
+        let applied = 0;
+        let queuedOrphans = 0;
+        let conflictCount = 0;
+        let removed = 0;
+
+        for (const [key, remote] of remoteByKey) {
+          const collection = remote.collection;
+          const recordId = remote.recordId;
+          const recordStore = tx.objectStore(collection);
+          const pending = pendingByKey.get(key);
+          const existingConflict = conflictByKey.get(key);
+          const recordRevision = Number(remote.revision) || snapshotRevision;
+
+          if (pending) {
+            const matches = pending.type === "upsert" &&
+              syncPayloadsEqual(pending.payload, remote.payload);
+            if (matches) {
+              recordStore.put(remote.payload);
+              outbox.delete(key);
+              conflicts.delete(key);
+              pendingByKey.delete(key);
+              conflictByKey.delete(key);
+            } else {
+              outbox.put({ ...pending, blocked: true });
+              conflicts.put({
+                ...(existingConflict || {}),
+                key,
+                collection,
+                recordId,
+                localOperation: pending,
+                remoteChange: remoteChangeFor(remote),
+                updatedAt: Date.now()
+              });
+              conflictCount += 1;
+            }
+          } else if (existingConflict) {
+            conflicts.put({
+              ...existingConflict,
+              remoteChange: remoteChangeFor(remote),
+              updatedAt: Date.now()
+            });
+            conflictCount += 1;
+          } else {
+            recordStore.put(remote.payload);
+          }
+
+          writeMeta(key, collection, recordId, remote.version, recordRevision);
+          applied += 1;
+        }
+
+        // Local records missing from the cloud baseline are only discarded
+        // when local metadata proves they were previously synced. Untracked
+        // local data is preserved and queued instead of guessed away.
+        for (const [key, local] of localByKey) {
+          if (remoteByKey.has(key) || pendingByKey.has(key)) continue;
+          const recordMeta = metaByKey.get(key);
+          const existingConflict = conflictByKey.get(key);
+          const recordStore = tx.objectStore(local.collection);
+          if (existingConflict) {
+            conflicts.put({
+              ...existingConflict,
+              remoteChange: deletedRemoteChange(),
+              updatedAt: Date.now()
+            });
+            conflictCount += 1;
+          } else if (Number(recordMeta?.serverVersion || 0) > 0) {
+            recordStore.delete(String(local.record.id));
+            writeMeta(key, local.collection, local.record.id, 0, snapshotRevision);
+            removed += 1;
+          } else {
+            queueSyncUpsert(tx, local.collection, local.record);
+            queuedOrphans += 1;
+          }
+        }
+
+        // Outbox entries can survive even if their local row was deleted by an
+        // older app version or a partially completed import. Preserve payloads
+        // and convert stale edits into explicit remote-deletion conflicts.
+        for (const [key, pending] of pendingByKey) {
+          if (remoteByKey.has(key)) continue;
+          const recordMeta = metaByKey.get(key);
+          const existingConflict = conflictByKey.get(key);
+          const recordStore = tx.objectStore(pending.collection);
+
+          if (pending.type === "delete") {
+            outbox.delete(key);
+            conflicts.delete(key);
+            recordStore.delete(String(pending.recordId));
+            writeMeta(key, pending.collection, pending.recordId, 0, snapshotRevision);
+          } else if (Number(recordMeta?.serverVersion || 0) > 0 || existingConflict) {
+            if (pending.payload) recordStore.put(pending.payload);
+            outbox.put({ ...pending, blocked: true });
+            conflicts.put({
+              ...(existingConflict || {}),
+              key,
+              collection: pending.collection,
+              recordId: String(pending.recordId),
+              localOperation: pending,
+              remoteChange: deletedRemoteChange(),
+              updatedAt: Date.now()
+            });
+            writeMeta(key, pending.collection, pending.recordId, 0, snapshotRevision);
+            conflictCount += 1;
+          } else {
+            if (pending.payload) recordStore.put(pending.payload);
+            writeMeta(key, pending.collection, pending.recordId, 0, snapshotRevision);
+          }
+        }
+
+        for (const record of data.remote) staging.delete(record.key);
+        state.put({
+          key: "pullCursor",
+          value: snapshotRevision,
+          updatedAt: Date.now()
+        });
+        state.delete("activeSnapshot");
+        state.put({
+          key: "lastSnapshot",
+          value: {
+            revision: snapshotRevision,
+            completedAt: Date.now(),
+            recordCount: data.remote.length
+          },
+          updatedAt: Date.now()
+        });
+
+        tx.__snapshotSummary = {
+          applied,
+          removed,
+          queuedOrphans,
+          conflicts: conflictCount,
+          recordCount: data.remote.length,
+          revision: snapshotRevision
+        };
+      } catch (error) {
+        failed = true;
+        try { tx.abort(); } catch {}
+        reject(error);
+      }
+    }
+
+    tx.oncomplete = () => {
+      emitDBChange({
+        type: "sync-snapshot-applied",
+        count: tx.__snapshotSummary?.recordCount || 0,
+        remote: true
+      });
+      resolve(tx.__snapshotSummary || { revision: snapshotRevision });
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error("Snapshot reconciliation transaction aborted"));
+  });
+}
+
 export function queueSyncSnapshot() {
   return Promise.all([
     getAllNodes(), getAllQuotes(), getAllCues(), getAllCards(),
