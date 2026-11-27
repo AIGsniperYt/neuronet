@@ -3180,10 +3180,39 @@ export function resolveSyncConflict(collection, recordId, choice) {
   });
 }
 
+function stableSyncValue(value) {
+  if (Array.isArray(value)) return value.map(stableSyncValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value).sort().map((key) => [key, stableSyncValue(value[key])])
+    );
+  }
+  return value;
+}
+
+function syncPayloadsEqual(left, right) {
+  return JSON.stringify(stableSyncValue(left)) === JSON.stringify(stableSyncValue(right));
+}
+
 export function applyRemoteSyncChanges(changes = [], nextCursor = 0) {
   return new Promise((resolve, reject) => {
     if (!db || !Array.isArray(changes)) return reject(new Error("Invalid remote changes"));
-    const valid = changes.filter((change) => SYNC_COLLECTIONS.has(change.collection) && change.recordId != null);
+
+    // A page can contain multiple revisions of one record. Only the latest
+    // state for each record matters; applying intermediate revisions in the
+    // same transaction creates competing reads against the same outbox row.
+    const latestByRecord = new Map();
+    for (const change of changes) {
+      if (!SYNC_COLLECTIONS.has(change.collection) || change.recordId == null) continue;
+      const key = syncRecordKey(change.collection, change.recordId);
+      const previous = latestByRecord.get(key);
+      if (!previous || Number(change.revision) >= Number(previous.revision)) {
+        latestByRecord.set(key, change);
+      }
+    }
+    const valid = [...latestByRecord.values()].sort(
+      (left, right) => Number(left.revision) - Number(right.revision)
+    );
     const stores = [...new Set([...valid.map((change) => change.collection), "syncOutbox", "syncMeta", "syncConflicts", "syncState"])];
     const tx = db.transaction(stores, "readwrite");
     const outbox = tx.objectStore("syncOutbox");
@@ -3205,7 +3234,7 @@ export function applyRemoteSyncChanges(changes = [], nextCursor = 0) {
 
         if (pending) {
           const equal = pending.type === change.type &&
-            (change.type === "delete" || JSON.stringify(pending.payload) === JSON.stringify(change.payload));
+            (change.type === "delete" || syncPayloadsEqual(pending.payload, change.payload));
           if (equal) {
             outbox.delete(key);
             meta.put({
