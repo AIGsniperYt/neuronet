@@ -4,7 +4,7 @@ let db;
 // Structural schema only: store/index creation. Data-shape changes are handled
 // on write (promoteTags / promoteStudyPriority) and old profiles are reset by
 // importing the committed demo dataset, not migrated in place.
-const DB_VERSION = 17;
+const DB_VERSION = 18;
 
 // Decks are canonical folders inside a subject. Cards point at one deck via
 // deckId; the legacy `card.deck` string remains the subject owner until the
@@ -19,6 +19,29 @@ function emitDBChange(detail) {
   if (typeof document !== "undefined") {
     document.dispatchEvent(new CustomEvent("db-change", { detail }));
   }
+}
+
+const SYNC_COLLECTIONS = new Set(["nodes","quotes","cues","cards","heaps","decks","subjects","tasks","commitments"]);
+function syncRecordKey(collection, recordId) { return collection + "\u001f" + String(recordId); }
+function mutationTransaction(storeName) {
+  const names = Array.isArray(storeName) ? storeName : [storeName];
+  const stores = names.some((name) => SYNC_COLLECTIONS.has(name)) ? [...new Set([...names, "syncOutbox"])] : names;
+  return db.transaction(stores, "readwrite");
+}
+function queueSyncUpsert(tx, collection, record) {
+  if (!SYNC_COLLECTIONS.has(collection) || !record?.id) return;
+  const recordId = String(record.id);
+  tx.objectStore("syncOutbox").put({ key: syncRecordKey(collection, recordId), collection, recordId, operationId: crypto.randomUUID(), type: "upsert", payload: record, queuedAt: Date.now() });
+}
+function queueSyncDelete(tx, collection, recordId) {
+  if (!SYNC_COLLECTIONS.has(collection) || recordId == null) return;
+  const id = String(recordId);
+  tx.objectStore("syncOutbox").put({ key: syncRecordKey(collection, id), collection, recordId: id, operationId: crypto.randomUUID(), type: "delete", payload: null, queuedAt: Date.now() });
+}
+function queueSyncClear(tx, collection, recordStore) {
+  if (!SYNC_COLLECTIONS.has(collection)) return;
+  const request = recordStore.getAll();
+  request.onsuccess = () => { for (const record of request.result || []) queueSyncDelete(tx, collection, record.id); };
 }
 
 export function initDB() {
@@ -174,6 +197,10 @@ export function initDB() {
         journalStore.createIndex("updatedAt", "updatedAt", { unique: false });
         journalStore.createIndex("insight", "insight", { unique: false });
       }
+      if (!db.objectStoreNames.contains("syncOutbox")) db.createObjectStore("syncOutbox", { keyPath: "key" });
+      if (!db.objectStoreNames.contains("syncMeta")) db.createObjectStore("syncMeta", { keyPath: "key" });
+      if (!db.objectStoreNames.contains("syncState")) db.createObjectStore("syncState", { keyPath: "key" });
+      if (!db.objectStoreNames.contains("syncConflicts")) db.createObjectStore("syncConflicts", { keyPath: "key" });
     };
 
     request.onsuccess = (e) => {
@@ -202,7 +229,7 @@ export function addNode(node) {
     if (record.type === "analysis" || record.type === "cue") promoteStudyPriority(record);
     promoteTags(record);
 
-    const tx = db.transaction("nodes", "readwrite");
+    const tx = mutationTransaction("nodes");
     const store = tx.objectStore("nodes");
     const req = store.put(record);
 
@@ -233,7 +260,7 @@ export function addNodes(nodes) {
       return record;
     });
 
-    const tx = db.transaction("nodes", "readwrite");
+    const tx = mutationTransaction("nodes");
     const store = tx.objectStore("nodes");
 
     for (const record of records) {
@@ -377,7 +404,7 @@ export function deleteNode(id) {
       return;
     }
 
-    const tx = db.transaction("nodes", "readwrite");
+    const tx = mutationTransaction("nodes");
     const store = tx.objectStore("nodes");
     const req = store.delete(id);
 
@@ -398,7 +425,7 @@ export function clearNodes() {
       return;
     }
 
-    const tx = db.transaction("nodes", "readwrite");
+    const tx = mutationTransaction("nodes");
     const req = tx.objectStore("nodes").clear();
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -430,7 +457,7 @@ export function addQuote(quote) {
     };
     promoteTags(record);
 
-    const tx = db.transaction("quotes", "readwrite");
+    const tx = mutationTransaction("quotes");
     const store = tx.objectStore("quotes");
     const req = store.put(record);
 
@@ -461,7 +488,7 @@ export function addQuotes(quotes) {
     }));
     records.forEach(promoteTags);
 
-    const tx = db.transaction("quotes", "readwrite");
+    const tx = mutationTransaction("quotes");
     const store = tx.objectStore("quotes");
 
     for (const record of records) {
@@ -563,7 +590,7 @@ export function deleteQuote(id) {
       return;
     }
 
-    const tx = db.transaction("quotes", "readwrite");
+    const tx = mutationTransaction("quotes");
     const store = tx.objectStore("quotes");
     const req = store.delete(id);
 
@@ -584,7 +611,7 @@ export function clearQuotes() {
       return;
     }
 
-    const tx = db.transaction("quotes", "readwrite");
+    const tx = mutationTransaction("quotes");
     const req = tx.objectStore("quotes").clear();
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -793,7 +820,7 @@ export function addCue(cue) {
     promoteStudyPriority(record);
     promoteTags(record);
 
-    const tx = db.transaction("cues", "readwrite");
+    const tx = mutationTransaction("cues");
     const store = tx.objectStore("cues");
     const req = store.put(record);
 
@@ -829,7 +856,7 @@ export function addCues(cues) {
       return record;
     });
 
-    const tx = db.transaction("cues", "readwrite");
+    const tx = mutationTransaction("cues");
     const store = tx.objectStore("cues");
 
     for (const record of records) {
@@ -882,7 +909,7 @@ export function deleteCue(id) {
       return;
     }
 
-    const tx = db.transaction("cues", "readwrite");
+    const tx = mutationTransaction("cues");
     const store = tx.objectStore("cues");
     const req = store.delete(id);
 
@@ -903,7 +930,7 @@ export function clearCues() {
       return;
     }
 
-    const tx = db.transaction("cues", "readwrite");
+    const tx = mutationTransaction("cues");
     const req = tx.objectStore("cues").clear();
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -973,7 +1000,7 @@ export function updateCueLinks(cueId, quoteId, analysisId) {
       return;
     }
 
-    const tx = db.transaction("cues", "readwrite");
+    const tx = mutationTransaction("cues");
     const store = tx.objectStore("cues");
     const req = store.get(cueId);
 
@@ -1141,7 +1168,7 @@ export async function addCard(card) {
   await assignDeckIdsToCards([record]);
 
   return new Promise((resolve, reject) => {
-    const tx = db.transaction("cards", "readwrite");
+    const tx = mutationTransaction("cards");
     const req = tx.objectStore("cards").put(record);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -1168,7 +1195,7 @@ export async function addCards(cards) {
   await assignDeckIdsToCards(records);
 
   return new Promise((resolve, reject) => {
-    const tx = db.transaction("cards", "readwrite");
+    const tx = mutationTransaction("cards");
     const store = tx.objectStore("cards");
     for (const record of records) store.put(record);
 
@@ -1294,7 +1321,7 @@ export function deleteCard(id) {
       return;
     }
 
-    const tx = db.transaction("cards", "readwrite");
+    const tx = mutationTransaction("cards");
     const req = tx.objectStore("cards").delete(id);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -1321,7 +1348,7 @@ export function clearCards() {
       return;
     }
 
-    const tx = db.transaction("cards", "readwrite");
+    const tx = mutationTransaction("cards");
     const req = tx.objectStore("cards").clear();
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -1388,7 +1415,7 @@ export function addDeck(deck) {
     }
 
     const record = normalizeDeckRecord(deck);
-    const tx = db.transaction("decks", "readwrite");
+    const tx = mutationTransaction("decks");
     const req = tx.objectStore("decks").put(record);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -1413,7 +1440,7 @@ export function addDecks(decks) {
       return;
     }
 
-    const tx = db.transaction("decks", "readwrite");
+    const tx = mutationTransaction("decks");
     const store = tx.objectStore("decks");
     for (const record of records) store.put(record);
 
@@ -1478,7 +1505,7 @@ export function deleteDeckRecord(id) {
       return;
     }
 
-    const tx = db.transaction("decks", "readwrite");
+    const tx = mutationTransaction("decks");
     const req = tx.objectStore("decks").delete(id);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -1497,7 +1524,7 @@ export function clearDecks() {
       return;
     }
 
-    const tx = db.transaction("decks", "readwrite");
+    const tx = mutationTransaction("decks");
     const req = tx.objectStore("decks").clear();
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -1815,7 +1842,7 @@ export function addHeap(heap) {
     }
 
     const record = normalizeHeapRecord(heap);
-    const tx = db.transaction("heaps", "readwrite");
+    const tx = mutationTransaction("heaps");
     const req = tx.objectStore("heaps").put(record);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -1840,7 +1867,7 @@ export function addHeaps(heaps) {
       return;
     }
 
-    const tx = db.transaction("heaps", "readwrite");
+    const tx = mutationTransaction("heaps");
     const store = tx.objectStore("heaps");
     for (const record of records) store.put(record);
     tx.oncomplete = () => {
@@ -1893,7 +1920,7 @@ export function deleteHeap(id) {
       return;
     }
 
-    const tx = db.transaction("heaps", "readwrite");
+    const tx = mutationTransaction("heaps");
     const req = tx.objectStore("heaps").delete(id);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -1912,7 +1939,7 @@ export function clearHeaps() {
       return;
     }
 
-    const tx = db.transaction("heaps", "readwrite");
+    const tx = mutationTransaction("heaps");
     const req = tx.objectStore("heaps").clear();
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -2052,7 +2079,7 @@ export async function getSubjectByKey(key) { const all = await getAllSubjects();
 export async function resolveSubject(idOrKey) { return await getSubject(idOrKey) || await getSubjectByKey(idOrKey); }
 export async function getSubjects() { return getAllSubjects(); }
 export async function addSubjects(records = []) { return writeRows("subjects", records.map((record) => ({ ...record, keyNorm: String(record.key || "").trim().toLocaleLowerCase() }))); }
-export async function clearSubjects() { return new Promise((resolve, reject) => { const tx = db.transaction("subjects", "readwrite"); tx.objectStore("subjects").clear(); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); }); }
+export async function clearSubjects() { return new Promise((resolve, reject) => { const tx = mutationTransaction("subjects"); tx.objectStore("subjects").clear(); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); }); }
 export async function addSubject(nameOrOptions) {
   const parsed = typeof nameOrOptions === "string" ? parseSubjectName(nameOrOptions) : { name: nameOrOptions?.name || "", level: nameOrOptions?.level || "" };
   const key = subjectKey(parsed.name, parsed.level); if (!key) throw new Error("Subject name is required");
@@ -2104,7 +2131,7 @@ export async function deleteSubject(idOrKey) {
     ...quotes.filter((r) => r.subjectId === subject.id || (!r.subjectId && subjectKeyMatches(r.subject, key))).map((r) => deleteQuote(r.id)),
     ...cues.filter((r) => r.subjectId === subject.id || (!r.subjectId && subjectKeyMatches(r.subject, key))).map((r) => deleteCue(r.id))
   ]);
-  await new Promise((resolve, reject) => { const tx = db.transaction("subjects", "readwrite"); tx.objectStore("subjects").delete(subject.id); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); }); return subject;
+  await new Promise((resolve, reject) => { const tx = mutationTransaction("subjects"); tx.objectStore("subjects").delete(subject.id); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); }); return subject;
 }
 export async function mergeSubjects(sourceId, targetId) {
   const source = await resolveSubject(sourceId); const target = await resolveSubject(targetId); if (!source || !target || source.id === target.id) return target;
@@ -2138,7 +2165,7 @@ export async function mergeSubjects(sourceId, targetId) {
     for (const child of childDecks) await addDeck({ ...child, parentId: targetUnsorted.id, updatedAt: now });
     await deleteDeckRecord(sourceUnsorted.id);
   }
-  await new Promise((resolve, reject) => { const tx = db.transaction("subjects", "readwrite"); tx.objectStore("subjects").delete(source.id); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); });
+  await new Promise((resolve, reject) => { const tx = mutationTransaction("subjects"); tx.objectStore("subjects").delete(source.id); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); });
   const node = (await getAllNodes()).find((r) => r.id === `subject-${source.id}`); if (node) await deleteNode(node.id); return target;
 }
 export async function ensureSubjectIdentity() {
@@ -2531,7 +2558,7 @@ export function addTask(task) {
     }
 
     const record = normalizeTaskRecord(task);
-    const tx = db.transaction("tasks", "readwrite");
+    const tx = mutationTransaction("tasks");
     const req = tx.objectStore("tasks").put(record);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -2556,7 +2583,7 @@ export function addTasks(tasks) {
       return;
     }
 
-    const tx = db.transaction("tasks", "readwrite");
+    const tx = mutationTransaction("tasks");
     const store = tx.objectStore("tasks");
     for (const record of records) store.put(record);
     tx.oncomplete = () => {
@@ -2594,7 +2621,7 @@ export function deleteTask(id) {
       return;
     }
 
-    const tx = db.transaction("tasks", "readwrite");
+    const tx = mutationTransaction("tasks");
     const req = tx.objectStore("tasks").delete(id);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -2613,7 +2640,7 @@ export function clearTasks() {
       return;
     }
 
-    const tx = db.transaction("tasks", "readwrite");
+    const tx = mutationTransaction("tasks");
     const req = tx.objectStore("tasks").clear();
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -2691,7 +2718,7 @@ export function addCommitment(commitment) {
     }
 
     const record = normalizeCommitmentRecord(commitment);
-    const tx = db.transaction("commitments", "readwrite");
+    const tx = mutationTransaction("commitments");
     const req = tx.objectStore("commitments").put(record);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -2716,7 +2743,7 @@ export function addCommitments(commitments) {
       return;
     }
 
-    const tx = db.transaction("commitments", "readwrite");
+    const tx = mutationTransaction("commitments");
     const store = tx.objectStore("commitments");
     for (const record of records) store.put(record);
     tx.oncomplete = () => {
@@ -2754,7 +2781,7 @@ export function deleteCommitment(id) {
       return;
     }
 
-    const tx = db.transaction("commitments", "readwrite");
+    const tx = mutationTransaction("commitments");
     const req = tx.objectStore("commitments").delete(id);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
@@ -2773,7 +2800,7 @@ export function clearCommitments() {
       return;
     }
 
-    const tx = db.transaction("commitments", "readwrite");
+    const tx = mutationTransaction("commitments");
     const req = tx.objectStore("commitments").clear();
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
