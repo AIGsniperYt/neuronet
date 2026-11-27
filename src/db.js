@@ -45,6 +45,7 @@ function queueSyncUpsert(tx, collection, record) {
       type: "upsert",
       payload: record,
       queuedAt: Date.now(),
+      firstQueuedAt: Number(existing.result?.firstQueuedAt || existing.result?.queuedAt) || Date.now(),
       ...(existing.result?.blocked ? { blocked: true } : {})
     });
   };
@@ -64,6 +65,7 @@ function queueSyncDelete(tx, collection, recordId) {
       type: "delete",
       payload: null,
       queuedAt: Date.now(),
+      firstQueuedAt: Number(existing.result?.firstQueuedAt || existing.result?.queuedAt) || Date.now(),
       ...(existing.result?.blocked ? { blocked: true } : {})
     });
   };
@@ -3156,7 +3158,8 @@ export function resolveSyncConflict(collection, recordId, choice) {
             operationId: crypto.randomUUID(),
             type: current ? "upsert" : "delete",
             payload: current || null,
-            queuedAt: Date.now()
+            queuedAt: Date.now(),
+            firstQueuedAt: Number(conflict.localOperation?.firstQueuedAt || conflict.localOperation?.queuedAt) || Date.now()
           });
         };
       }
