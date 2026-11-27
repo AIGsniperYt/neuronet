@@ -3664,6 +3664,79 @@ export function queueSyncSnapshot() {
 }
 
 
+
+const SYNC_LOCK_TTL_MS = 15 * 60 * 1000;
+
+export function acquireSyncLock(owner) {
+  if (typeof owner !== "string" || !owner) return Promise.reject(new Error("A sync lock owner is required"));
+  return new Promise((resolve, reject) => {
+    if (!db || !db.objectStoreNames.contains("syncState")) return reject(new Error("Sync state is unavailable"));
+    const tx = db.transaction("syncState", "readwrite");
+    const store = tx.objectStore("syncState");
+    const request = store.get("syncLock");
+    let acquired = false;
+    request.onsuccess = () => {
+      const now = Date.now();
+      const current = request.result?.value;
+      if (!current || Number(current.expiresAt || 0) <= now || current.owner === owner) {
+        store.put({
+          key: "syncLock",
+          value: { owner, expiresAt: now + SYNC_LOCK_TTL_MS },
+          updatedAt: now
+        });
+        acquired = true;
+      }
+    };
+    tx.oncomplete = () => resolve(acquired);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export function renewSyncLock(owner) {
+  return new Promise((resolve, reject) => {
+    if (!db || !db.objectStoreNames.contains("syncState")) return resolve(false);
+    const tx = db.transaction("syncState", "readwrite");
+    const store = tx.objectStore("syncState");
+    const request = store.get("syncLock");
+    let renewed = false;
+    request.onsuccess = () => {
+      const current = request.result?.value;
+      const now = Date.now();
+      if (current?.owner === owner && Number(current.expiresAt || 0) > now) {
+        store.put({
+          key: "syncLock",
+          value: { owner, expiresAt: now + SYNC_LOCK_TTL_MS },
+          updatedAt: now
+        });
+        renewed = true;
+      }
+    };
+    tx.oncomplete = () => resolve(renewed);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export function releaseSyncLock(owner) {
+  return new Promise((resolve, reject) => {
+    if (!db || !db.objectStoreNames.contains("syncState")) return resolve(false);
+    const tx = db.transaction("syncState", "readwrite");
+    const store = tx.objectStore("syncLock");
+    const request = store.get("syncLock");
+    let released = false;
+    request.onsuccess = () => {
+      if (request.result?.value?.owner === owner) {
+        store.delete("syncLock");
+        released = true;
+      }
+    };
+    tx.oncomplete = () => resolve(released);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
 export function getSyncState(key) {
   return new Promise((resolve,reject)=>{
     if(!db||!db.objectStoreNames.contains("syncState"))return resolve(null);
