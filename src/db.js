@@ -3001,3 +3001,242 @@ export function clearJournals() {
     tx.onabort = () => reject(tx.error);
   });
 }
+
+
+// ========== CLOUD SYNC STATE ==========
+
+export function getSyncOutbox(limit = 100) {
+  return new Promise((resolve, reject) => {
+    if (!db || !db.objectStoreNames.contains("syncOutbox")) return reject(new Error("Sync outbox is unavailable"));
+    const tx = db.transaction(["syncOutbox", "syncMeta"], "readonly");
+    const outbox = tx.objectStore("syncOutbox");
+    const meta = tx.objectStore("syncMeta");
+    const request = outbox.getAll();
+    let operations = [];
+    request.onsuccess = () => {
+      operations = (request.result || [])
+        .sort((a, b) => Number(a.queuedAt || 0) - Number(b.queuedAt || 0))
+        .slice(0, Math.max(1, Math.min(100, Number(limit) || 100)));
+      for (const operation of operations) {
+        const metaRequest = meta.get(syncRecordKey(operation.collection, operation.recordId));
+        metaRequest.onsuccess = () => {
+          operation.baseVersion = Number(metaRequest.result?.serverVersion || 0);
+        };
+      }
+    };
+    tx.oncomplete = () => resolve(operations);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export function acknowledgeSyncOperation(operation, result) {
+  return new Promise((resolve, reject) => {
+    if (!db || !operation || !result) return reject(new Error("Invalid sync acknowledgement"));
+    const key = syncRecordKey(operation.collection, operation.recordId);
+    const tx = db.transaction(["syncOutbox", "syncMeta"], "readwrite");
+    const outbox = tx.objectStore("syncOutbox");
+    const meta = tx.objectStore("syncMeta");
+    const pendingRequest = outbox.get(key);
+    pendingRequest.onsuccess = () => {
+      if (pendingRequest.result?.operationId === operation.operationId) outbox.delete(key);
+      const version = Number(result.version);
+      const revision = Number(result.revision);
+      if (Number.isSafeInteger(version) && version >= 0) {
+        meta.put({
+          key,
+          collection: operation.collection,
+          recordId: String(operation.recordId),
+          serverVersion: version,
+          serverRevision: Number.isSafeInteger(revision) && revision >= 0 ? revision : 0,
+          updatedAt: Date.now()
+        });
+      }
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export function saveSyncConflict(conflict) {
+  return new Promise((resolve, reject) => {
+    if (!db || !conflict?.collection || !conflict?.recordId) return reject(new Error("Invalid sync conflict"));
+    const key = syncRecordKey(conflict.collection, conflict.recordId);
+    const tx = db.transaction("syncConflicts", "readwrite");
+    tx.objectStore("syncConflicts").put({ ...conflict, key, updatedAt: Date.now() });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export function getSyncConflicts() {
+  return new Promise((resolve, reject) => {
+    if (!db || !db.objectStoreNames.contains("syncConflicts")) return resolve([]);
+    const tx = db.transaction("syncConflicts", "readonly");
+    const request = tx.objectStore("syncConflicts").getAll();
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export function resolveSyncConflict(collection, recordId, choice) {
+  if (choice !== "local" && choice !== "remote") {
+    return Promise.reject(new Error("Choice must be local or remote"));
+  }
+  return new Promise((resolve, reject) => {
+    if (!db || !SYNC_COLLECTIONS.has(collection)) return reject(new Error("Unsupported sync collection"));
+    const key = syncRecordKey(collection, recordId);
+    const tx = db.transaction([collection, "syncOutbox", "syncMeta", "syncConflicts"], "readwrite");
+    const records = tx.objectStore(collection);
+    const outbox = tx.objectStore("syncOutbox");
+    const meta = tx.objectStore("syncMeta");
+    const conflicts = tx.objectStore("syncConflicts");
+    const request = conflicts.get(key);
+
+    request.onsuccess = () => {
+      const conflict = request.result;
+      if (!conflict) return;
+      const remote = conflict.remoteChange || {};
+      if (choice === "remote") {
+        if (remote.type === "delete") records.delete(String(recordId));
+        else if (remote.payload) records.put(remote.payload);
+        outbox.delete(key);
+      } else {
+        const currentRequest = records.get(String(recordId));
+        currentRequest.onsuccess = () => {
+          const current = currentRequest.result;
+          outbox.put({
+            key,
+            collection,
+            recordId: String(recordId),
+            operationId: crypto.randomUUID(),
+            type: current ? "upsert" : "delete",
+            payload: current || null,
+            queuedAt: Date.now()
+          });
+        };
+      }
+      const version = Number(remote.version || remote.currentVersion);
+      const revision = Number(remote.revision || 0);
+      if (Number.isSafeInteger(version) && version >= 0) {
+        meta.put({
+          key,
+          collection,
+          recordId: String(recordId),
+          serverVersion: version,
+          serverRevision: Number.isSafeInteger(revision) ? revision : 0,
+          updatedAt: Date.now()
+        });
+      }
+      conflicts.delete(key);
+    };
+
+    tx.oncomplete = () => {
+      emitDBChange({ type: "sync-conflict-resolved", ids: [String(recordId)] });
+      resolve();
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export function applyRemoteSyncChanges(changes = [], nextCursor = 0) {
+  return new Promise((resolve, reject) => {
+    if (!db || !Array.isArray(changes)) return reject(new Error("Invalid remote changes"));
+    const valid = changes.filter((change) => SYNC_COLLECTIONS.has(change.collection) && change.recordId != null);
+    const stores = [...new Set([...valid.map((change) => change.collection), "syncOutbox", "syncMeta", "syncConflicts", "syncState"])];
+    const tx = db.transaction(stores, "readwrite");
+    const outbox = tx.objectStore("syncOutbox");
+    const meta = tx.objectStore("syncMeta");
+    const conflicts = tx.objectStore("syncConflicts");
+
+    tx.objectStore("syncState").put({
+      key: "pullCursor",
+      value: Number(nextCursor) || 0,
+      updatedAt: Date.now()
+    });
+
+    for (const change of valid) {
+      const key = syncRecordKey(change.collection, change.recordId);
+      const pendingRequest = outbox.get(key);
+      pendingRequest.onsuccess = () => {
+        const pending = pendingRequest.result;
+        const localRecords = tx.objectStore(change.collection);
+
+        if (pending) {
+          const equal = pending.type === change.type &&
+            (change.type === "delete" || JSON.stringify(pending.payload) === JSON.stringify(change.payload));
+          if (equal) {
+            outbox.delete(key);
+            meta.put({
+              key,
+              collection: change.collection,
+              recordId: String(change.recordId),
+              serverVersion: Number(change.version) || 0,
+              serverRevision: Number(change.revision) || 0,
+              updatedAt: Date.now()
+            });
+          } else {
+            conflicts.put({
+              key,
+              collection: change.collection,
+              recordId: String(change.recordId),
+              localOperation: pending,
+              remoteChange: change,
+              updatedAt: Date.now()
+            });
+          }
+          return;
+        }
+
+        if (change.type === "delete") localRecords.delete(String(change.recordId));
+        else if (change.type === "upsert" && change.payload) localRecords.put(change.payload);
+        meta.put({
+          key,
+          collection: change.collection,
+          recordId: String(change.recordId),
+          serverVersion: Number(change.version) || 0,
+          serverRevision: Number(change.revision) || 0,
+          updatedAt: Date.now()
+        });
+      };
+    }
+
+    tx.oncomplete = () => {
+      emitDBChange({ type: "sync-pull-applied", count: valid.length });
+      resolve();
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export function getSyncCursor() {
+  return new Promise((resolve, reject) => {
+    if (!db || !db.objectStoreNames.contains("syncState")) return resolve(0);
+    const tx = db.transaction("syncState", "readonly");
+    const request = tx.objectStore("syncState").get("pullCursor");
+    request.onsuccess = () => resolve(Number(request.result?.value) || 0);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export function queueSyncSnapshot() {
+  return Promise.all([
+    getAllNodes(), getAllQuotes(), getAllCues(), getAllCards(),
+    getAllHeaps(), getAllDecks(), getAllSubjects(), getAllTasks(), getAllCommitments()
+  ]).then((collections) => {
+    const names = ["nodes", "quotes", "cues", "cards", "heaps", "decks", "subjects", "tasks", "commitments"];
+    const tx = db.transaction([...names, "syncOutbox"], "readwrite");
+    for (let i = 0; i < names.length; i += 1) {
+      for (const record of collections[i] || []) queueSyncUpsert(tx, names[i], record);
+    }
+    return new Promise((resolve, reject) => {
+      tx.oncomplete = () => resolve(collections.reduce((sum, rows) => sum + rows.length, 0));
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  });
+}
