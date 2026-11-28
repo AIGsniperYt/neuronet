@@ -29,3 +29,8 @@ jobs:
           node --input-type=module --check < src/db.js
           node --input-type=module --check < src/sync.js
           node --input-type=module --check < src/main.js
+          node --check tests/sync-recovery.test.mjs
+      - name: Install isolated IndexedDB test dependency
+        run: npm ci --prefix tests --ignore-scripts --no-audit --no-fund
+      - name: Exercise IndexedDB recovery and cross-tab locking
+        run: node --test tests/sync-recovery.test.mjs
