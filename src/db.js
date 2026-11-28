@@ -3148,6 +3148,27 @@ export function getActivityEvents({ sinceDay = "" } = {}) {
   });
 }
 
+export function clearActivityEvents() {
+  return new Promise((resolve, reject) => {
+    if (!db || !db.objectStoreNames.contains("activityEvents")) return resolve(0);
+    const tx = db.transaction(["activityEvents", "syncState"], "readwrite");
+    const events = tx.objectStore("activityEvents");
+    const countRequest = events.count();
+    let removed = 0;
+    countRequest.onsuccess = () => { removed = Number(countRequest.result || 0); };
+    events.clear();
+    const startedAt = Date.now();
+    tx.objectStore("syncState").put({
+      key: "activityTrackingStartedAt",
+      value: startedAt,
+      updatedAt: startedAt
+    });
+    tx.oncomplete = () => resolve(removed);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
 // ========== CLOUD SYNC STATE ==========
 
 export function getSyncOverview() {
