@@ -69,7 +69,7 @@ export async function initDataObservatory() {
 
       if (summary) {
         summary.innerHTML = [
-          ["Local records", insights.totalRecords],
+          ["Stored items", insights.totalRecords],
           ["Estimated payload", formatBytes(insights.estimatedPayloadBytes)],
           ["Pending changes", insights.sync.pending],
           ["Conflicts", insights.sync.conflicts]
