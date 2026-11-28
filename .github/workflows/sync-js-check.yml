@@ -7,6 +7,7 @@ on:
       - "src/db.js"
       - "src/sync.js"
       - "src/main.js"
+      - "tests/**"
       - ".github/workflows/sync-js-check.yml"
   pull_request:
     branches: [main]
@@ -14,6 +15,7 @@ on:
       - "src/db.js"
       - "src/sync.js"
       - "src/main.js"
+      - "tests/**"
       - ".github/workflows/sync-js-check.yml"
 
 jobs:
