@@ -3891,8 +3891,9 @@ export function completeSyncSnapshot(snapshotId, revision, compactedAt = 0, base
               : null;
             const predatesCompaction = operationBaseline !== null
               ? operationBaseline < snapshotBaselineRevision
-              : snapshotCompactedAt > 0 && firstQueuedAt > 0 &&
-                firstQueuedAt <= snapshotCompactedAt;
+              : snapshotBaselineRevision > 0 ||
+                (snapshotCompactedAt > 0 && firstQueuedAt > 0 &&
+                  firstQueuedAt <= snapshotCompactedAt);
             if (Number(recordMeta?.serverVersion || 0) > 0 || existingConflict || predatesCompaction) {
               if (pending.payload) recordStore.put(pending.payload);
               outbox.put({ ...pending, blocked: true });
