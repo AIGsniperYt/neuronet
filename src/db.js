@@ -3821,8 +3821,13 @@ export function completeSyncSnapshot(snapshotId, revision, compactedAt = 0, base
             writeMeta(key, pending.collection, pending.recordId, 0, snapshotRevision);
           } else {
             const firstQueuedAt = Number(pending.firstQueuedAt || pending.queuedAt) || 0;
-            const predatesCompaction = snapshotCompactedAt > 0 &&
-              firstQueuedAt > 0 && firstQueuedAt <= snapshotCompactedAt;
+            const operationBaseline = Number.isSafeInteger(pending.baseBaselineRevision)
+              ? pending.baseBaselineRevision
+              : null;
+            const predatesCompaction = operationBaseline !== null
+              ? operationBaseline < snapshotBaselineRevision
+              : snapshotCompactedAt > 0 && firstQueuedAt > 0 &&
+                firstQueuedAt <= snapshotCompactedAt;
             if (Number(recordMeta?.serverVersion || 0) > 0 || existingConflict || predatesCompaction) {
               if (pending.payload) recordStore.put(pending.payload);
               outbox.put({ ...pending, blocked: true });
