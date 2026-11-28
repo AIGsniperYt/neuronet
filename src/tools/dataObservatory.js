@@ -135,7 +135,7 @@ export async function initDataObservatory() {
         conflictList.innerHTML = conflicts.map((conflict) => {
           const local = conflict.localOperation || {};
           const remote = conflict.remoteChange || {};
-          const reason = remote.reason === "pending-operation-predates-compacted-baseline"
+          const reason = ["pending-operation-predates-compacted-baseline", "operation-predates-compacted-baseline"].includes(remote.reason)
             ? "This local operation predates the retained cloud baseline. Keeping it locally is an explicit decision to recreate or reapply it."
             : remote.reason === "record-absent-from-cloud-snapshot"
               ? "This record is absent from the current cloud snapshot. The local and cloud copies may have diverged."
