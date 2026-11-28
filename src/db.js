@@ -3343,12 +3343,20 @@ export function saveSyncConflict(conflict) {
   return new Promise((resolve, reject) => {
     if (!db || !conflict?.collection || !conflict?.recordId) return reject(new Error("Invalid sync conflict"));
     const key = syncRecordKey(conflict.collection, conflict.recordId);
-    const tx = db.transaction(["syncConflicts", "syncOutbox"], "readwrite");
+    const tx = db.transaction(["syncConflicts", "syncOutbox", "syncState"], "readwrite");
     const pendingStore = tx.objectStore("syncOutbox");
     const pendingRequest = pendingStore.get(key);
     pendingRequest.onsuccess = () => {
       if (pendingRequest.result) {
         pendingStore.put({ ...pendingRequest.result, blocked: true });
+      }
+      const baselineRevision = Number(conflict.remoteChange?.currentBaselineRevision);
+      if (Number.isSafeInteger(baselineRevision) && baselineRevision >= 0) {
+        tx.objectStore("syncState").put({
+          key: "cloudBaselineRevision",
+          value: baselineRevision,
+          updatedAt: Date.now()
+        });
       }
       tx.objectStore("syncConflicts").put({ ...conflict, key, updatedAt: Date.now() });
     };
