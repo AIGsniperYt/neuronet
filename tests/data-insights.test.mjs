@@ -123,6 +123,20 @@ test("activity events distinguish card content changes, SRS reviews and task com
   assert.equal(serialisedEvents.includes("Bulk answer"), false);
   assert.equal(serialisedEvents.includes("Finish homework"), false);
 
+  // Insert an expired metadata event before the first retention check.
+  // The read-model prunes it without touching the underlying study records.
+  const oldTimestamp = Date.now() - 91 * 24 * 60 * 60 * 1000;
+  await insertOldActivityEvent({
+    id: "expired-activity-event",
+    day: localDayKey(oldTimestamp),
+    kind: "card-reviewed",
+    recordId: "old-card-id",
+    occurredAt: oldTimestamp,
+    timezoneOffsetMinutes: new Date(oldTimestamp).getTimezoneOffset()
+  });
+  assert.equal((await db.getAllCards()).length, 2);
+  assert.equal((await db.getAllTasks()).length, 1);
+
   const insights = await getDataInsights({ days: 7, includeInventory: true });
   assert.equal(insights.today.cardsCreated, 2);
   assert.equal(insights.today.cardsRevised, 1);
@@ -135,6 +149,8 @@ test("activity events distinguish card content changes, SRS reviews and task com
   assert.equal(insights.sync.ready, insights.sync.pending);
   assert.equal(insights.sync.blocked, 0);
   assert.equal(insights.sync.conflicts, 0);
+  assert.equal(insights.activityEventsRetained, 6);
+  assert.equal((await db.getActivityEvents()).some((event) => event.id === "expired-activity-event"), false);
   const sessionSummary = await getActivitySummarySince(Date.now() - 86400000);
   assert.equal(sessionSummary.cardsCreated, 2);
   assert.equal(sessionSummary.cardsRevised, 1);
@@ -142,22 +158,6 @@ test("activity events distinguish card content changes, SRS reviews and task com
   assert.equal(sessionSummary.tasksCompleted, 1);
   assert.equal(insights.activityTrackingStarted, true);
   assert.ok(insights.activityEventsRetained >= 6);
-
-  // Retention is bounded to 90 days and pruning never touches study records.
-  const oldTimestamp = Date.now() - 91 * 24 * 60 * 60 * 1000;
-  await insertOldActivityEvent({
-    id: "expired-activity-event",
-    day: localDayKey(oldTimestamp),
-    kind: "card-reviewed",
-    recordId: "old-card-id",
-    occurredAt: oldTimestamp,
-    timezoneOffsetMinutes: new Date(oldTimestamp).getTimezoneOffset()
-  });
-  const afterRetention = await getDataInsights({ days: 7, includeInventory: true });
-  assert.equal(afterRetention.activityEventsRetained, 6);
-  assert.equal((await db.getActivityEvents()).some((event) => event.id === "expired-activity-event"), false);
-  assert.equal((await db.getAllCards()).length, 2);
-  assert.equal((await db.getAllTasks()).length, 1);
 
   const removed = await db.clearActivityEvents();
   assert.equal(removed, 6);
