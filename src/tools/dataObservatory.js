@@ -185,7 +185,7 @@ export async function initDataObservatory() {
           cloudSummary.innerHTML = '<p class="nn-muted">Cloud sync is disabled in this build. No server metrics are available.</p>';
           cloudCollections.innerHTML = '<tr><td colspan="3" class="nn-muted">Not connected.</td></tr>';
         } else if (!window.currentUser) {
-          cloudSummary.innerHTML = '<p class="nn-muted">Sign in to inspect this account's cloud storage.</p>';
+          cloudSummary.innerHTML = '<p class="nn-muted">Sign in to inspect this account&#39;s cloud storage.</p>';
           cloudCollections.innerHTML = '<tr><td colspan="3" class="nn-muted">Not signed in.</td></tr>';
         } else if (!cloudMetrics || cloudMetrics.error) {
           cloudSummary.innerHTML = `<p class="nn-muted">${escapeHtml(cloudMetrics?.error || "Cloud metrics unavailable.")}</p>`;
