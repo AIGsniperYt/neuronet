@@ -317,7 +317,8 @@ test("IndexedDB sync lease serialises tabs and expires safely", async () => {
 test("server baseline returned with a push conflict is persisted before keep-local resolution", async () => {
   await openTestDatabase();
   const local = await syncNode("conflict-baseline-token", "Local version");
-  const [pending] = await db.getSyncOutbox(10);
+  const pending = (await db.getSyncOutbox(100))
+    .find((operation) => operation.recordId === local.id);
   assert.ok(pending);
 
   await db.saveSyncConflict({
