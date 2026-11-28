@@ -1344,19 +1344,13 @@ const SESSIONS_KEY = "nn-study-sessions";
 const SESSION_STARTED_KEY = "nn-session-started-at";
 const NEXT_SESSION_FOCUS_KEY = "nn-next-session-focus";
 
-function readSessionStartedAt() {
-  try {
-    const stored = Number(localStorage.getItem(SESSION_STARTED_KEY));
-    if (stored > 0) return stored;
-    const startedAt = Date.now();
-    localStorage.setItem(SESSION_STARTED_KEY, String(startedAt));
-    return startedAt;
-  } catch {
-    return Date.now();
-  }
+function beginLocalSession() {
+  const startedAt = Date.now();
+  try { localStorage.setItem(SESSION_STARTED_KEY, String(startedAt)); } catch {}
+  return startedAt;
 }
 
-let sessionStartedAt = readSessionStartedAt();
+let sessionStartedAt = beginLocalSession();
 
 function readNextSessionFocus() {
   try {
