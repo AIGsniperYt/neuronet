@@ -62,6 +62,7 @@ function toWorkerOperation(operation) {
     recordId: String(operation.recordId),
     type: operation.type,
     baseVersion: Number(operation.baseVersion) || 0,
+    baseBaselineRevision: Number(operation.baseBaselineRevision) || 0,
     firstQueuedAt: Number(operation.firstQueuedAt || operation.queuedAt) || Date.now(),
     ...(operation.type === "upsert" ? { payload: operation.payload } : {})
   };
@@ -104,8 +105,13 @@ async function pullChanges() {
     }
     const changes = Array.isArray(result.changes) ? result.changes : [];
 
-    if (!changes.length) break;
-    await applyRemoteSyncChanges(changes, result.nextCursor);
+    if (!changes.length) {
+      if (Number.isSafeInteger(Number(result.baselineRevision)) && Number(result.baselineRevision) >= 0) {
+        await setSyncState("cloudBaselineRevision", Number(result.baselineRevision));
+      }
+      break;
+    }
+    await applyRemoteSyncChanges(changes, result.nextCursor, result.baselineRevision);
     pulled += changes.length;
     cursor = Number(result.nextCursor) || cursor;
     if (!result.hasMore) break;
@@ -117,7 +123,8 @@ async function pullChanges() {
 async function restoreSnapshot() {
   emitStatus("snapshotting");
   const snapshot = await post("snapshot/start");
-  if (!snapshot.snapshotId || !Number.isSafeInteger(Number(snapshot.revision)) || Number(snapshot.revision) < 0) {
+  if (!snapshot.snapshotId || !Number.isSafeInteger(Number(snapshot.revision)) || Number(snapshot.revision) < 0 ||
+      !Number.isSafeInteger(Number(snapshot.baselineRevision)) || Number(snapshot.baselineRevision) < 0) {
     throw new Error("Cloud sync returned invalid snapshot metadata.");
   }
 
@@ -160,7 +167,8 @@ async function restoreSnapshot() {
     const summary = await completeSyncSnapshot(
       snapshot.snapshotId,
       Number(snapshot.revision),
-      Number(snapshot.lastCompactedAt) || 0
+      Number(snapshot.lastCompactedAt) || 0,
+      Number(snapshot.baselineRevision)
     );
     try {
       await post("snapshot/finish", { snapshotId: snapshot.snapshotId });
@@ -283,6 +291,7 @@ async function runSyncUnlocked(user) {
 
   emitStatus("syncing");
   const cloud = await post("bootstrap");
+  await setSyncState("cloudBaselineRevision", Number(cloud.baselineRevision) || 0);
   const initialized = await getSyncState("initialized:" + accountId);
 
   if (!initialized && await localRecordCount() > 0) {
