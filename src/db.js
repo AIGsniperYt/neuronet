@@ -3620,6 +3620,15 @@ export function completeSyncSnapshot(snapshotId, revision, compactedAt = 0, base
       "syncState", "syncSnapshotRecords"
     ];
     const tx = db.transaction(stores, "readwrite");
+    // Snapshot-discovered local-only records are newly queued during this
+    // transaction, so make the captured server baseline visible to their
+    // queue helpers before any reconciliation callbacks run. The write rolls
+    // back automatically if the snapshot is incomplete or reconciliation fails.
+    tx.objectStore("syncState").put({
+      key: "cloudBaselineRevision",
+      value: snapshotBaselineRevision,
+      updatedAt: Date.now()
+    });
     const data = { local: {} };
     let remaining = names.length + 5;
     let failed = false;
@@ -3845,11 +3854,6 @@ export function completeSyncSnapshot(snapshotId, revision, compactedAt = 0, base
         state.put({
           key: "pullCursor",
           value: snapshotRevision,
-          updatedAt: Date.now()
-        });
-        state.put({
-          key: "cloudBaselineRevision",
-          value: snapshotBaselineRevision,
           updatedAt: Date.now()
         });
         state.delete("activeSnapshot");
