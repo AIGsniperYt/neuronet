@@ -70,7 +70,7 @@ export async function getDataInsights({ days = 7, now = Date.now() } = {}) {
   const startDay = localDayKey(startDate.getTime());
 
   const [
-    events,
+    allEvents,
     nodes,
     quotes,
     cues,
@@ -82,7 +82,7 @@ export async function getDataInsights({ days = 7, now = Date.now() } = {}) {
     commitments,
     journals
   ] = await Promise.all([
-    getActivityEvents({ sinceDay: startDay }),
+    getActivityEvents(),
     getAllNodes(),
     getAllQuotes(),
     getAllCues(),
@@ -95,6 +95,7 @@ export async function getDataInsights({ days = 7, now = Date.now() } = {}) {
     getAllJournals()
   ]);
 
+  const events = allEvents.filter((event) => String(event.day) >= startDay);
   const daily = [];
   const byDay = new Map();
   for (let offset = 0; offset < dayCount; offset += 1) {
@@ -151,6 +152,6 @@ export async function getDataInsights({ days = 7, now = Date.now() } = {}) {
     inventory,
     totalRecords,
     estimatedPayloadBytes,
-    activityTrackingStarted: events.length > 0
+    activityTrackingStarted: allEvents.length > 0
   };
 }
