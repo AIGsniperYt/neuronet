@@ -1,5 +1,6 @@
 import {
   getActivityEvents,
+  pruneActivityEvents,
   getSyncState,
   getSyncOverview,
   getAllNodes,
@@ -58,6 +59,7 @@ function estimateBytes(records) {
 }
 
 export async function getActivitySummarySince(timestamp) {
+  await pruneActivityEvents();
   const since = Number(timestamp) || Date.now();
   const events = await getActivityEvents({ sinceDay: localDayKey(since) });
   const summary = emptyCounts("session");
@@ -73,6 +75,7 @@ export async function getActivitySummarySince(timestamp) {
  * function never exposes card text, task titles or journal content.
  */
 export async function getDataInsights({ days = 7, now = Date.now(), includeInventory = false } = {}) {
+  await pruneActivityEvents();
   const dayCount = Math.max(1, Math.min(90, Math.floor(Number(days) || 7)));
   const today = localDayKey(now);
   const todayDate = new Date(Number(now) || Date.now());
