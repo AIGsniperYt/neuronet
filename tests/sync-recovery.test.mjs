@@ -105,6 +105,24 @@ test("IndexedDB snapshot recovery stages safely, preserves local changes and rej
     subject: "Biology"
   });
 
+  // Offline edits and deletes should remain pending (not become conflicts)
+  // when the cloud record is still at the exact version this device knows.
+  await syncNode("offline-edit", "Cloud base");
+  queued = await db.getSyncOutbox(100);
+  await db.acknowledgeSyncOperation(
+    queued.find((operation) => operation.recordId === "offline-edit"),
+    { version: 3, revision: 3 }
+  );
+  await syncNode("offline-edit", "Local offline edit");
+
+  await syncNode("offline-delete", "Delete this offline");
+  queued = await db.getSyncOutbox(100);
+  await db.acknowledgeSyncOperation(
+    queued.find((operation) => operation.recordId === "offline-delete"),
+    { version: 2, revision: 4 }
+  );
+  db.deleteNode("offline-delete");
+
   // A new local create remains safe to upload after snapshot recovery.
   await syncNode("new-local-create", "Keep this local record");
 
@@ -140,6 +158,22 @@ test("IndexedDB snapshot recovery stages safely, preserves local changes and rej
       version: 3,
       revision: 9,
       updatedAt: Date.now()
+    },
+    {
+      collection: "nodes",
+      recordId: "offline-edit",
+      payload: { id: "offline-edit", type: "definition", text: "Cloud base", subject: "Biology" },
+      version: 3,
+      revision: 3,
+      updatedAt: Date.now()
+    },
+    {
+      collection: "nodes",
+      recordId: "offline-delete",
+      payload: { id: "offline-delete", type: "definition", text: "Delete this offline", subject: "Biology" },
+      version: 2,
+      revision: 4,
+      updatedAt: Date.now()
     }
   ];
 
@@ -173,7 +207,7 @@ test("IndexedDB snapshot recovery stages safely, preserves local changes and rej
   );
 
   assert.equal(summary.revision, 10);
-  assert.equal(summary.recordCount, 3);
+  assert.equal(summary.recordCount, 5);
   assert.equal(summary.removed, 1);
   assert.equal(summary.queuedOrphans, 1);
   assert.equal(summary.conflicts, 2);
@@ -182,6 +216,8 @@ test("IndexedDB snapshot recovery stages safely, preserves local changes and rej
   const byId = new Map(localNodes.map((record) => [record.id, record]));
   assert.equal(byId.has("synced-and-removed"), false);
   assert.equal(byId.get("edit-conflict").text, "Local edit");
+  assert.equal(byId.get("offline-edit").text, "Local offline edit");
+  assert.equal(byId.has("offline-delete"), false);
   assert.equal(byId.get("identical-pending").text, "Same content");
   assert.equal(byId.get("remote-only").text, "From the cloud");
   assert.equal(byId.get("new-local-create").text, "Keep this local record");
@@ -192,11 +228,16 @@ test("IndexedDB snapshot recovery stages safely, preserves local changes and rej
   const outboxIds = new Set(outbox.map((operation) => operation.recordId));
   assert.equal(outboxIds.has("identical-pending"), false);
   assert.equal(outboxIds.has("new-local-create"), true);
+  assert.equal(outboxIds.has("offline-edit"), true);
+  assert.equal(outboxIds.has("offline-delete"), true);
+  assert.equal(outbox.find((operation) => operation.recordId === "offline-delete")?.type, "delete");
   assert.equal(outboxIds.has("legacy-untracked"), true);
 
   const conflicts = await db.getSyncConflicts();
   const conflictIds = new Set(conflicts.map((conflict) => conflict.recordId));
   assert.equal(conflictIds.has("edit-conflict"), true);
+  assert.equal(conflictIds.has("offline-edit"), false);
+  assert.equal(conflictIds.has("offline-delete"), false);
   assert.equal(conflictIds.has("old-ambiguous-create"), true);
 
   assert.equal(await db.getSyncCursor(), 10);
