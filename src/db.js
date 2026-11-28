@@ -3360,10 +3360,12 @@ export function stageSyncSnapshotPage(snapshotId, records = []) {
     }
     const tx = db.transaction(["syncSnapshotRecords", "syncState"], "readwrite");
     const store = tx.objectStore("syncSnapshotRecords");
+    let abortReason = null;
     const activeRequest = tx.objectStore("syncState").get("activeSnapshot");
     activeRequest.onsuccess = () => {
       const active = activeRequest.result?.value;
       if (active?.snapshotId !== snapshotId) {
+        abortReason = new Error("Snapshot page belongs to an inactive recovery session");
         tx.abort();
         return;
       }
@@ -3390,7 +3392,7 @@ export function stageSyncSnapshotPage(snapshotId, records = []) {
     }
     tx.oncomplete = () => resolve(records.length);
     tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error || new Error("Snapshot staging transaction aborted"));
+    tx.onabort = () => reject(abortReason || tx.error || new Error("Snapshot staging transaction aborted"));
   });
 }
 
