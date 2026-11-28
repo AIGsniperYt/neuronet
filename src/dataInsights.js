@@ -24,6 +24,23 @@ const METRICS = Object.freeze([
   ["tasksCompleted", "task-completed"]
 ]);
 
+let lastActivityPruneCheckAt = 0;
+
+async function pruneActivityIfDue() {
+  const now = Date.now();
+  // Dashboard refreshes can be frequent. The database also enforces its own
+  // once-per-day retention marker; this throttle avoids opening a write
+  // transaction on every render in the same tab.
+  if (lastActivityPruneCheckAt > 0 && now - lastActivityPruneCheckAt < 60_000) return;
+  lastActivityPruneCheckAt = now;
+  try {
+    await pruneActivityIfDue();
+  } catch (error) {
+    lastActivityPruneCheckAt = 0;
+    throw error;
+  }
+}
+
 export function localDayKey(value = Date.now()) {
   const date = new Date(Number(value) || Date.now());
   return [
