@@ -121,7 +121,7 @@ test("IndexedDB snapshot recovery stages safely, preserves local changes and rej
     queued.find((operation) => operation.recordId === "offline-delete"),
     { version: 2, revision: 4 }
   );
-  db.deleteNode("offline-delete");
+  await db.deleteNode("offline-delete");
 
   // A new local create remains safe to upload after snapshot recovery.
   await syncNode("new-local-create", "Keep this local record");
