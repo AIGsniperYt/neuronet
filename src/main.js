@@ -2181,8 +2181,12 @@ async function renderProgressStats() {
 
     const note = document.getElementById("dashProgressNote");
     if (note) {
-      note.hidden = insights.activityTrackingStarted;
-      note.textContent = "Progress tracking starts with activity saved from this version onward; older edit and review history cannot be reconstructed.";
+      const hasRecentActivity = Object.keys(insights.totals)
+        .some((key) => key !== "day" && insights.totals[key] > 0);
+      note.hidden = hasRecentActivity;
+      note.textContent = insights.activityTrackingStarted
+        ? "No tracked activity in the last seven days yet. Your progress will appear here as you create, revise and review."
+        : "Progress tracking begins with activity saved from this version onward; older edit and review history cannot be reconstructed.";
     }
   } catch (error) {
     console.warn("[INSIGHTS] Unable to load progress summary:", error);
