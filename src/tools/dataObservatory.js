@@ -144,6 +144,7 @@ export async function initDataObservatory() {
                 : "The cloud record changed after this device's last acknowledged version.";
           const localPayload = local.payload ?? null;
           const remotePayload = remote.payload ?? null;
+          const canUseRemote = remote.type === "delete" || !!remote.payload;
           return `
             <article class="nn-observatory-card">
               <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;">
@@ -161,7 +162,7 @@ export async function initDataObservatory() {
               </details>
               <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
                 <button type="button" data-conflict-choice="local" data-collection="${escapeHtml(conflict.collection)}" data-record-id="${escapeHtml(conflict.recordId)}">${remote.type === "idempotency_mismatch" ? "Retry local copy safely" : "Keep this device's copy"}</button>
-                ${remote.type === "idempotency_mismatch" ? "" : '<button type="button" data-conflict-choice="remote" data-collection="' + escapeHtml(conflict.collection) + '" data-record-id="' + escapeHtml(conflict.recordId) + '">Use cloud copy</button>'}
+                ${canUseRemote ? '<button type="button" data-conflict-choice="remote" data-collection="' + escapeHtml(conflict.collection) + '" data-record-id="' + escapeHtml(conflict.recordId) + '">Use cloud copy</button>' : ""}
               </div>
             </article>
           `;
