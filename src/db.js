@@ -3391,7 +3391,7 @@ export function stageSyncSnapshotPage(snapshotId, records = []) {
       });
     }
     tx.oncomplete = () => resolve(records.length);
-    tx.onerror = () => reject(tx.error);
+    tx.onerror = () => reject(abortReason || tx.error || new Error("Snapshot staging transaction failed"));
     tx.onabort = () => reject(abortReason || tx.error || new Error("Snapshot staging transaction aborted"));
   });
 }
