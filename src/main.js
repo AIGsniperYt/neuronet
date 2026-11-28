@@ -1,5 +1,6 @@
 import { initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, getAllSubjects, addSubject, deleteSubject, renameSubject, mergeSubjects, setSubjectOrder, setSubjectLevel, ensureSubjectIdentity, addSubjects, clearSubjects, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForDeckId, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, clearTags, addDeck, addDecks, getAllDecks, getDeck, getDecksForSubject, deleteDeckRecord, deleteDeck, clearDecks, ensureDeckMembership, sortDecksByCreated, buildDeckForest, flattenDeckTree, getDeckDescendantIds, groupDecksBySubject, getDeckPath, describeDeckDeletion, UNSORTED_DECK_NAME, addHeap, addHeaps, getAllHeaps, getHeap, deleteHeap, clearHeaps, addTask, addTasks, getAllTasks, deleteTask, clearTasks, addCommitment, addCommitments, getAllCommitments, deleteCommitment, clearCommitments, addJournal, addJournals, getJournal, getAllJournals, deleteJournal, clearJournals } from "./db.js";
 import { syncLocalWithCloud, syncNow } from "./sync.js";
+import { getDataInsights } from "./dataInsights.js";
 import { initAnalysisToolV2 } from "./tools/analysisTool.js";
 import { dialog } from "./tools/dialog.js";
 import { initMemoryTool, STUDY_COMPLETE_EVENT } from "./tools/memoryTool.js";
@@ -2151,12 +2152,44 @@ async function renderRecentActivity() {
   });
 }
 
+async function renderProgressStats() {
+  const container = document.getElementById("dashProgressStats");
+  if (!container) return;
+
+  try {
+    const insights = await getDataInsights({ days: 7 });
+    const metrics = [
+      ["cardsCreated", "Cards made", "fa-clone"],
+      ["cardsRevised", "Cards revised", "fa-pen-to-square"],
+      ["cardsReviewed", "Cards reviewed", "fa-brain"],
+      ["tasksCompleted", "Tasks completed", "fa-list-check"]
+    ];
+    container.innerHTML = metrics.map(([key, label, icon]) => `
+      <div class="dash-progress-stat" title="${label} today; ${insights.totals[key]} in the last seven days">
+        <span class="dash-progress-value">${insights.today[key]}</span>
+        <span class="dash-progress-label"><i class="fa-solid ${icon}" aria-hidden="true"></i> ${label}</span>
+        <span class="dash-progress-week">${insights.totals[key]} this week</span>
+      </div>
+    `).join("");
+
+    const note = document.getElementById("dashProgressNote");
+    if (note) {
+      note.hidden = insights.activityTrackingStarted;
+      note.textContent = "Progress tracking starts with activity saved from this version onward; older edit and review history cannot be reconstructed.";
+    }
+  } catch (error) {
+    console.warn("[INSIGHTS] Unable to load progress summary:", error);
+    container.innerHTML = "";
+  }
+}
+
 async function renderDashboard() {
   await Promise.all([
     renderToday(),
     renderQuickActions(),
     renderStudyStreak(),
-    renderRecentActivity()
+    renderRecentActivity(),
+    renderProgressStats()
   ]);
 }
 
