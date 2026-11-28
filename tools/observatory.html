@@ -65,8 +65,11 @@
   </section>
 
   <section class="nn-observatory-panel nn-observatory-section">
-    <h2>Recent activity metadata</h2>
-    <p>Only event type, date and record ID are stored here. Card text, task titles and journal content are not copied into this activity log.</p>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+      <h2 style="margin-bottom:0;">Recent activity metadata</h2>
+      <button id="obsClearActivity" type="button">Clear activity history</button>
+    </div>
+    <p style="margin-top:8px;">Only event type, date and record ID are stored here. Card text, task titles and journal content are not copied into this activity log. Clearing this history does not delete cards, tasks or other study data.</p>
     <div id="obsActivityEvents" class="nn-observatory-list"><p class="nn-muted">Loading…</p></div>
   </section>
 </div>
