@@ -118,7 +118,9 @@ export async function initDataObservatory() {
         const lastSnapshot = insights.sync.lastSnapshot;
         const status = window.DEMO_MODE
           ? "Offline/demo mode — cloud requests are disabled"
-          : "Cloud sync enabled — server storage metrics are not yet exposed";
+          : cloudMetrics && !cloudMetrics.error
+            ? "Authenticated cloud inspection available"
+            : "Cloud sync configured — server inspection currently unavailable";
         const details = [
           ["Mode", status],
           ["Ready to upload", insights.sync.ready],
@@ -238,7 +240,9 @@ export async function initDataObservatory() {
         const retention = `${insights.activityEventsRetained} metadata events retained since ${formatDay(insights.activityHistoryStartDay)}.`;
         const cloud = window.DEMO_MODE
           ? "Cloud sync is disabled in this build. Your local database remains authoritative."
-          : "Cloud baseline and retained-delta metrics will be shown when the server observability endpoint is deployed.";
+          : cloudMetrics && !cloudMetrics.error
+            ? "Cloud storage figures are live server-side payload estimates; browser quota and local inventory are shown separately."
+            : "Cloud storage metrics could not be retrieved. Local data remains available on this device.";
         notice.textContent = [cloud, localScope, retention].join(" ");
       }
     } catch (error) {
