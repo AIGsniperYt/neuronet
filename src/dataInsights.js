@@ -1,6 +1,7 @@
 import {
   getActivityEvents,
   getSyncState,
+  getSyncOverview,
   getAllNodes,
   getAllQuotes,
   getAllCues,
@@ -70,9 +71,10 @@ export async function getDataInsights({ days = 7, now = Date.now(), includeInven
   );
   const startDay = localDayKey(startDate.getTime());
 
-  const [events, trackingStartedAt, collectionRows] = await Promise.all([
+  const [events, trackingStartedAt, sync, collectionRows] = await Promise.all([
     getActivityEvents({ sinceDay: startDay }),
     getSyncState("activityTrackingStartedAt"),
+    getSyncOverview(),
     includeInventory
       ? Promise.all([
           getAllNodes(),
@@ -151,6 +153,7 @@ export async function getDataInsights({ days = 7, now = Date.now(), includeInven
 
   return {
     generatedAt: Number(now) || Date.now(),
+    scope: "this-device",
     today: todayCounts,
     daily,
     totals,
@@ -158,6 +161,7 @@ export async function getDataInsights({ days = 7, now = Date.now(), includeInven
     totalRecords,
     estimatedPayloadBytes,
     activityTrackingStarted: Number(trackingStartedAt) > 0,
-    trackingStartedAt: Number(trackingStartedAt) || 0
+    trackingStartedAt: Number(trackingStartedAt) || 0,
+    sync
   };
 }
