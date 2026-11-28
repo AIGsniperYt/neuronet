@@ -11,7 +11,36 @@ globalThis.document = {
 };
 
 const db = await import("../src/db.js");
-const { getDataInsights, getActivitySummarySince } = await import("../src/dataInsights.js");
+const { getDataInsights, getActivitySummarySince, localDayKey } = await import("../src/dataInsights.js");
+
+async function insertOldActivityEvent(event) {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open("neuronet-data-insights-tests");
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const database = request.result;
+      const tx = database.transaction(["activityEvents", "syncState"], "readwrite");
+      tx.objectStore("activityEvents").put(event);
+      tx.objectStore("syncState").put({
+        key: "activityLastPrunedAt",
+        value: 0,
+        updatedAt: Date.now()
+      });
+      tx.oncomplete = () => {
+        database.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        database.close();
+        reject(tx.error);
+      };
+      tx.onabort = () => {
+        database.close();
+        reject(tx.error);
+      };
+    };
+  });
+}
 
 test("activity events distinguish card content changes, SRS reviews and task completion", async () => {
   await db.initDB();
@@ -113,6 +142,22 @@ test("activity events distinguish card content changes, SRS reviews and task com
   assert.equal(sessionSummary.tasksCompleted, 1);
   assert.equal(insights.activityTrackingStarted, true);
   assert.ok(insights.activityEventsRetained >= 6);
+
+  // Retention is bounded to 90 days and pruning never touches study records.
+  const oldTimestamp = Date.now() - 91 * 24 * 60 * 60 * 1000;
+  await insertOldActivityEvent({
+    id: "expired-activity-event",
+    day: localDayKey(oldTimestamp),
+    kind: "card-reviewed",
+    recordId: "old-card-id",
+    occurredAt: oldTimestamp,
+    timezoneOffsetMinutes: new Date(oldTimestamp).getTimezoneOffset()
+  });
+  const afterRetention = await getDataInsights({ days: 7, includeInventory: true });
+  assert.equal(afterRetention.activityEventsRetained, 6);
+  assert.equal((await db.getActivityEvents()).some((event) => event.id === "expired-activity-event"), false);
+  assert.equal((await db.getAllCards()).length, 2);
+  assert.equal((await db.getAllTasks()).length, 1);
 
   const removed = await db.clearActivityEvents();
   assert.equal(removed, 6);
