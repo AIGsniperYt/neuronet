@@ -2247,7 +2247,9 @@ async function finishPowerOffSession() {
   if (USE_BACKEND && window.currentUser) {
     try {
       const result = await syncNow(window.currentUser);
-      if (result.conflicts > 0) {
+      if (result.busy) {
+        checkpointMessage = "Local checkpoint saved. Another tab is already synchronising; this tab did not start a duplicate cloud run.";
+      } else if (result.conflicts > 0) {
         checkpointMessage = `Local checkpoint saved. ${result.conflicts} sync conflict(s) need attention in Data Observatory.`;
       } else if (result.pending > 0) {
         checkpointMessage = `Local checkpoint saved. ${result.pending} change(s) remain safely queued for sync.`;
