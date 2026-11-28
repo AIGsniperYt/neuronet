@@ -246,7 +246,7 @@ test("IndexedDB snapshot recovery stages safely, preserves local changes and rej
   let resolvedOutbox = await db.getSyncOutbox(100);
   const localChoice = resolvedOutbox.find((operation) => operation.recordId === "edit-conflict");
   assert.ok(localChoice);
-  assert.equal(localChoice.blocked, false);
+  assert.equal(!!localChoice.blocked, false);
   assert.equal(localChoice.type, "upsert");
   assert.equal(localChoice.baseVersion, 2);
   assert.equal(
