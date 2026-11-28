@@ -1,6 +1,6 @@
 import { initDB, addNode, addNodes, getAllNodes, getNode, deleteNode, addQuote, addQuotes, getAllQuotes, getQuote, deleteQuote, clearNodes, clearQuotes, clearCues, addCues, getQuotesForSubject, getAnalysisNodesForSubject, getDueQuotesForSubject, getDueAnalysisNodesForSubject, getQuotesReferencedByAnalysis, getAnalysesReferencingQuote, getPinnedTools, pinTool, unpinTool, getSubjects, getAllSubjects, addSubject, deleteSubject, renameSubject, mergeSubjects, setSubjectOrder, setSubjectLevel, ensureSubjectIdentity, addSubjects, clearSubjects, addCue, getAllCues, getCue, deleteCue, getCuesForQuote, getCuesForAnalysis, getCuesForSubject, updateCueLinks, getAllTags, addTag, deleteTag, findExistingQuote, findExistingQuoteByText, linkAnalysisToQuote, unlinkAnalysisFromQuote, getFormattedQuote, resolveQuoteInSource, addCard, addCards, getAllCards, getCard, getCardsForDeck, getCardsForDeckId, getCardsForQuote, getDueCardsForDeck, deleteCard, deleteCardsForDeck, clearCards, clearTags, addDeck, addDecks, getAllDecks, getDeck, getDecksForSubject, deleteDeckRecord, deleteDeck, clearDecks, ensureDeckMembership, sortDecksByCreated, buildDeckForest, flattenDeckTree, getDeckDescendantIds, groupDecksBySubject, getDeckPath, describeDeckDeletion, UNSORTED_DECK_NAME, addHeap, addHeaps, getAllHeaps, getHeap, deleteHeap, clearHeaps, addTask, addTasks, getAllTasks, deleteTask, clearTasks, addCommitment, addCommitments, getAllCommitments, deleteCommitment, clearCommitments, addJournal, addJournals, getJournal, getAllJournals, deleteJournal, clearJournals } from "./db.js";
 import { syncLocalWithCloud, syncNow } from "./sync.js";
-import { getDataInsights } from "./dataInsights.js";
+import { getDataInsights, getActivitySummarySince } from "./dataInsights.js";
 import { initAnalysisToolV2 } from "./tools/analysisTool.js";
 import { dialog } from "./tools/dialog.js";
 import { initMemoryTool, STUDY_COMPLETE_EVENT } from "./tools/memoryTool.js";
@@ -1341,6 +1341,31 @@ function openTool(toolName, context = {}) {
 
 const ACTIVITY_KEY = "nn-last-activity";
 const SESSIONS_KEY = "nn-study-sessions";
+const SESSION_STARTED_KEY = "nn-session-started-at";
+const NEXT_SESSION_FOCUS_KEY = "nn-next-session-focus";
+
+function readSessionStartedAt() {
+  try {
+    const stored = Number(localStorage.getItem(SESSION_STARTED_KEY));
+    if (stored > 0) return stored;
+    const startedAt = Date.now();
+    localStorage.setItem(SESSION_STARTED_KEY, String(startedAt));
+    return startedAt;
+  } catch {
+    return Date.now();
+  }
+}
+
+let sessionStartedAt = readSessionStartedAt();
+
+function readNextSessionFocus() {
+  try {
+    const value = JSON.parse(localStorage.getItem(NEXT_SESSION_FOCUS_KEY) || "null");
+    return value && typeof value.text === "string" ? value : null;
+  } catch {
+    return null;
+  }
+}
 
 function logActivity(subject, toolName, details = {}) {
   try {
@@ -2159,6 +2184,90 @@ async function renderRecentActivity() {
   });
 }
 
+function renderNextSessionHandover() {
+  const panel = document.getElementById("dashNextSession");
+  const text = document.getElementById("dashNextSessionText");
+  const focus = readNextSessionFocus();
+  if (!panel || !text) return;
+  panel.hidden = !focus?.text;
+  text.textContent = focus?.text || "";
+}
+
+async function openPowerOffDialog() {
+  const modal = document.getElementById("powerOffDialog");
+  if (!modal) return;
+
+  const status = document.getElementById("powerOffSyncStatus");
+  const nextFocus = document.getElementById("powerOffNextFocus");
+  const finishButton = document.getElementById("powerOffFinish");
+  const summary = await getActivitySummarySince(sessionStartedAt);
+
+  for (const [id, value] of [
+    ["powerOffCardsCreated", summary.cardsCreated],
+    ["powerOffCardsRevised", summary.cardsRevised],
+    ["powerOffCardsReviewed", summary.cardsReviewed],
+    ["powerOffTasksCompleted", summary.tasksCompleted]
+  ]) {
+    const element = document.getElementById(id);
+    if (element) element.textContent = String(value);
+  }
+
+  const previousFocus = readNextSessionFocus();
+  if (nextFocus) nextFocus.value = previousFocus?.text || "";
+  if (status) {
+    status.textContent = USE_BACKEND && window.currentUser
+      ? "Your local changes are already saved. Finishing will attempt a cloud checkpoint."
+      : "Your local changes are already saved. Cloud sync is disabled in this build.";
+  }
+  if (finishButton) finishButton.disabled = false;
+  if (typeof modal.showModal === "function") modal.showModal();
+}
+
+async function finishPowerOffSession() {
+  const modal = document.getElementById("powerOffDialog");
+  const finishButton = document.getElementById("powerOffFinish");
+  const status = document.getElementById("powerOffSyncStatus");
+  const nextFocus = document.getElementById("powerOffNextFocus");
+  if (finishButton) finishButton.disabled = true;
+  if (status) status.textContent = "Saving your handover…";
+
+  const focusText = String(nextFocus?.value || "").trim();
+  try {
+    if (focusText) {
+      localStorage.setItem(NEXT_SESSION_FOCUS_KEY, JSON.stringify({
+        text: focusText.slice(0, 1000),
+        savedAt: Date.now()
+      }));
+    } else {
+      localStorage.removeItem(NEXT_SESSION_FOCUS_KEY);
+    }
+  } catch {
+    // The handover note is optional; the database remains safe if storage is unavailable.
+  }
+
+  let checkpointMessage = "Your work is saved locally. Cloud sync is disabled in this build.";
+  if (USE_BACKEND && window.currentUser) {
+    try {
+      const result = await syncNow(window.currentUser);
+      if (result.conflicts > 0) {
+        checkpointMessage = `Local checkpoint saved. ${result.conflicts} sync conflict(s) need attention in Data Observatory.`;
+      } else if (result.pending > 0) {
+        checkpointMessage = `Local checkpoint saved. ${result.pending} change(s) remain safely queued for sync.`;
+      } else {
+        checkpointMessage = "Cloud checkpoint complete. Your local data is also saved on this device.";
+      }
+    } catch (error) {
+      checkpointMessage = "Your work remains saved locally. The cloud checkpoint could not complete: " + (error?.message || "sync unavailable");
+    }
+  }
+
+  sessionStartedAt = Date.now();
+  try { localStorage.setItem(SESSION_STARTED_KEY, String(sessionStartedAt)); } catch {}
+  if (modal?.open) modal.close();
+  renderNextSessionHandover();
+  toast(checkpointMessage);
+}
+
 async function renderProgressStats() {
   const container = document.getElementById("dashProgressStats");
   if (!container) return;
@@ -2206,6 +2315,19 @@ async function renderDashboard() {
 
 async function initLaunchpad() {
   document.getElementById("dashToday")?.addEventListener("click", handleTodayAction);
+  document.getElementById("dashPowerOff")?.addEventListener("click", openPowerOffDialog);
+  document.getElementById("powerOffClose")?.addEventListener("click", () => {
+    document.getElementById("powerOffDialog")?.close();
+  });
+  document.getElementById("powerOffCancel")?.addEventListener("click", () => {
+    document.getElementById("powerOffDialog")?.close();
+  });
+  document.getElementById("powerOffFinish")?.addEventListener("click", finishPowerOffSession);
+  document.getElementById("dashClearNextSession")?.addEventListener("click", () => {
+    try { localStorage.removeItem(NEXT_SESSION_FOCUS_KEY); } catch {}
+    renderNextSessionHandover();
+  });
+  renderNextSessionHandover();
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && !currentToolName) renderDashboard();
   });
