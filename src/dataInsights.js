@@ -34,7 +34,7 @@ async function pruneActivityIfDue() {
   if (lastActivityPruneCheckAt > 0 && now - lastActivityPruneCheckAt < 60_000) return;
   lastActivityPruneCheckAt = now;
   try {
-    await pruneActivityIfDue();
+    await pruneActivityEvents();
   } catch (error) {
     lastActivityPruneCheckAt = 0;
     throw error;
