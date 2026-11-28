@@ -135,11 +135,13 @@ export async function initDataObservatory() {
         conflictList.innerHTML = conflicts.map((conflict) => {
           const local = conflict.localOperation || {};
           const remote = conflict.remoteChange || {};
-          const reason = ["pending-operation-predates-compacted-baseline", "operation-predates-compacted-baseline"].includes(remote.reason)
-            ? "This local operation predates the retained cloud baseline. Keeping it locally is an explicit decision to recreate or reapply it."
-            : remote.reason === "record-absent-from-cloud-snapshot"
-              ? "This record is absent from the current cloud snapshot. The local and cloud copies may have diverged."
-              : "The cloud record changed after this device's last acknowledged version.";
+          const reason = remote.type === "idempotency_mismatch"
+            ? "This operation ID was already used for different content. Retrying the local copy creates a fresh operation ID and still uses version checks."
+            : ["pending-operation-predates-compacted-baseline", "operation-predates-compacted-baseline"].includes(remote.reason)
+              ? "This local operation predates the retained cloud baseline. Keeping it locally is an explicit decision to recreate or reapply it."
+              : remote.reason === "record-absent-from-cloud-snapshot"
+                ? "This record is absent from the current cloud snapshot. The local and cloud copies may have diverged."
+                : "The cloud record changed after this device's last acknowledged version.";
           const localPayload = local.payload ?? null;
           const remotePayload = remote.payload ?? null;
           return `
@@ -158,8 +160,8 @@ export async function initDataObservatory() {
                 </div>
               </details>
               <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
-                <button type="button" data-conflict-choice="local" data-collection="${escapeHtml(conflict.collection)}" data-record-id="${escapeHtml(conflict.recordId)}">Keep this device's copy</button>
-                <button type="button" data-conflict-choice="remote" data-collection="${escapeHtml(conflict.collection)}" data-record-id="${escapeHtml(conflict.recordId)}">Use cloud copy</button>
+                <button type="button" data-conflict-choice="local" data-collection="${escapeHtml(conflict.collection)}" data-record-id="${escapeHtml(conflict.recordId)}">${remote.type === "idempotency_mismatch" ? "Retry local copy safely" : "Keep this device's copy"}</button>
+                ${remote.type === "idempotency_mismatch" ? "" : '<button type="button" data-conflict-choice="remote" data-collection="' + escapeHtml(conflict.collection) + '" data-record-id="' + escapeHtml(conflict.recordId) + '">Use cloud copy</button>'}
               </div>
             </article>
           `;
