@@ -59,7 +59,7 @@ function estimateBytes(records) {
  * Observatory. Activity events contain IDs and action metadata only; this
  * function never exposes card text, task titles or journal content.
  */
-export async function getDataInsights({ days = 7, now = Date.now() } = {}) {
+export async function getDataInsights({ days = 7, now = Date.now(), includeInventory = false } = {}) {
   const dayCount = Math.max(1, Math.min(90, Math.floor(Number(days) || 7)));
   const today = localDayKey(now);
   const todayDate = new Date(Number(now) || Date.now());
@@ -70,33 +70,36 @@ export async function getDataInsights({ days = 7, now = Date.now() } = {}) {
   );
   const startDay = localDayKey(startDate.getTime());
 
-  const [
-    events,
-    trackingStartedAt,
-    nodes,
-    quotes,
-    cues,
-    cards,
-    heaps,
-    decks,
-    subjects,
-    tasks,
-    commitments,
-    journals
-  ] = await Promise.all([
+  const [events, trackingStartedAt, collectionRows] = await Promise.all([
     getActivityEvents({ sinceDay: startDay }),
     getSyncState("activityTrackingStartedAt"),
-    getAllNodes(),
-    getAllQuotes(),
-    getAllCues(),
-    getAllCards(),
-    getAllHeaps(),
-    getAllDecks(),
-    getAllSubjects(),
-    getAllTasks(),
-    getAllCommitments(),
-    getAllJournals()
+    includeInventory
+      ? Promise.all([
+          getAllNodes(),
+          getAllQuotes(),
+          getAllCues(),
+          getAllCards(),
+          getAllHeaps(),
+          getAllDecks(),
+          getAllSubjects(),
+          getAllTasks(),
+          getAllCommitments(),
+          getAllJournals()
+        ])
+      : Promise.resolve([])
   ]);
+  const [
+    nodes = [],
+    quotes = [],
+    cues = [],
+    cards = [],
+    heaps = [],
+    decks = [],
+    subjects = [],
+    tasks = [],
+    commitments = [],
+    journals = []
+  ] = collectionRows;
 
   const daily = [];
   const byDay = new Map();
