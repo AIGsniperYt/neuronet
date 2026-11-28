@@ -12,6 +12,7 @@ import { initScraperTool } from "./tools/scraperTool.js";
 import { initTasksTool } from "./tools/tasksTool.js";
 import { initTimerTool } from "./tools/timerTool.js";
 import { initJournalTool } from "./tools/journalTool.js";
+import { initDataObservatory } from "./tools/dataObservatory.js";
 import { initTimerDock } from "./timerDock.js";
 import { createTimerStore } from "./timerEngine.js";
 import { SIDEBAR_VISIBILITIES, initSidebarMode, isHoverMode, sidebarVisibilityMode } from "./sidebarMode.js";
@@ -263,6 +264,11 @@ const tools = {
       dialog,
       toast
     })
+  },
+  observatory: {
+    name: "Data Observatory",
+    file: "observatory.html",
+    init: () => initDataObservatory()
   }
 };
 
@@ -274,7 +280,8 @@ const toolDefinitions = {
   scraper: { name: "Scraper", file: "scraper.html", icon: "fa-solid fa-download", desc: "Fetch grade boundaries from exam board spreadsheets" },
   tasks: { name: "Tasks", file: "tasks.html", icon: "fa-solid fa-list-check", desc: "Track schoolwork, revision and assignments in one list" },
   timer: { name: "Timer", file: "timer.html", icon: "fa-solid fa-stopwatch", desc: "Pomodoro, countdown and stopwatch timers that dock over the rest of the app" },
-  journal: { name: "Journal", file: "journal.html", icon: "fa-solid fa-book-open", desc: "A private space to reflect, think out loud, and keep a record of your insights" }
+  journal: { name: "Journal", file: "journal.html", icon: "fa-solid fa-book-open", desc: "A private space to reflect, think out loud, and keep a record of your insights" },
+  observatory: { name: "Data Observatory", file: "observatory.html", icon: "fa-solid fa-database", desc: "Inspect local records, storage estimates and synchronisation state" }
 };
 
 // ========== AUTH & API ==========
