@@ -312,3 +312,32 @@ test("IndexedDB sync lease serialises tabs and expires safely", async () => {
   assert.equal(await db.releaseSyncLock("tab-one"), false);
   assert.equal(await db.releaseSyncLock("tab-two"), true);
 });
+
+
+test("server baseline returned with a push conflict is persisted before keep-local resolution", async () => {
+  await openTestDatabase();
+  const local = await syncNode("conflict-baseline-token", "Local version");
+  const [pending] = await db.getSyncOutbox(10);
+  assert.ok(pending);
+
+  await db.saveSyncConflict({
+    collection: "nodes",
+    recordId: local.id,
+    localOperation: pending,
+    remoteChange: {
+      type: "upsert",
+      payload: { id: local.id, type: "definition", text: "Remote version", subject: "Biology" },
+      version: 7,
+      revision: 42,
+      currentBaselineRevision: 9,
+      reason: "operation-predates-compacted-baseline"
+    }
+  });
+
+  assert.equal(await db.getSyncState("cloudBaselineRevision"), 9);
+  await db.resolveSyncConflict("nodes", local.id, "local");
+  const resolved = (await db.getSyncOutbox(10)).find((operation) => operation.recordId === local.id);
+  assert.ok(resolved);
+  assert.equal(resolved.blocked, undefined);
+  assert.equal(resolved.baseBaselineRevision, 9);
+});
