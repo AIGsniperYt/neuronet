@@ -9,6 +9,8 @@ on:
       - "src/main.js"
       - "src/dataInsights.js"
       - "src/tools/memoryTool.js"
+      - "src/tools/dataObservatory.js"
+      - "tools/observatory.html"
       - "index.html"
       - "tests/**"
       - ".github/workflows/sync-js-check.yml"
@@ -20,6 +22,8 @@ on:
       - "src/main.js"
       - "src/dataInsights.js"
       - "src/tools/memoryTool.js"
+      - "src/tools/dataObservatory.js"
+      - "tools/observatory.html"
       - "index.html"
       - "tests/**"
       - ".github/workflows/sync-js-check.yml"
@@ -38,6 +42,7 @@ jobs:
           node --input-type=module --check < src/sync.js
           node --input-type=module --check < src/main.js
           node --input-type=module --check < src/dataInsights.js
+          node --input-type=module --check < src/tools/dataObservatory.js
           node --check tests/sync-recovery.test.mjs
           node --check tests/data-insights.test.mjs
       - name: Install isolated IndexedDB test dependency
