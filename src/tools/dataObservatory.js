@@ -1,5 +1,5 @@
 import { getDataInsights } from "../dataInsights.js";
-import { clearActivityEvents } from "../db.js";
+import { clearActivityEvents, getSyncConflicts, resolveSyncConflict } from "../db.js";
 
 const CLOUD_COLLECTIONS = new Set([
   "nodes", "quotes", "cues", "cards", "heaps",
@@ -52,6 +52,8 @@ export async function initDataObservatory() {
   const inventoryRows = root.querySelector("#obsInventoryRows");
   const syncDetails = root.querySelector("#obsSyncDetails");
   const activityEvents = root.querySelector("#obsActivityEvents");
+  const conflictSection = root.querySelector("#obsConflictSection");
+  const conflictList = root.querySelector("#obsConflictList");
   const refreshButton = root.querySelector("#obsRefresh");
   const clearActivityButton = root.querySelector("#obsClearActivity");
   let refreshing = false;
@@ -64,7 +66,10 @@ export async function initDataObservatory() {
     if (notice) notice.textContent = "Reading local database…";
 
     try {
-      const insights = await getDataInsights({ days: 7, includeInventory: true });
+      const [insights, conflicts] = await Promise.all([
+        getDataInsights({ days: 7, includeInventory: true }),
+        getSyncConflicts()
+      ]);
       const events = insights.recentActivityEvents || [];
 
       if (summary) {
@@ -125,6 +130,42 @@ export async function initDataObservatory() {
         `).join("");
       }
 
+      if (conflictSection && conflictList) {
+        conflictSection.hidden = conflicts.length === 0;
+        conflictList.innerHTML = conflicts.map((conflict) => {
+          const local = conflict.localOperation || {};
+          const remote = conflict.remoteChange || {};
+          const reason = remote.reason === "pending-operation-predates-compacted-baseline"
+            ? "This local operation predates the retained cloud baseline. Keeping it locally is an explicit decision to recreate or reapply it."
+            : remote.reason === "record-absent-from-cloud-snapshot"
+              ? "This record is absent from the current cloud snapshot. The local and cloud copies may have diverged."
+              : "The cloud record changed after this device's last acknowledged version.";
+          const localPayload = local.payload ?? null;
+          const remotePayload = remote.payload ?? null;
+          return `
+            <article class="nn-observatory-card">
+              <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+                <strong>${escapeHtml(conflict.collection)} / ${escapeHtml(conflict.recordId)}</strong>
+                <span class="nn-observatory-status">${escapeHtml(local.type || "local")} vs ${escapeHtml(remote.type || "remote")}</span>
+              </div>
+              <p style="margin:8px 0;">${escapeHtml(reason)}</p>
+              <p class="nn-muted">Local base version: ${Number(local.baseVersion || 0)} · Cloud version: ${Number(remote.version || remote.currentVersion || 0)}</p>
+              <details style="margin-top:10px;">
+                <summary>Inspect local and cloud data</summary>
+                <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px;">
+                  <div><p>Local copy</p><pre>${escapeHtml(JSON.stringify(localPayload, null, 2) || "No local payload")}</pre></div>
+                  <div><p>Cloud copy</p><pre>${escapeHtml(JSON.stringify(remotePayload, null, 2) || "No cloud payload")}</pre></div>
+                </div>
+              </details>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+                <button type="button" data-conflict-choice="local" data-collection="${escapeHtml(conflict.collection)}" data-record-id="${escapeHtml(conflict.recordId)}">Keep this device's copy</button>
+                <button type="button" data-conflict-choice="remote" data-collection="${escapeHtml(conflict.collection)}" data-record-id="${escapeHtml(conflict.recordId)}">Use cloud copy</button>
+              </div>
+            </article>
+          `;
+        }).join("");
+      }
+
       if (activityEvents) {
         const latest = events;
         activityEvents.innerHTML = latest.length
@@ -158,6 +199,27 @@ export async function initDataObservatory() {
       if (clearActivityButton) clearActivityButton.disabled = false;
     }
   }
+
+  conflictList?.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-conflict-choice]");
+    if (!button) return;
+    const { collection, recordId, conflictChoice } = {
+      collection: button.dataset.collection,
+      recordId: button.dataset.recordId,
+      conflictChoice: button.dataset.conflictChoice
+    };
+    const decision = conflictChoice === "local" ? "keep this device's copy" : "replace it with the cloud copy";
+    if (!window.confirm(`Are you sure you want to ${decision} for ${collection} / ${recordId}?`)) return;
+    button.disabled = true;
+    try {
+      await resolveSyncConflict(collection, recordId, conflictChoice);
+      if (notice) notice.textContent = "Conflict choice saved. The next sync will apply it.";
+      await refresh();
+    } catch (error) {
+      button.disabled = false;
+      if (notice) notice.textContent = "Unable to resolve conflict: " + (error?.message || "unknown error");
+    }
+  });
 
   clearActivityButton?.addEventListener("click", async () => {
     if (!window.confirm("Clear the local activity history? This removes only progress-event metadata; cards, tasks, journals and other records remain untouched.")) return;
