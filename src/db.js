@@ -4,7 +4,7 @@ let db;
 // Structural schema only: store/index creation. Data-shape changes are handled
 // on write (promoteTags / promoteStudyPriority) and old profiles are reset by
 // importing the committed demo dataset, not migrated in place.
-const DB_VERSION = 19;
+const DB_VERSION = 20;
 
 // Decks are canonical folders inside a subject. Cards point at one deck via
 // deckId; the legacy `card.deck` string remains the subject owner until the
@@ -25,8 +25,44 @@ const SYNC_COLLECTIONS = new Set(["nodes","quotes","cues","cards","heaps","decks
 function syncRecordKey(collection, recordId) { return collection + "\u001f" + String(recordId); }
 function mutationTransaction(storeName) {
   const names = Array.isArray(storeName) ? storeName : [storeName];
-  const stores = names.some((name) => SYNC_COLLECTIONS.has(name)) ? [...new Set([...names, "syncOutbox"])] : names;
-  return db.transaction(stores, "readwrite");
+  const stores = new Set(names);
+  if (names.some((name) => SYNC_COLLECTIONS.has(name))) stores.add("syncOutbox");
+  if (names.some((name) => name === "cards" || name === "tasks")) stores.add("activityEvents");
+  return db.transaction([...stores], "readwrite");
+}
+
+function localActivityDay(timestamp = Date.now()) {
+  const date = new Date(Number(timestamp) || Date.now());
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return year + "-" + month + "-" + day;
+}
+
+function queueActivityEvent(tx, kind, recordId, timestamp = Date.now(), uniquePerRecordDay = true) {
+  const occurredAt = Number(timestamp) || Date.now();
+  const day = localActivityDay(occurredAt);
+  const id = uniquePerRecordDay
+    ? day + "\\u001f" + kind + "\\u001f" + String(recordId)
+    : crypto.randomUUID();
+  tx.objectStore("activityEvents").put({
+    id,
+    day,
+    kind,
+    recordId: String(recordId),
+    occurredAt,
+    timezoneOffsetMinutes: new Date(occurredAt).getTimezoneOffset()
+  });
+}
+
+function cardContentChanged(previous, next) {
+  const signature = (record) => ({
+    front: String(record?.front || ""),
+    back: String(record?.back || ""),
+    tags: [...(Array.isArray(record?.tags) ? record.tags : [])].map(String).sort(),
+    links: stableSyncValue(record?.links || {})
+  });
+  return JSON.stringify(signature(previous)) !== JSON.stringify(signature(next));
 }
 function queueSyncUpsert(tx, collection, record) {
   if (!SYNC_COLLECTIONS.has(collection) || !record?.id) return;
@@ -228,6 +264,12 @@ export function initDB() {
         journalStore.createIndex("createdAt", "createdAt", { unique: false });
         journalStore.createIndex("updatedAt", "updatedAt", { unique: false });
         journalStore.createIndex("insight", "insight", { unique: false });
+      }
+      if (!db.objectStoreNames.contains("activityEvents")) {
+        const activityStore = db.createObjectStore("activityEvents", { keyPath: "id" });
+        activityStore.createIndex("day", "day", { unique: false });
+        activityStore.createIndex("kind", "kind", { unique: false });
+        activityStore.createIndex("occurredAt", "occurredAt", { unique: false });
       }
       if (!db.objectStoreNames.contains("syncOutbox")) db.createObjectStore("syncOutbox", { keyPath: "key" });
       if (!db.objectStoreNames.contains("syncMeta")) db.createObjectStore("syncMeta", { keyPath: "key" });
