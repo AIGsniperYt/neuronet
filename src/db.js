@@ -26,7 +26,10 @@ function syncRecordKey(collection, recordId) { return collection + "\u001f" + St
 function mutationTransaction(storeName) {
   const names = Array.isArray(storeName) ? storeName : [storeName];
   const stores = new Set(names);
-  if (names.some((name) => SYNC_COLLECTIONS.has(name))) stores.add("syncOutbox");
+  if (names.some((name) => SYNC_COLLECTIONS.has(name))) {
+    stores.add("syncOutbox");
+    stores.add("syncState");
+  }
   if (names.some((name) => name === "cards" || name === "tasks")) stores.add("activityEvents");
   return db.transaction([...stores], "readwrite");
 }
@@ -70,9 +73,12 @@ function queueSyncUpsert(tx, collection, record) {
   const key = syncRecordKey(collection, recordId);
   const store = tx.objectStore("syncOutbox");
   const existing = store.get(key);
-  existing.onsuccess = () => {
-    // A conflicted operation remains blocked until the user resolves it.
-    // New local edits replace its payload but must not silently retry it.
+  const baseline = tx.objectStore("syncState").get("cloudBaselineRevision");
+  let existingReady = false;
+  let baselineReady = false;
+  const write = () => {
+    if (!existingReady || !baselineReady) return;
+    const previous = existing.result;
     store.put({
       key,
       collection,
@@ -81,10 +87,15 @@ function queueSyncUpsert(tx, collection, record) {
       type: "upsert",
       payload: record,
       queuedAt: Date.now(),
-      firstQueuedAt: Number(existing.result?.firstQueuedAt || existing.result?.queuedAt) || Date.now(),
-      ...(existing.result?.blocked ? { blocked: true } : {})
+      firstQueuedAt: Number(previous?.firstQueuedAt || previous?.queuedAt) || Date.now(),
+      baseBaselineRevision: Number.isSafeInteger(previous?.baseBaselineRevision)
+        ? previous.baseBaselineRevision
+        : Number(baseline.result?.value) || 0,
+      ...(previous?.blocked ? { blocked: true } : {})
     });
   };
+  existing.onsuccess = () => { existingReady = true; write(); };
+  baseline.onsuccess = () => { baselineReady = true; write(); };
 }
 function queueSyncDelete(tx, collection, recordId) {
   if (!SYNC_COLLECTIONS.has(collection) || recordId == null) return;
@@ -92,7 +103,12 @@ function queueSyncDelete(tx, collection, recordId) {
   const key = syncRecordKey(collection, id);
   const store = tx.objectStore("syncOutbox");
   const existing = store.get(key);
-  existing.onsuccess = () => {
+  const baseline = tx.objectStore("syncState").get("cloudBaselineRevision");
+  let existingReady = false;
+  let baselineReady = false;
+  const write = () => {
+    if (!existingReady || !baselineReady) return;
+    const previous = existing.result;
     store.put({
       key,
       collection,
@@ -101,10 +117,15 @@ function queueSyncDelete(tx, collection, recordId) {
       type: "delete",
       payload: null,
       queuedAt: Date.now(),
-      firstQueuedAt: Number(existing.result?.firstQueuedAt || existing.result?.queuedAt) || Date.now(),
-      ...(existing.result?.blocked ? { blocked: true } : {})
+      firstQueuedAt: Number(previous?.firstQueuedAt || previous?.queuedAt) || Date.now(),
+      baseBaselineRevision: Number.isSafeInteger(previous?.baseBaselineRevision)
+        ? previous.baseBaselineRevision
+        : Number(baseline.result?.value) || 0,
+      ...(previous?.blocked ? { blocked: true } : {})
     });
   };
+  existing.onsuccess = () => { existingReady = true; write(); };
+  baseline.onsuccess = () => { baselineReady = true; write(); };
 }
 function queueSyncClear(tx, collection, recordStore) {
   if (!SYNC_COLLECTIONS.has(collection)) return;
@@ -3303,11 +3324,12 @@ export function resolveSyncConflict(collection, recordId, choice) {
   return new Promise((resolve, reject) => {
     if (!db || !SYNC_COLLECTIONS.has(collection)) return reject(new Error("Unsupported sync collection"));
     const key = syncRecordKey(collection, recordId);
-    const tx = db.transaction([collection, "syncOutbox", "syncMeta", "syncConflicts"], "readwrite");
+    const tx = db.transaction([collection, "syncOutbox", "syncMeta", "syncConflicts", "syncState"], "readwrite");
     const records = tx.objectStore(collection);
     const outbox = tx.objectStore("syncOutbox");
     const meta = tx.objectStore("syncMeta");
     const conflicts = tx.objectStore("syncConflicts");
+    const syncState = tx.objectStore("syncState");
     const request = conflicts.get(key);
 
     request.onsuccess = () => {
@@ -3322,18 +3344,22 @@ export function resolveSyncConflict(collection, recordId, choice) {
         const currentRequest = records.get(String(recordId));
         currentRequest.onsuccess = () => {
           const current = currentRequest.result;
-          outbox.put({
-            key,
-            collection,
-            recordId: String(recordId),
-            operationId: crypto.randomUUID(),
-            type: current ? "upsert" : "delete",
-            payload: current || null,
-            queuedAt: Date.now(),
-            // Choosing the local copy is an explicit user decision to re-create
-            // a record that may have disappeared before the retained baseline.
-            firstQueuedAt: Date.now()
-          });
+          const baselineRequest = syncState.get("cloudBaselineRevision");
+          baselineRequest.onsuccess = () => {
+            outbox.put({
+              key,
+              collection,
+              recordId: String(recordId),
+              operationId: crypto.randomUUID(),
+              type: current ? "upsert" : "delete",
+              payload: current || null,
+              queuedAt: Date.now(),
+              // Choosing the local copy explicitly rebases it on the latest
+              // server baseline observed by this device.
+              firstQueuedAt: Date.now(),
+              baseBaselineRevision: Number(baselineRequest.result?.value) || 0
+            });
+          };
         };
       }
       const version = Number(remote.version || remote.currentVersion);
@@ -3374,7 +3400,7 @@ function syncPayloadsEqual(left, right) {
   return JSON.stringify(stableSyncValue(left)) === JSON.stringify(stableSyncValue(right));
 }
 
-export function applyRemoteSyncChanges(changes = [], nextCursor = 0) {
+export function applyRemoteSyncChanges(changes = [], nextCursor = 0, baselineRevision = null) {
   return new Promise((resolve, reject) => {
     if (!db || !Array.isArray(changes)) return reject(new Error("Invalid remote changes"));
 
@@ -3399,11 +3425,19 @@ export function applyRemoteSyncChanges(changes = [], nextCursor = 0) {
     const meta = tx.objectStore("syncMeta");
     const conflicts = tx.objectStore("syncConflicts");
 
-    tx.objectStore("syncState").put({
+    const syncState = tx.objectStore("syncState");
+    syncState.put({
       key: "pullCursor",
       value: Number(nextCursor) || 0,
       updatedAt: Date.now()
     });
+    if (Number.isSafeInteger(Number(baselineRevision)) && Number(baselineRevision) >= 0) {
+      syncState.put({
+        key: "cloudBaselineRevision",
+        value: Number(baselineRevision),
+        updatedAt: Date.now()
+      });
+    }
 
     for (const change of valid) {
       const key = syncRecordKey(change.collection, change.recordId);
@@ -3567,9 +3601,10 @@ export function stageSyncSnapshotPage(snapshotId, records = []) {
   });
 }
 
-export function completeSyncSnapshot(snapshotId, revision, compactedAt = 0) {
+export function completeSyncSnapshot(snapshotId, revision, compactedAt = 0, baselineRevision = 0) {
   const snapshotRevision = Number(revision);
   const snapshotCompactedAt = Number(compactedAt) || 0;
+  const snapshotBaselineRevision = Number(baselineRevision) || 0;
   if (typeof snapshotId !== "string" || !snapshotId ||
       !Number.isSafeInteger(snapshotRevision) || snapshotRevision < 0) {
     return Promise.reject(new Error("Invalid cloud snapshot completion"));
@@ -3812,6 +3847,11 @@ export function completeSyncSnapshot(snapshotId, revision, compactedAt = 0) {
           value: snapshotRevision,
           updatedAt: Date.now()
         });
+        state.put({
+          key: "cloudBaselineRevision",
+          value: snapshotBaselineRevision,
+          updatedAt: Date.now()
+        });
         state.delete("activeSnapshot");
         state.put({
           key: "lastSnapshot",
@@ -3859,7 +3899,7 @@ export function queueSyncSnapshot() {
     getAllHeaps(), getAllDecks(), getAllSubjects(), getAllTasks(), getAllCommitments()
   ]).then((collections) => {
     const names = ["nodes", "quotes", "cues", "cards", "heaps", "decks", "subjects", "tasks", "commitments"];
-    const tx = db.transaction([...names, "syncOutbox"], "readwrite");
+    const tx = db.transaction([...names, "syncOutbox", "syncState"], "readwrite");
     const outbox = tx.objectStore("syncOutbox");
     for (let i = 0; i < names.length; i += 1) {
       for (const record of collections[i] || []) {
