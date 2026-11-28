@@ -240,6 +240,27 @@ test("IndexedDB snapshot recovery stages safely, preserves local changes and rej
   assert.equal(conflictIds.has("offline-delete"), false);
   assert.equal(conflictIds.has("old-ambiguous-create"), true);
 
+  // Both user choices are durable: keep-local requeues against the latest
+  // remote version; use-cloud replaces the local record and drops its outbox.
+  await db.resolveSyncConflict("nodes", "edit-conflict", "local");
+  let resolvedOutbox = await db.getSyncOutbox(100);
+  const localChoice = resolvedOutbox.find((operation) => operation.recordId === "edit-conflict");
+  assert.ok(localChoice);
+  assert.equal(localChoice.blocked, false);
+  assert.equal(localChoice.type, "upsert");
+  assert.equal(localChoice.baseVersion, 2);
+  assert.equal(
+    (await db.getAllNodes()).find((record) => record.id === "edit-conflict").text,
+    "Local edit"
+  );
+
+  await db.resolveSyncConflict("nodes", "old-ambiguous-create", "remote");
+  resolvedOutbox = await db.getSyncOutbox(100);
+  assert.equal(resolvedOutbox.some((operation) => operation.recordId === "old-ambiguous-create"), false);
+  assert.equal((await db.getAllNodes()).some((record) => record.id === "old-ambiguous-create"), false);
+  const remainingConflicts = await db.getSyncConflicts();
+  assert.equal(remainingConflicts.length, 0);
+
   assert.equal(await db.getSyncCursor(), 10);
   assert.equal(await db.getSyncState("activeSnapshot"), null);
 
