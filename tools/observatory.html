@@ -68,7 +68,7 @@
 
   <section id="obsCloudPanel" class="nn-observatory-panel nn-observatory-section" hidden>
     <h2>Cloud storage</h2>
-    <p>Server-side counts and payload estimates. No record content is returned by this endpoint.</p>
+    <p>Server-side counts and payload estimates. No record content is returned by this endpoint. Payload totals count JSON bytes in live records and retained changes; they exclude SQLite row metadata, indexes and allocation overhead, so they are not a physical database-size or billing meter.</p>
     <div id="obsCloudSummary" class="nn-observatory-grid"></div>
     <div class="nn-observatory-table-wrap">
       <table>
