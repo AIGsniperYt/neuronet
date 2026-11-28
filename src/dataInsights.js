@@ -57,6 +57,16 @@ function estimateBytes(records) {
   return bytes;
 }
 
+export async function getActivitySummarySince(timestamp) {
+  const since = Number(timestamp) || Date.now();
+  const events = await getActivityEvents({ sinceDay: localDayKey(since) });
+  const summary = emptyCounts("session");
+  for (const event of events) {
+    if (Number(event.occurredAt || 0) >= since) addEvent(summary, event);
+  }
+  return summary;
+}
+
 /**
  * Shared local read model for Launchpad progress and the future Data
  * Observatory. Activity events contain IDs and action metadata only; this
