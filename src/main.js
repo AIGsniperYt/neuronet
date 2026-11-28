@@ -2216,7 +2216,7 @@ async function openPowerOffDialog() {
       : "Your local changes are already saved. Cloud sync is disabled in this build.";
   }
   if (finishButton) finishButton.disabled = false;
-  if (typeof modal.showModal === "function") modal.showModal();
+  if (typeof modal.showModal === "function" && !modal.open) modal.showModal();
 }
 
 async function finishPowerOffSession() {
