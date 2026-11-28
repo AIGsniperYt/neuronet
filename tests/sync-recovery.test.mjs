@@ -73,6 +73,7 @@ async function syncNode(id, text, options = {}) {
 test("IndexedDB snapshot recovery stages safely, preserves local changes and rejects stale pages", async () => {
   const databaseName = await openTestDatabase();
   const compactedAt = Date.now();
+  await db.setSyncState("cloudBaselineRevision", 5);
 
   // A row acknowledged by the cloud should be removed if it is absent from a
   // later complete snapshot (the server has compacted its deletion marker).
@@ -131,7 +132,8 @@ test("IndexedDB snapshot recovery stages safely, preserves local changes and rej
   await syncNode("old-ambiguous-create", "Do not silently resurrect");
   await updateOutboxRecord(databaseName, "old-ambiguous-create", {
     queuedAt: compactedAt - 5000,
-    firstQueuedAt: compactedAt - 5000
+    firstQueuedAt: compactedAt - 5000,
+    baseBaselineRevision: 0
   });
 
   const remoteRecords = [
@@ -203,7 +205,8 @@ test("IndexedDB snapshot recovery stages safely, preserves local changes and rej
   const summary = await db.completeSyncSnapshot(
     "snapshot-complete-0002",
     10,
-    compactedAt
+    compactedAt,
+    5
   );
 
   assert.equal(summary.revision, 10);
@@ -249,6 +252,7 @@ test("IndexedDB snapshot recovery stages safely, preserves local changes and rej
   assert.equal(!!localChoice.blocked, false);
   assert.equal(localChoice.type, "upsert");
   assert.equal(localChoice.baseVersion, 2);
+  assert.equal(localChoice.baseBaselineRevision, 5);
   assert.equal(
     (await db.getAllNodes()).find((record) => record.id === "edit-conflict").text,
     "Local edit"
