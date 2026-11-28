@@ -22,8 +22,8 @@ function emitStatus(status, detail = {}) {
   }
 }
 
-async function post(path, payload = {}) {
-  if (!await renewSyncLock(SYNC_LOCK_OWNER)) {
+async function post(path, payload = {}, requiresSyncLock = true) {
+  if (requiresSyncLock && !await renewSyncLock(SYNC_LOCK_OWNER)) {
     throw new Error("Cloud sync lost its browser-tab lock. Your local changes remain safe; retry sync.");
   }
   const response = await fetch(BACKEND + "/api/sync/" + path, {
@@ -349,6 +349,13 @@ async function runSync(user) {
       // A stale lock has a bounded expiry and cannot invalidate local data.
     }
   }
+}
+
+export async function getCloudSyncMetrics() {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    throw new Error("You're offline. Cloud storage metrics are unavailable.");
+  }
+  return post("inspect", {}, false);
 }
 
 export function syncNow(user = (typeof window !== "undefined" ? window.currentUser : null)) {
