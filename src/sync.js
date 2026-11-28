@@ -62,7 +62,9 @@ function toWorkerOperation(operation) {
     recordId: String(operation.recordId),
     type: operation.type,
     baseVersion: Number(operation.baseVersion) || 0,
-    baseBaselineRevision: Number(operation.baseBaselineRevision) || 0,
+    ...(Number.isSafeInteger(operation.baseBaselineRevision)
+      ? { baseBaselineRevision: operation.baseBaselineRevision }
+      : {}),
     firstQueuedAt: Number(operation.firstQueuedAt || operation.queuedAt) || Date.now(),
     ...(operation.type === "upsert" ? { payload: operation.payload } : {})
   };
