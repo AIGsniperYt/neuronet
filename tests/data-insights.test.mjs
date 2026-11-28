@@ -11,7 +11,7 @@ globalThis.document = {
 };
 
 const db = await import("../src/db.js");
-const { getDataInsights } = await import("../src/dataInsights.js");
+const { getDataInsights, getActivitySummarySince } = await import("../src/dataInsights.js");
 
 test("activity events distinguish card content changes, SRS reviews and task completion", async () => {
   await db.initDB();
@@ -106,6 +106,11 @@ test("activity events distinguish card content changes, SRS reviews and task com
   assert.equal(insights.sync.ready, insights.sync.pending);
   assert.equal(insights.sync.blocked, 0);
   assert.equal(insights.sync.conflicts, 0);
+  const sessionSummary = await getActivitySummarySince(Date.now() - 60000);
+  assert.equal(sessionSummary.cardsCreated, 2);
+  assert.equal(sessionSummary.cardsRevised, 1);
+  assert.equal(sessionSummary.cardsReviewed, 2);
+  assert.equal(sessionSummary.tasksCompleted, 1);
   assert.equal(insights.activityTrackingStarted, true);
   assert.ok(insights.activityEventsRetained >= 6);
 
