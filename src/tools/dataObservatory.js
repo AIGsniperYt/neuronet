@@ -1,4 +1,5 @@
 import { getDataInsights } from "../dataInsights.js";
+import { getCloudSyncMetrics } from "../sync.js";
 import { clearActivityEvents, getSyncConflicts, resolveSyncConflict } from "../db.js";
 
 const CLOUD_COLLECTIONS = new Set([
@@ -51,6 +52,9 @@ export async function initDataObservatory() {
   const summary = root.querySelector("#obsSummary");
   const inventoryRows = root.querySelector("#obsInventoryRows");
   const syncDetails = root.querySelector("#obsSyncDetails");
+  const cloudPanel = root.querySelector("#obsCloudPanel");
+  const cloudSummary = root.querySelector("#obsCloudSummary");
+  const cloudCollections = root.querySelector("#obsCloudCollections");
   const activityEvents = root.querySelector("#obsActivityEvents");
   const conflictSection = root.querySelector("#obsConflictSection");
   const conflictList = root.querySelector("#obsConflictList");
@@ -66,10 +70,13 @@ export async function initDataObservatory() {
     if (notice) notice.textContent = "Reading local database…";
 
     try {
-      const [insights, conflicts, browserStorage] = await Promise.all([
+      const [insights, conflicts, browserStorage, cloudMetrics] = await Promise.all([
         getDataInsights({ days: 7, includeInventory: true }),
         getSyncConflicts(),
-        navigator.storage?.estimate?.().catch(() => null) || Promise.resolve(null)
+        navigator.storage?.estimate?.().catch(() => null) || Promise.resolve(null),
+        !window.DEMO_MODE && window.currentUser
+          ? getCloudSyncMetrics().catch((error) => ({ error: error?.message || "Cloud metrics unavailable" }))
+          : Promise.resolve(null)
       ]);
       const events = insights.recentActivityEvents || [];
 
@@ -170,6 +177,45 @@ export async function initDataObservatory() {
             </article>
           `;
         }).join("");
+      }
+
+      if (cloudPanel && cloudSummary && cloudCollections) {
+        cloudPanel.hidden = false;
+        if (window.DEMO_MODE) {
+          cloudSummary.innerHTML = '<p class="nn-muted">Cloud sync is disabled in this build. No server metrics are available.</p>';
+          cloudCollections.innerHTML = '<tr><td colspan="3" class="nn-muted">Not connected.</td></tr>';
+        } else if (!window.currentUser) {
+          cloudSummary.innerHTML = '<p class="nn-muted">Sign in to inspect this account's cloud storage.</p>';
+          cloudCollections.innerHTML = '<tr><td colspan="3" class="nn-muted">Not signed in.</td></tr>';
+        } else if (!cloudMetrics || cloudMetrics.error) {
+          cloudSummary.innerHTML = `<p class="nn-muted">${escapeHtml(cloudMetrics?.error || "Cloud metrics unavailable.")}</p>`;
+          cloudCollections.innerHTML = '<tr><td colspan="3" class="nn-muted">Could not load cloud collection metrics.</td></tr>';
+        } else {
+          const cloudCards = [
+            ["Live records", cloudMetrics.liveRecordCount],
+            ["Live payload", formatBytes(cloudMetrics.livePayloadBytes)],
+            ["Retained delta", formatBytes(cloudMetrics.retainedDeltaPayloadBytes)],
+            ["Retained change rows", cloudMetrics.retainedChangeCount],
+            ["Tombstones", cloudMetrics.tombstoneCount],
+            ["Operation receipts", cloudMetrics.operationReceiptCount],
+            ["Active snapshots", cloudMetrics.activeSnapshotCount],
+            ["Baseline / current revision", `${cloudMetrics.baselineRevision} / ${cloudMetrics.revision}`],
+            ["Last compaction", formatDateTime(cloudMetrics.lastCompactedAt)]
+          ];
+          cloudSummary.innerHTML = cloudCards.map(([label, value]) => `
+            <div class="nn-observatory-card">
+              <span class="nn-observatory-label">${escapeHtml(label)}</span>
+              <strong class="nn-observatory-value">${escapeHtml(value)}</strong>
+            </div>
+          `).join("");
+          cloudCollections.innerHTML = (cloudMetrics.collections || []).map((row) => `
+            <tr>
+              <td>${escapeHtml(row.collection)}</td>
+              <td class="nn-mono">${Number(row.recordCount).toLocaleString()}</td>
+              <td class="nn-mono">${formatBytes(row.payloadBytes)}</td>
+            </tr>
+          `).join("") || '<tr><td colspan="3" class="nn-muted">No cloud records.</td></tr>';
+        }
       }
 
       if (activityEvents) {
