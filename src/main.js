@@ -1345,9 +1345,21 @@ const SESSION_STARTED_KEY = "nn-session-started-at";
 const NEXT_SESSION_FOCUS_KEY = "nn-next-session-focus";
 
 function beginLocalSession() {
+  try {
+    const saved = Number(localStorage.getItem(SESSION_STARTED_KEY));
+    if (Number.isFinite(saved) && saved > 0 && saved <= Date.now()) return saved;
+  } catch {}
   const startedAt = Date.now();
   try { localStorage.setItem(SESSION_STARTED_KEY, String(startedAt)); } catch {}
   return startedAt;
+}
+
+function readLocalSessionStart() {
+  try {
+    const saved = Number(localStorage.getItem(SESSION_STARTED_KEY));
+    if (Number.isFinite(saved) && saved > 0 && saved <= Date.now()) return saved;
+  } catch {}
+  return sessionStartedAt;
 }
 
 let sessionStartedAt = beginLocalSession();
@@ -2194,6 +2206,9 @@ async function openPowerOffDialog() {
   const status = document.getElementById("powerOffSyncStatus");
   const nextFocus = document.getElementById("powerOffNextFocus");
   const finishButton = document.getElementById("powerOffFinish");
+  // Read the shared persisted boundary when opening the dialog. Another tab
+  // may have completed Power Off since this tab was loaded.
+  sessionStartedAt = readLocalSessionStart();
   const summary = await getActivitySummarySince(sessionStartedAt);
 
   for (const [id, value] of [
