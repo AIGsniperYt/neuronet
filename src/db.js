@@ -1250,7 +1250,7 @@ function normalizeCardRecord(card = {}) {
   };
 }
 
-export async function addCard(card) {
+export async function addCard(card, options = {}) {
   if (!db || !cardStoreExists()) {
     throw new Error("Cards store not available");
   }
@@ -1263,8 +1263,15 @@ export async function addCard(card) {
 
   return new Promise((resolve, reject) => {
     const tx = mutationTransaction("cards");
+    const store = tx.objectStore("cards");
+    const existing = store.get(record.id);
+    existing.onsuccess = () => {
+      if (!existing.result) queueActivityEvent(tx, "card-created", record.id);
+      else if (cardContentChanged(existing.result, record)) queueActivityEvent(tx, "card-revised", record.id);
+      if (options.activity === "review") queueActivityEvent(tx, "card-reviewed", record.id, Date.now(), false);
+    };
     queueSyncUpsert(tx, "cards", record);
-    const req = tx.objectStore("cards").put(record);
+    const req = store.put(record);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
       emitDBChange({ type: "upsert-card", ids: [record.id] });
@@ -1293,6 +1300,11 @@ export async function addCards(cards) {
     const tx = mutationTransaction("cards");
     const store = tx.objectStore("cards");
     for (const record of records) {
+      const existing = store.get(record.id);
+      existing.onsuccess = () => {
+        if (!existing.result) queueActivityEvent(tx, "card-created", record.id);
+        else if (cardContentChanged(existing.result, record)) queueActivityEvent(tx, "card-revised", record.id);
+      };
       store.put(record);
       queueSyncUpsert(tx, "cards", record);
     }
@@ -2674,8 +2686,15 @@ export function addTask(task) {
 
     const record = normalizeTaskRecord(task);
     const tx = mutationTransaction("tasks");
+    const store = tx.objectStore("tasks");
+    const existing = store.get(record.id);
+    existing.onsuccess = () => {
+      if (existing.result && !existing.result.done && record.done) {
+        queueActivityEvent(tx, "task-completed", record.id);
+      }
+    };
     queueSyncUpsert(tx, "tasks", record);
-    const req = tx.objectStore("tasks").put(record);
+    const req = store.put(record);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
       emitDBChange({ type: "upsert-task", ids: [record.id] });
@@ -2702,6 +2721,12 @@ export function addTasks(tasks) {
     const tx = mutationTransaction("tasks");
     const store = tx.objectStore("tasks");
     for (const record of records) {
+      const existing = store.get(record.id);
+      existing.onsuccess = () => {
+        if (existing.result && !existing.result.done && record.done) {
+          queueActivityEvent(tx, "task-completed", record.id);
+        }
+      };
       store.put(record);
       queueSyncUpsert(tx, "tasks", record);
     }
