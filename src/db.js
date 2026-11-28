@@ -42,6 +42,39 @@ function localActivityDay(timestamp = Date.now()) {
   return year + "-" + month + "-" + day;
 }
 
+const ACTIVITY_RETENTION_DAYS = 90;
+const ACTIVITY_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+function pruneActivityEventsInTransaction(tx, now = Date.now()) {
+  const state = tx.objectStore("syncState");
+  const lastPrune = state.get("activityLastPrunedAt");
+  lastPrune.onsuccess = () => {
+    const previous = Number(lastPrune.result?.value || 0);
+    if (previous > 0 && now - previous < ACTIVITY_PRUNE_INTERVAL_MS) return;
+
+    const cutoff = new Date(now);
+    cutoff.setDate(cutoff.getDate() - ACTIVITY_RETENTION_DAYS);
+    const cutoffDay = localActivityDay(cutoff.getTime());
+    if (typeof IDBKeyRange !== "undefined") {
+      const cursorRequest = tx.objectStore("activityEvents")
+        .index("day")
+        .openCursor(IDBKeyRange.upperBound(cutoffDay, true));
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+        if (!cursor) return;
+        cursor.delete();
+        cursor.continue();
+      };
+    }
+
+    state.put({
+      key: "activityLastPrunedAt",
+      value: now,
+      updatedAt: now
+    });
+  };
+}
+
 function queueActivityEvent(tx, kind, recordId, timestamp = Date.now(), uniquePerRecordDay = true) {
   const occurredAt = Number(timestamp) || Date.now();
   const day = localActivityDay(occurredAt);
@@ -55,6 +88,19 @@ function queueActivityEvent(tx, kind, recordId, timestamp = Date.now(), uniquePe
     recordId: String(recordId),
     occurredAt,
     timezoneOffsetMinutes: new Date(occurredAt).getTimezoneOffset()
+  });
+  pruneActivityEventsInTransaction(tx);
+}
+
+export function pruneActivityEvents() {
+  return new Promise((resolve, reject) => {
+    if (!db || !db.objectStoreNames.contains("activityEvents") ||
+        !db.objectStoreNames.contains("syncState")) return resolve(0);
+    const tx = db.transaction(["activityEvents", "syncState"], "readwrite");
+    pruneActivityEventsInTransaction(tx);
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error("Activity retention transaction aborted"));
   });
 }
 
@@ -3181,6 +3227,11 @@ export function clearActivityEvents() {
     const startedAt = Date.now();
     tx.objectStore("syncState").put({
       key: "activityTrackingStartedAt",
+      value: startedAt,
+      updatedAt: startedAt
+    });
+    tx.objectStore("syncState").put({
+      key: "activityLastPrunedAt",
       value: startedAt,
       updatedAt: startedAt
     });
