@@ -1,5 +1,5 @@
 import { getDataInsights } from "../dataInsights.js";
-import { getActivityEvents, clearActivityEvents } from "../db.js";
+import { clearActivityEvents } from "../db.js";
 
 const CLOUD_COLLECTIONS = new Set([
   "nodes", "quotes", "cues", "cards", "heaps",
@@ -63,10 +63,8 @@ export async function initDataObservatory() {
     if (notice) notice.textContent = "Reading local database…";
 
     try {
-      const [insights, events] = await Promise.all([
-        getDataInsights({ days: 7, includeInventory: true }),
-        getActivityEvents()
-      ]);
+      const insights = await getDataInsights({ days: 7, includeInventory: true });
+      const events = insights.recentActivityEvents || [];
 
       if (summary) {
         summary.innerHTML = [
@@ -127,7 +125,7 @@ export async function initDataObservatory() {
       }
 
       if (activityEvents) {
-        const latest = events.slice(-12).reverse();
+        const latest = events;
         activityEvents.innerHTML = latest.length
           ? latest.map((event) => `
               <div class="nn-observatory-event">
