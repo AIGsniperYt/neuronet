@@ -94,7 +94,7 @@ test("activity events distinguish card content changes, SRS reviews and task com
   assert.equal(serialisedEvents.includes("Bulk answer"), false);
   assert.equal(serialisedEvents.includes("Finish homework"), false);
 
-  const insights = await getDataInsights({ days: 7 });
+  const insights = await getDataInsights({ days: 7, includeInventory: true });
   assert.equal(insights.today.cardsCreated, 2);
   assert.equal(insights.today.cardsRevised, 1);
   assert.equal(insights.today.cardsReviewed, 2);
