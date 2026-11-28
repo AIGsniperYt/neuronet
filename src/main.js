@@ -2209,8 +2209,10 @@ async function openPowerOffDialog() {
   const previousFocus = readNextSessionFocus();
   if (nextFocus) nextFocus.value = previousFocus?.text || "";
   if (status) {
-    status.textContent = USE_BACKEND && window.currentUser
-      ? "Your local changes are already saved. Finishing will attempt a cloud checkpoint."
+    status.textContent = USE_BACKEND
+      ? (window.currentUser
+          ? "Your local changes are already saved. Finishing will attempt a cloud checkpoint."
+          : "Your local changes are saved. Sign in to connect cloud sync.")
       : "Your local changes are already saved. Cloud sync is disabled in this build.";
   }
   if (finishButton) finishButton.disabled = false;
@@ -2239,7 +2241,9 @@ async function finishPowerOffSession() {
     // The handover note is optional; the database remains safe if storage is unavailable.
   }
 
-  let checkpointMessage = "Your work is saved locally. Cloud sync is disabled in this build.";
+  let checkpointMessage = USE_BACKEND
+    ? "Your work is saved locally. Sign in to connect cloud sync."
+    : "Your work is saved locally. Cloud sync is disabled in this build.";
   if (USE_BACKEND && window.currentUser) {
     try {
       const result = await syncNow(window.currentUser);
