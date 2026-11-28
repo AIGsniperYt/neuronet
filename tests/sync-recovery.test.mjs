@@ -190,7 +190,7 @@ test("IndexedDB snapshot recovery stages safely, preserves local changes and rej
   await db.beginSyncSnapshot("snapshot-complete-0002", 10);
   await assert.rejects(
     db.stageSyncSnapshotPage("snapshot-incomplete-0001", remoteRecords),
-    /aborted|active snapshot/i
+    /aborted|inactive recovery session/i
   );
 
   // Staging remains separate from live records until all pages are present.
