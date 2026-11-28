@@ -1,0 +1,72 @@
+<div id="dataObservatory" class="nn-observatory">
+  <style>
+    .nn-observatory { max-width: 1100px; margin: 0 auto; padding: 22px; color: var(--text-main); }
+    .nn-observatory-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:18px; }
+    .nn-observatory h1 { font-size:1.55rem; font-weight:750; margin:0 0 5px; }
+    .nn-observatory h2 { font-size:1rem; font-weight:700; margin:0 0 12px; }
+    .nn-observatory p { color:var(--text-muted); font-size:var(--text-sm); line-height:1.5; }
+    .nn-observatory button { border:1px solid var(--glass-border); border-radius:9px; padding:8px 12px; background:var(--glass-surface); color:var(--text-main); cursor:pointer; }
+    .nn-observatory button:hover { border-color:var(--accent); }
+    .nn-observatory-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-bottom:14px; }
+    .nn-observatory-card,.nn-observatory-panel { border:1px solid var(--glass-border); border-radius:12px; background:var(--panel-bg); padding:14px; min-width:0; }
+    .nn-observatory-value { display:block; font-size:1.35rem; font-weight:750; font-variant-numeric:tabular-nums; margin:5px 0 2px; }
+    .nn-observatory-label { color:var(--text-muted); font-size:var(--text-xs); }
+    .nn-observatory-section { margin-top:14px; }
+    .nn-observatory-note { padding:11px 13px; border-radius:9px; background:var(--glass-surface); border:1px solid var(--glass-border); margin-bottom:14px; }
+    .nn-observatory-table-wrap { overflow-x:auto; }
+    .nn-observatory table { width:100%; border-collapse:collapse; font-size:var(--text-sm); }
+    .nn-observatory th,.nn-observatory td { padding:9px 8px; text-align:left; border-bottom:1px solid var(--glass-border); white-space:nowrap; }
+    .nn-observatory th { color:var(--text-muted); font-weight:650; }
+    .nn-observatory td:last-child,.nn-observatory th:last-child { text-align:right; }
+    .nn-observatory .nn-muted { color:var(--text-muted); }
+    .nn-observatory .nn-mono { font-variant-numeric:tabular-nums; }
+    .nn-observatory-list { display:grid; gap:7px; }
+    .nn-observatory-event { display:flex; justify-content:space-between; gap:12px; padding:8px 0; border-bottom:1px solid var(--glass-border); font-size:var(--text-sm); }
+    .nn-observatory-event:last-child { border-bottom:0; }
+    .nn-observatory-status { display:inline-flex; padding:4px 8px; border-radius:7px; border:1px solid var(--glass-border); font-size:var(--text-xs); }
+    @media(max-width:760px) {
+      .nn-observatory { padding:14px; }
+      .nn-observatory-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .nn-observatory-head { align-items:flex-start; }
+    }
+  </style>
+
+  <div class="nn-observatory-head">
+    <div>
+      <h1>Data Observatory</h1>
+      <p>A transparent view of what NeuroNet stores locally and what is waiting to synchronise.</p>
+    </div>
+    <button id="obsRefresh" type="button"><i class="fa-solid fa-rotate" aria-hidden="true"></i> Refresh</button>
+  </div>
+
+  <div id="obsNotice" class="nn-observatory-note" aria-live="polite">Reading local database…</div>
+
+  <div class="nn-observatory-grid" id="obsSummary">
+    <div class="nn-observatory-card"><span class="nn-observatory-label">Local records</span><strong class="nn-observatory-value">—</strong></div>
+    <div class="nn-observatory-card"><span class="nn-observatory-label">Estimated payload</span><strong class="nn-observatory-value">—</strong></div>
+    <div class="nn-observatory-card"><span class="nn-observatory-label">Pending changes</span><strong class="nn-observatory-value">—</strong></div>
+    <div class="nn-observatory-card"><span class="nn-observatory-label">Conflicts</span><strong class="nn-observatory-value">—</strong></div>
+  </div>
+
+  <section class="nn-observatory-panel nn-observatory-section">
+    <h2>Local collections</h2>
+    <p>Payload sizes are estimates of serialised record data, not the browser's exact on-disk allocation.</p>
+    <div class="nn-observatory-table-wrap">
+      <table>
+        <thead><tr><th>Collection</th><th>Records</th><th>Storage estimate</th><th>Scope</th></tr></thead>
+        <tbody id="obsInventoryRows"><tr><td colspan="4" class="nn-muted">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="nn-observatory-panel nn-observatory-section">
+    <h2>Synchronisation</h2>
+    <div id="obsSyncDetails" class="nn-observatory-list"><p class="nn-muted">Loading…</p></div>
+  </section>
+
+  <section class="nn-observatory-panel nn-observatory-section">
+    <h2>Recent activity metadata</h2>
+    <p>Only event type, date and record ID are stored here. Card text, task titles and journal content are not copied into this activity log.</p>
+    <div id="obsActivityEvents" class="nn-observatory-list"><p class="nn-muted">Loading…</p></div>
+  </section>
+</div>
