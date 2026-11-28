@@ -1946,6 +1946,60 @@ select {
   text-align: center;
   color: var(--accent);
 }
+.dash-progress {
+  margin-top: 12px;
+}
+.dash-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.dash-progress-subtitle,
+.dash-progress-period {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.dash-progress-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+}
+.dash-progress-stat {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  background: var(--glass-surface);
+}
+.dash-progress-value {
+  font-size: 1.45rem;
+  line-height: 1.2;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-main);
+}
+.dash-progress-label {
+  font-size: var(--text-sm);
+  color: var(--text-main);
+}
+.dash-progress-week {
+  margin-top: 2px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.dash-progress-note {
+  margin-top: 9px;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+@media (max-width: 760px) {
+  .dash-progress-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .dash-activity-stats {
   display: flex;
   flex-wrap: wrap;
@@ -3479,6 +3533,19 @@ select {
               <span class="dash-action-sub">Write what you're thinking</span>
             </button>
           </div>
+        </section>
+
+        <!-- Progress: one shared activity read model powers this and the Data Observatory. -->
+        <section class="panel dash-progress" id="dashProgress" aria-labelledby="dashProgressTitle">
+          <div class="dash-progress-head">
+            <div>
+              <span class="kicker" id="dashProgressTitle">Your progress</span>
+              <p class="dash-progress-subtitle">Small steps add up.</p>
+            </div>
+            <span class="dash-progress-period">Today · last 7 days</span>
+          </div>
+          <div id="dashProgressStats" class="dash-progress-grid" aria-live="polite"></div>
+          <p id="dashProgressNote" class="dash-progress-note" hidden></p>
         </section>
 
         <!-- Recent Activity -->
