@@ -171,6 +171,7 @@ export async function getDataInsights({ days = 7, now = Date.now(), includeInven
     estimatedPayloadBytes,
     activityEventsRetained: includeInventory ? activityRows.length : undefined,
     activityHistoryStartDay: includeInventory ? (activityRows[0]?.day || null) : undefined,
+    recentActivityEvents: includeInventory ? activityRows.slice(-12).reverse() : undefined,
     activityTrackingStarted: Number(trackingStartedAt) > 0,
     trackingStartedAt: Number(trackingStartedAt) || 0,
     sync
