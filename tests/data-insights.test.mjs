@@ -102,5 +102,10 @@ test("activity events distinguish card content changes, SRS reviews and task com
   assert.equal(insights.totals.cardsCreated, 2);
   assert.equal(insights.inventory.cards.count, 2);
   assert.equal(insights.inventory.tasks.count, 1);
+  assert.equal(insights.sync.pending, 3);
+  assert.equal(insights.sync.ready, 3);
+  assert.equal(insights.sync.blocked, 0);
+  assert.equal(insights.sync.conflicts, 0);
   assert.equal(insights.activityTrackingStarted, true);
+  assert.ok(insights.activityEventsRetained >= 6);
 });
