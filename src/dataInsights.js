@@ -11,7 +11,9 @@ import {
   getAllSubjects,
   getAllTasks,
   getAllCommitments,
-  getAllJournals
+  getAllJournals,
+  getAllTags,
+  getPinnedTools
 } from "./db.js";
 
 const METRICS = Object.freeze([
@@ -71,8 +73,8 @@ export async function getDataInsights({ days = 7, now = Date.now(), includeInven
   );
   const startDay = localDayKey(startDate.getTime());
 
-  const [events, trackingStartedAt, sync, collectionRows] = await Promise.all([
-    getActivityEvents({ sinceDay: startDay }),
+  const [activityRows, trackingStartedAt, sync, collectionRows] = await Promise.all([
+    getActivityEvents(includeInventory ? {} : { sinceDay: startDay }),
     getSyncState("activityTrackingStartedAt"),
     getSyncOverview(),
     includeInventory
@@ -86,7 +88,9 @@ export async function getDataInsights({ days = 7, now = Date.now(), includeInven
           getAllSubjects(),
           getAllTasks(),
           getAllCommitments(),
-          getAllJournals()
+          getAllJournals(),
+          getAllTags(),
+          getPinnedTools()
         ])
       : Promise.resolve([])
   ]);
@@ -100,8 +104,11 @@ export async function getDataInsights({ days = 7, now = Date.now(), includeInven
     subjects = [],
     tasks = [],
     commitments = [],
-    journals = []
+    journals = [],
+    tags = [],
+    pinnedTools = []
   ] = collectionRows;
+  const events = activityRows.filter((event) => String(event.day) >= startDay);
 
   const daily = [];
   const byDay = new Map();
@@ -138,7 +145,9 @@ export async function getDataInsights({ days = 7, now = Date.now(), includeInven
     subjects,
     tasks,
     commitments,
-    journals
+    journals,
+    tags,
+    pinnedTools
   };
   const inventory = {};
   let totalRecords = 0;
@@ -160,6 +169,8 @@ export async function getDataInsights({ days = 7, now = Date.now(), includeInven
     inventory,
     totalRecords,
     estimatedPayloadBytes,
+    activityEventsRetained: includeInventory ? activityRows.length : undefined,
+    activityHistoryStartDay: includeInventory ? (activityRows[0]?.day || null) : undefined,
     activityTrackingStarted: Number(trackingStartedAt) > 0,
     trackingStartedAt: Number(trackingStartedAt) || 0,
     sync
