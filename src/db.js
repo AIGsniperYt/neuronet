@@ -3150,6 +3150,47 @@ export function getActivityEvents({ sinceDay = "" } = {}) {
 
 // ========== CLOUD SYNC STATE ==========
 
+export function getSyncOverview() {
+  return new Promise((resolve, reject) => {
+    if (!db || !db.objectStoreNames.contains("syncOutbox") ||
+        !db.objectStoreNames.contains("syncConflicts") ||
+        !db.objectStoreNames.contains("syncState")) {
+      return resolve({
+        pending: 0,
+        ready: 0,
+        blocked: 0,
+        conflicts: 0,
+        cursor: 0,
+        lastSnapshot: null,
+        activeSnapshot: null
+      });
+    }
+    const tx = db.transaction(["syncOutbox", "syncConflicts", "syncState"], "readonly");
+    const outboxRequest = tx.objectStore("syncOutbox").getAll();
+    const conflictsRequest = tx.objectStore("syncConflicts").getAll();
+    const stateRequest = tx.objectStore("syncState").getAll();
+    const result = { pending: 0, ready: 0, blocked: 0, conflicts: 0, cursor: 0, lastSnapshot: null, activeSnapshot: null };
+    outboxRequest.onsuccess = () => {
+      const operations = outboxRequest.result || [];
+      result.pending = operations.length;
+      result.blocked = operations.filter((operation) => !!operation.blocked).length;
+      result.ready = result.pending - result.blocked;
+    };
+    conflictsRequest.onsuccess = () => {
+      result.conflicts = (conflictsRequest.result || []).length;
+    };
+    stateRequest.onsuccess = () => {
+      const state = new Map((stateRequest.result || []).map((item) => [item.key, item.value]));
+      result.cursor = Number(state.get("pullCursor") || 0);
+      result.lastSnapshot = state.get("lastSnapshot") || null;
+      result.activeSnapshot = state.get("activeSnapshot") || null;
+    };
+    tx.oncomplete = () => resolve(result);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
 export function getSyncOutbox(limit = 100) {
   return new Promise((resolve, reject) => {
     if (!db || !db.objectStoreNames.contains("syncOutbox")) return reject(new Error("Sync outbox is unavailable"));
