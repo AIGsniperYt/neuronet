@@ -1,5 +1,5 @@
 import { getDataInsights } from "../dataInsights.js";
-import { getActivityEvents } from "../db.js";
+import { getActivityEvents, clearActivityEvents } from "../db.js";
 
 const CLOUD_COLLECTIONS = new Set([
   "nodes", "quotes", "cues", "cards", "heaps",
@@ -53,6 +53,7 @@ export async function initDataObservatory() {
   const syncDetails = root.querySelector("#obsSyncDetails");
   const activityEvents = root.querySelector("#obsActivityEvents");
   const refreshButton = root.querySelector("#obsRefresh");
+  const clearActivityButton = root.querySelector("#obsClearActivity");
   let refreshing = false;
 
   async function refresh() {
@@ -157,6 +158,17 @@ export async function initDataObservatory() {
       if (refreshButton) refreshButton.disabled = false;
     }
   }
+
+  clearActivityButton?.addEventListener("click", async () => {
+    if (!window.confirm("Clear the local activity history? This removes only progress-event metadata; cards, tasks, journals and other records remain untouched.")) return;
+    try {
+      const removed = await clearActivityEvents();
+      await refresh();
+      if (notice) notice.textContent = `Cleared ${removed} local activity events. Your study records were not changed.`;
+    } catch (error) {
+      if (notice) notice.textContent = "Unable to clear activity history: " + (error?.message || "unknown error");
+    }
+  });
 
   refreshButton?.addEventListener("click", refresh);
   await refresh();
