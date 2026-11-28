@@ -108,4 +108,12 @@ test("activity events distinguish card content changes, SRS reviews and task com
   assert.equal(insights.sync.conflicts, 0);
   assert.equal(insights.activityTrackingStarted, true);
   assert.ok(insights.activityEventsRetained >= 6);
+
+  const removed = await db.clearActivityEvents();
+  assert.equal(removed, 6);
+  const afterClear = await db.getActivityEvents();
+  assert.equal(afterClear.length, 0);
+  const clearedInsights = await getDataInsights({ days: 7, includeInventory: true });
+  assert.equal(clearedInsights.today.cardsCreated, 0);
+  assert.equal(clearedInsights.activityEventsRetained, 0);
 });
