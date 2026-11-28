@@ -1467,7 +1467,7 @@ export async function initMemoryTool(deps, context = {}) {
         updatedAt: nowMs
       };
       state.session.suppressDBChange++;
-      await addCard(updatedCard);
+      await addCard(updatedCard, { activity: "review" });
       if (isBlurt) {
         currentCard.targetRecord = updatedCard;
       } else {
