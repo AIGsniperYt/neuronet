@@ -25,7 +25,7 @@ async function waitForRequest(request) {
 }
 
 async function updateOutboxRecord(databaseName, recordId, patch) {
-  const connection = await waitForRequest(indexedDB.open(databaseName, 19));
+  const connection = await waitForRequest(indexedDB.open(databaseName, 20));
   try {
     await new Promise((resolve, reject) => {
       const tx = connection.transaction("syncOutbox", "readwrite");
@@ -46,7 +46,7 @@ async function updateOutboxRecord(databaseName, recordId, patch) {
 }
 
 async function injectLegacyLocalNode(databaseName, record) {
-  const connection = await waitForRequest(indexedDB.open(databaseName, 19));
+  const connection = await waitForRequest(indexedDB.open(databaseName, 20));
   try {
     await new Promise((resolve, reject) => {
       const tx = connection.transaction("nodes", "readwrite");
