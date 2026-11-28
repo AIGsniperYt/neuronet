@@ -3523,17 +3523,31 @@ export function completeSyncSnapshot(snapshotId, revision, compactedAt = 0) {
               pendingByKey.delete(key);
               conflictByKey.delete(key);
             } else {
-              outbox.put({ ...pending, blocked: true });
-              conflicts.put({
-                ...(existingConflict || {}),
-                key,
-                collection,
-                recordId,
-                localOperation: pending,
-                remoteChange: remoteChangeFor(remote),
-                updatedAt: Date.now()
-              });
-              conflictCount += 1;
+              // The snapshot can safely retain an offline edit/delete when
+              // the cloud record is still exactly at the version this device
+              // last acknowledged. A different version means another device
+              // changed it and requires an explicit conflict decision.
+              const knownVersion = Number(metaByKey.get(key)?.serverVersion || 0);
+              const remoteVersion = Number(remote.version || 0);
+              const remoteUnchangedSinceLocalBase = knownVersion > 0 &&
+                remoteVersion === knownVersion;
+              if (remoteUnchangedSinceLocalBase && !existingConflict) {
+                outbox.put({ ...pending, blocked: false });
+                conflicts.delete(key);
+                conflictByKey.delete(key);
+              } else {
+                outbox.put({ ...pending, blocked: true });
+                conflicts.put({
+                  ...(existingConflict || {}),
+                  key,
+                  collection,
+                  recordId,
+                  localOperation: pending,
+                  remoteChange: remoteChangeFor(remote),
+                  updatedAt: Date.now()
+                });
+                conflictCount += 1;
+              }
             }
           } else if (existingConflict) {
             conflicts.put({
