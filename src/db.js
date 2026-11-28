@@ -45,7 +45,13 @@ function localActivityDay(timestamp = Date.now()) {
 const ACTIVITY_RETENTION_DAYS = 90;
 const ACTIVITY_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
+const activityPruneScheduledTransactions = new WeakSet();
+
 function pruneActivityEventsInTransaction(tx, now = Date.now()) {
+  // Bulk card/task writes can queue many activity events in one transaction.
+  // Schedule at most one retention scan for that transaction.
+  if (activityPruneScheduledTransactions.has(tx)) return;
+  activityPruneScheduledTransactions.add(tx);
   const state = tx.objectStore("syncState");
   const lastPrune = state.get("activityLastPrunedAt");
   lastPrune.onsuccess = () => {
