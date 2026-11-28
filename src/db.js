@@ -283,7 +283,26 @@ export function initDB() {
 
     request.onsuccess = (e) => {
       db = e.target.result;
-      resolve(db);
+      if (!db.objectStoreNames.contains("syncState")) {
+        resolve(db);
+        return;
+      }
+      const tx = db.transaction("syncState", "readwrite");
+      const state = tx.objectStore("syncState");
+      const trackingRequest = state.get("activityTrackingStartedAt");
+      trackingRequest.onsuccess = () => {
+        if (!trackingRequest.result) {
+          const startedAt = Date.now();
+          state.put({
+            key: "activityTrackingStartedAt",
+            value: startedAt,
+            updatedAt: startedAt
+          });
+        }
+      };
+      tx.oncomplete = () => resolve(db);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error("Unable to initialise activity tracking metadata"));
     };
 
     request.onerror = (e) => {
