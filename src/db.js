@@ -3106,6 +3106,29 @@ export function clearJournals() {
 }
 
 
+// ========== LOCAL ACTIVITY EVENTS ==========
+
+// Events contain metadata only: a day, action type and record ID. They never
+// copy card text, task titles, notes or other learning content.
+export function getActivityEvents({ sinceDay = "" } = {}) {
+  return new Promise((resolve, reject) => {
+    if (!db || !db.objectStoreNames.contains("activityEvents")) return resolve([]);
+    const tx = db.transaction("activityEvents", "readonly");
+    const store = tx.objectStore("activityEvents");
+    const request = sinceDay && typeof IDBKeyRange !== "undefined"
+      ? store.index("day").getAll(IDBKeyRange.lowerBound(String(sinceDay)))
+      : store.getAll();
+    request.onsuccess = () => {
+      const events = (request.result || [])
+        .filter((event) => !sinceDay || String(event.day) >= String(sinceDay))
+        .sort((left, right) => Number(left.occurredAt || 0) - Number(right.occurredAt || 0));
+      resolve(events);
+    };
+    request.onerror = () => reject(request.error);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 // ========== CLOUD SYNC STATE ==========
 
 export function getSyncOutbox(limit = 100) {
