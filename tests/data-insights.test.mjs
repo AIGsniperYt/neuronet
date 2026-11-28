@@ -106,7 +106,7 @@ test("activity events distinguish card content changes, SRS reviews and task com
   assert.equal(insights.sync.ready, insights.sync.pending);
   assert.equal(insights.sync.blocked, 0);
   assert.equal(insights.sync.conflicts, 0);
-  const sessionSummary = await getActivitySummarySince(Date.now() - 60000);
+  const sessionSummary = await getActivitySummarySince(Date.now() - 86400000);
   assert.equal(sessionSummary.cardsCreated, 2);
   assert.equal(sessionSummary.cardsRevised, 1);
   assert.equal(sessionSummary.cardsReviewed, 2);
