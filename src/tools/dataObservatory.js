@@ -66,9 +66,10 @@ export async function initDataObservatory() {
     if (notice) notice.textContent = "Reading local database…";
 
     try {
-      const [insights, conflicts] = await Promise.all([
+      const [insights, conflicts, browserStorage] = await Promise.all([
         getDataInsights({ days: 7, includeInventory: true }),
-        getSyncConflicts()
+        getSyncConflicts(),
+        navigator.storage?.estimate?.().catch(() => null) || Promise.resolve(null)
       ]);
       const events = insights.recentActivityEvents || [];
 
@@ -76,6 +77,8 @@ export async function initDataObservatory() {
         summary.innerHTML = [
           ["Stored items", insights.totalRecords],
           ["Estimated payload", formatBytes(insights.estimatedPayloadBytes)],
+          ["Browser origin usage", browserStorage?.usage == null ? "Unavailable" : formatBytes(browserStorage.usage)],
+          ["Browser quota", browserStorage?.quota == null ? "Unavailable" : formatBytes(browserStorage.quota)],
           ["Pending changes", insights.sync.pending],
           ["Conflicts", insights.sync.conflicts]
         ].map(([label, value]) => `
