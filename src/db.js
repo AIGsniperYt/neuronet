@@ -43,7 +43,7 @@ function queueActivityEvent(tx, kind, recordId, timestamp = Date.now(), uniquePe
   const occurredAt = Number(timestamp) || Date.now();
   const day = localActivityDay(occurredAt);
   const id = uniquePerRecordDay
-    ? day + "\\u001f" + kind + "\\u001f" + String(recordId)
+    ? JSON.stringify([day, kind, String(recordId)])
     : crypto.randomUUID();
   tx.objectStore("activityEvents").put({
     id,
