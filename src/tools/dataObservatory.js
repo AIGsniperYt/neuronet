@@ -60,6 +60,7 @@ export async function initDataObservatory() {
     if (refreshing) return;
     refreshing = true;
     if (refreshButton) refreshButton.disabled = true;
+    if (clearActivityButton) clearActivityButton.disabled = true;
     if (notice) notice.textContent = "Reading local database…";
 
     try {
@@ -154,6 +155,7 @@ export async function initDataObservatory() {
     } finally {
       refreshing = false;
       if (refreshButton) refreshButton.disabled = false;
+      if (clearActivityButton) clearActivityButton.disabled = false;
     }
   }
 
